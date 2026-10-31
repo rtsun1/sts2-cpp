@@ -130,7 +130,7 @@ StepResult flow::prepare_combat(CombatView destination, ConstRunView run, Scratc
             if (Ruleset::pinned().card(static_cast<CardId>(i))->model_id == SetupRules::name(card.definition)) definition = static_cast<CardId>(i);
         if (definition == CardId::count || card.upgrade > 1)
             return {StepStatus::unsupported_content, rejection_boundary, Restriction::unsupported_setup};
-        deck.push_back({definition, card.upgrade == 1, run.deck.handles()[card_index]});
+        deck.push_back({definition, card.upgrade == 1, run.deck.handles()[card_index], card.enchantment});
     }
     CombatConfig config;
     std::array<ExhaustRelic, 2> listeners {}; std::size_t count = 0;
@@ -204,7 +204,7 @@ StepResult initialize_combat_scenario(RunState& destination, const SeededConfig&
                 if (!definition) return {StepStatus::unsupported_content, destination.view().boundary, Restriction::unsupported_setup};
                 const auto id = SetupRules::find(definition->model_id);
                 if (id == no_content) return {StepStatus::unsupported_content, destination.view().boundary, Restriction::unsupported_setup};
-                next_view.deck.push_back({id, static_cast<std::uint32_t>(next_view.deck.size()), static_cast<std::uint32_t>(card.upgraded), -1});
+                next_view.deck.push_back({id, static_cast<std::uint32_t>(next_view.deck.size()), static_cast<std::uint32_t>(card.upgraded), -1, card.enchantment});
             }
         }
         if (!scenario_relics.empty()) { next_view.relics.clear(); next_view.relics.insert(next_view.relics.end(), scenario_relics.begin(), scenario_relics.end()); }

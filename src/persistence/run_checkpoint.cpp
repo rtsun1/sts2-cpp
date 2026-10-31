@@ -16,7 +16,7 @@ struct Writer {
     void text(std::string_view value) { for (auto c : value) u8(static_cast<std::uint8_t>(c)); }
     void rng(const RngState& value) { for (auto word : value.words) u64(word); u32(value.counter); }
     void ids(std::span<const ContentId> values) { u32(static_cast<std::uint32_t>(values.size())); for (auto value : values) u32(value); }
-    void card(const PersistentCard& value) { u32(value.definition); u32(value.instance); u32(value.upgrade); i32(value.floor_added); }
+    void card(const PersistentCard& value) { u32(value.definition); u32(value.instance); u32(value.upgrade); i32(value.floor_added); u8(static_cast<std::uint8_t>(value.enchantment.definition)); i32(value.enchantment.amount); }
     void handle(CardHandle h) { u32(h.slot); u32(h.generation); }
     void card_extra(const CardExtraData& data) {
         u8(static_cast<std::uint8_t>(data.index()));
@@ -66,7 +66,7 @@ struct Reader {
     RngState rng() { RngState result; for (auto& word : result.words) word = u64(); result.counter = u32(); return result; }
     void random(GameRng& value) { if (!value.restore(rng())) throw std::invalid_argument("Zero random state"); }
     template<std::size_t N> void ids(SequenceView<ContentId, N> values) { const auto n = count(4); values.reserve(n); for (std::size_t i = 0; i < n; ++i) values.push_back(id()); }
-    PersistentCard card() { PersistentCard result; result.definition = id(); result.instance = u32(); result.upgrade = u32(); result.floor_added = i32(); return result; }
+    PersistentCard card() { PersistentCard result; result.definition = id(); result.instance = u32(); result.upgrade = u32(); result.floor_added = i32(); result.enchantment = {static_cast<EnchantmentId>(u8()), i32()}; return result; }
     CardExtraData card_extra() {
         switch (u8()) {
         case 0: return TheScytheExtraData{i32(), i32()};
@@ -111,7 +111,7 @@ std::uint64_t checksum(std::span<const std::byte> bytes) { return game_hash({rei
 Checkpoint checkpoint(const RunState& run) {
     if (!valid_run(run)) throw std::invalid_argument("Cannot checkpoint invalid run");
     auto run_view = run.view();
-    Writer w; w.text("STS2RUN1"); w.u32(13); w.u32(rules_revision); w.text(game_digest); w.text(SetupRules::fingerprint()); w.u64(content_fingerprint());
+    Writer w; w.text("STS2RUN1"); w.u32(15); w.u32(rules_revision); w.text(game_digest); w.text(SetupRules::fingerprint()); w.u64(content_fingerprint());
     const auto s = run_view;
     w.u32(s.creatures.data.highest_generation);
     w.u32(static_cast<std::uint32_t>(s.creatures.slots().size()));
@@ -165,7 +165,7 @@ RestoreStatus restore(RunState& destination, std::span<const std::byte> bytes, S
         Reader trailer{bytes.last(8)}; if (trailer.u64() != checksum(bytes.first(bytes.size() - 8))) return RestoreStatus::malformed;
         Reader r{bytes.first(bytes.size() - 8)};
         for (char c : std::string_view("STS2RUN1")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
-        if (r.u32() != 13 || r.u32() != rules_revision) return RestoreStatus::incompatible;
+        if (r.u32() != 15 || r.u32() != rules_revision) return RestoreStatus::incompatible;
         for (const auto identity : {game_digest, SetupRules::fingerprint()}) for (char c : identity)
             if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
         if (r.u64() != content_fingerprint()) return RestoreStatus::incompatible;
@@ -199,7 +199,7 @@ RestoreStatus restore(RunState& destination, std::span<const std::byte> bytes, S
             act.events_visited = r.u32(); act.normal_visited = r.u32(); act.elites_visited = r.u32(); act.bosses_visited = r.u32();
         }
         const auto highest_generation = r.u32();
-        const auto slot_count = r.count(21, limits.cards);
+        const auto slot_count = r.count(26, limits.cards);
         std::vector<PersistentCardPool::Slot> slots(slot_count);
         for (auto& slot : slots) { slot.generation = r.u32(); slot.live = r.boolean(); slot.value = r.card(); }
         const auto free_count = r.count(4, slot_count);

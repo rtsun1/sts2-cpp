@@ -57,7 +57,9 @@ StepResult end_player_turn(CombatView state, Scratch& scratch, const Ruleset& ru
 
 } // namespace
 StepResult advance_combat(CombatView state, Scratch& scratch, const Ruleset& rules) noexcept try {
-    if (!state.valid_storage() || !valid_powers(state) || !valid_card_extra(state)) return fail(state, Restriction::invalid_state);
+    if (!state.valid_storage() || !valid_powers(state) || !valid_card_extra(state) || !valid_card_modifiers(state)) return fail(state, Restriction::invalid_state);
+    for (const auto& slot : state.cards.slots())
+        if (slot.live && !supported_card_modifiers(slot.value)) return {StepStatus::unsupported_content, state.boundary, Restriction::unsupported_setup};
     if (state.phase != CombatPhase::play || state.execution.empty()) return result(state);
     while (!state.execution.empty()) {
         if (!consume(scratch)) return fail(state, Restriction::execution_budget);

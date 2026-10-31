@@ -9,6 +9,7 @@ struct VisibleCard {
     std::string_view model_id;
     std::uint32_t upgrade;
     std::optional<std::int32_t> energy_cost;
+    CardEnchantment enchantment {};
     friend bool operator==(const VisibleCard&, const VisibleCard&) = default;
 };
 struct VisibleOption {

@@ -1,4 +1,5 @@
 #include "sts2/json_io/native_run.hpp"
+#include "card_modifiers.hpp"
 #include "sts2/engine/run.hpp"
 #include <stdexcept>
 #include <charconv>
@@ -106,6 +107,7 @@ Json NativeRunExporter::snapshot(const RunState& s) const {
     for (const auto& card : setup.deck) {
         auto value = defaults_.at("cards").at(std::string(SetupRules::name(card.definition)));
         value["current_upgrade_level"] = card.upgrade; value["floor_added_to_deck"] = card.floor_added < 0 ? Json(nullptr) : Json(card.floor_added);
+        value["enchantment"] = saved_enchantment(card.enchantment);
         cards.push_back(std::move(value));
     }
     for (auto id : setup.relics) {

@@ -13,7 +13,13 @@ enum class Opcode : std::uint8_t { damage, block, vulnerable, discard_choice, fi
 struct Instruction { Opcode opcode; std::int32_t base = 0; std::int32_t upgrade = 0; };
 enum class CardRarity : std::uint8_t { basic, common, uncommon };
 enum class CardKind : std::uint8_t { skill, attack, power };
-enum class CardDestination : std::uint8_t { discard, exhaust, remove };
+enum class CardKeyword : std::uint8_t {
+    exhaust = 1, retain = 2, sly = 4, ethereal = 8, innate = 16, unplayable = 32, eternal = 64
+};
+using CardKeywordMask = std::uint8_t;
+constexpr bool has_keyword(CardKeywordMask keywords, CardKeyword keyword) noexcept {
+    return (keywords & static_cast<CardKeywordMask>(keyword)) != 0;
+}
 struct CardDefinition {
     std::string_view model_id, name;
     std::int32_t cost;
@@ -21,8 +27,7 @@ struct CardDefinition {
     std::span<const Instruction> program;
     CardRarity rarity = CardRarity::basic;
     CardKind kind = CardKind::skill;
-    CardDestination destination = CardDestination::discard;
-    bool retain = false;
+    CardKeywordMask keyword_mask = 0;
 };
 // Static programs/English data live once, outside every simulation's mutable state.
 class Ruleset {

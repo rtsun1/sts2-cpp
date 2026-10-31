@@ -12,6 +12,13 @@ void set_card_extra(CombatView, CardHandle, CardExtraData);
 void set_card_extra(RunView, PersistentCardHandle, CardExtraData);
 bool valid_card_extra(ConstCombatView) noexcept;
 bool valid_card_extra(ConstRunView) noexcept;
+// Absent runtime entry means unused / zero extra damage. Borrowed pointers expire
+// when the side store grows. Entries are keyed by live generational card handles.
+const EnchantmentRuntimeData* find_enchantment_runtime(ConstCombatView, CardHandle) noexcept;
+void set_enchantment_runtime(CombatView, CardHandle, EnchantmentRuntimeData);
+bool valid_enchantment(CardEnchantment) noexcept;
+bool valid_card_modifiers(ConstCombatView) noexcept;
+bool supported_card_modifiers(const CombatCard&) noexcept;
 void move_card(CombatView, Zone from, Zone to, CardHandle);
 void discard_card(CombatView, Scratch&, CardHandle);
 void discard_hand_at_turn_end(CombatView, const Ruleset&);

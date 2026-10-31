@@ -22,7 +22,8 @@ StepResult initialize_combat(CombatView state, const CombatConfig& config, Scrat
         return {StepStatus::unsupported_content, state.boundary, Restriction::unsupported_setup};
     const auto deck = config.deck.empty() ? std::span<const CardSpec>(starting_deck) : config.deck;
     if (deck.size() > limits.cards) return {StepStatus::resource_limit, state.boundary, Restriction::capacity};
-    for (const auto& card : deck) if (!rules.card(card.definition))
+    for (const auto& card : deck) if (!rules.card(card.definition) || !valid_enchantment(card.enchantment) ||
+        (card.enchantment.definition != EnchantmentId::none && card.enchantment.definition != EnchantmentId::souls_power))
         return {StepStatus::unsupported_content, state.boundary, Restriction::unsupported_setup};
     for (std::size_t i = 0; i < config.exhaust_relics.size(); ++i)
         if (static_cast<unsigned>(config.exhaust_relics[i]) > 1 ||
@@ -44,6 +45,11 @@ StepResult initialize_combat(CombatView state, const CombatConfig& config, Scrat
         for (const auto& card : deck) {
             auto handle = next_view.cards.create({card.definition, card.upgraded, next_view.next_creation_order++, card.origin}, limits.cards, config.card_generation);
             if (!handle.present()) return {StepStatus::resource_limit, state.boundary, Restriction::capacity};
+            auto& instance = *next_view.cards.get(handle);
+            instance.enchantment = card.enchantment;
+            instance.keyword_mask = rules.card(card.definition)->keyword_mask;
+            if (instance.enchantment.definition == EnchantmentId::souls_power)
+                instance.keyword_mask &= ~static_cast<CardKeywordMask>(CardKeyword::exhaust);
             next_view.zone(Zone::draw).push_back(handle);
         }
         next_view.rng.get(RunStream::shuffle).shuffle<CardHandle>(next_view.zone(Zone::draw));

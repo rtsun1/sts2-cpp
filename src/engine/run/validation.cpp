@@ -8,7 +8,7 @@ namespace sts2::engine {
 namespace {
 bool id(ContentId value, std::string_view prefix) noexcept { return SetupRules::name(value).starts_with(prefix); }
 bool random(const RngState& state) noexcept { return (state.words[0] | state.words[1] | state.words[2] | state.words[3]) != 0; }
-bool card(const PersistentCard& value) noexcept { return id(value.definition, "CARD.") && value.upgrade <= 1 && value.floor_added >= -1; }
+bool card(const PersistentCard& value) noexcept { return id(value.definition, "CARD.") && value.upgrade <= 1 && value.floor_added >= -1 && gameplay::valid_enchantment(value.enchantment); }
 bool rewards_valid(const CombatRewards& rewards) noexcept {
     if (rewards.gold < 0 || (rewards.potion != no_content && !id(rewards.potion, "POTION.")) ||
         (rewards.potion_taken && rewards.potion == no_content) || rewards.card_taken != (rewards.selected_card < rewards.cards.size()) ||

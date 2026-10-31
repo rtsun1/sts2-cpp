@@ -39,6 +39,7 @@ struct CombatData {
     bool burning_blood = true;
     CardPool cards {};
     InlineSequence<CombatCardExtra, 20> card_extra {};
+    InlineSequence<EnchantmentRuntime, 2> enchantment_runtime {};
     InlineSequence<CostModifier, 8> cost_modifiers {};
     std::array<InlineSequence<CardHandle, 32>, static_cast<std::size_t>(Zone::count)> zones {};
     InlineSequence<EffectFrame, 4> execution {};
@@ -55,7 +56,7 @@ struct CombatData {
     std::uint32_t next_power_instance = 0;
     std::uint32_t next_creation_order = 0;
     template<class Self, class Visit> static void visit_sequences(Self& r, Visit visit) noexcept {
-        visit(r.seed); visit(r.cards.slots); visit(r.cards.free); visit(r.card_extra); visit(r.cost_modifiers);
+        visit(r.seed); visit(r.cards.slots); visit(r.cards.free); visit(r.card_extra); visit(r.enchantment_runtime); visit(r.cost_modifiers);
         for (auto& zone : r.zones) visit(zone);
         visit(r.execution); visit(r.selection_candidates); visit(r.selection_order);
         visit(r.shuffle_reactions.slots); visit(r.shuffle_reactions.free); visit(r.shuffle_order);
@@ -93,6 +94,7 @@ template<bool Const> struct BasicCombatView {
     Ref<bool> burning_blood = data.burning_blood;
     PoolView<CombatCard, CombatCardTag, 32, Const> cards{data.cards, overflow};
     SequenceView<CombatCardExtra, 20, Const> card_extra{data.card_extra, overflow};
+    SequenceView<EnchantmentRuntime, 2, Const> enchantment_runtime{data.enchantment_runtime, overflow};
     SequenceView<CostModifier, 8, Const> cost_modifiers{data.cost_modifiers, overflow};
     SequenceView<EffectFrame, 4, Const> execution{data.execution, overflow};
     Ref<CombatCounters> counters = data.counters;
@@ -154,7 +156,7 @@ template<bool Const> struct BasicCombatView {
             turn == other.turn &&
             move == other.move &&
             burning_blood == other.burning_blood &&
-            cards == other.cards && card_extra == other.card_extra && cost_modifiers == other.cost_modifiers &&
+            cards == other.cards && card_extra == other.card_extra && enchantment_runtime == other.enchantment_runtime && cost_modifiers == other.cost_modifiers &&
             zone_views() == other.zone_views() &&
             execution == other.execution &&
             counters == other.counters && exhaust_relics == other.exhaust_relics &&
@@ -260,7 +262,7 @@ struct Scratch {
     CombatTrace trace {};
 };
 struct Limits { std::uint32_t cards = 4096; std::uint32_t continuations = 4096; };
-struct CardSpec { CardId definition; bool upgraded = false; PersistentCardHandle origin {}; };
+struct CardSpec { CardId definition; bool upgraded = false; PersistentCardHandle origin {}; CardEnchantment enchantment {}; };
 // Isolated combat setup. Seeded run integration supplies the generated RNG bank;
 // a standalone scenario starts fresh streams and does not generate run content.
 struct CombatConfig {

@@ -47,9 +47,11 @@ bool valid_powers(ConstCombatView state) noexcept {
     return valid;
 }
 Restriction validate_combat(ConstCombatView state, const CombatInput& input, const Ruleset& rules) noexcept {
-    if (!state.valid_storage() || !valid_powers(state) || !valid_card_extra(state) || !valid_continuations(state, rules) ||
+    if (!state.valid_storage() || !valid_powers(state) || !valid_card_extra(state) || !valid_card_modifiers(state) || !valid_continuations(state, rules) ||
         state.phase == CombatPhase::uninitialized || state.phase == CombatPhase::invalid || state.rules != rules_revision)
         return Restriction::invalid_state;
+    for (const auto& slot : state.cards.slots())
+        if (slot.live && !supported_card_modifiers(slot.value)) return Restriction::unsupported_setup;
     if (input.expected_boundary != state.boundary) return Restriction::stale_boundary;
     if (state.phase == CombatPhase::combat_won || state.phase == CombatPhase::player_died) return Restriction::wrong_phase;
     if (state.phase == CombatPhase::card_choice) {
@@ -112,7 +114,7 @@ bool valid_combat(ConstCombatView state, const Ruleset& rules) noexcept {
     if (counters.finished_plays > counters.started_plays || counters.started_this_turn > counters.started_plays ||
         counters.attacks_this_turn > counters.started_this_turn || counters.zero_energy_attacks_this_turn > counters.attacks_this_turn ||
         counters.finished_ethereal > counters.finished_plays) return false;
-    if (!valid_powers(state) || !valid_card_extra(state)) return false;
+    if (!valid_powers(state) || !valid_card_extra(state) || !valid_card_modifiers(state)) return false;
     for (const auto& modifier : state.cost_modifiers)
         if (!state.cards.get(modifier.card) || static_cast<unsigned>(modifier.kind) > 1 || (static_cast<unsigned>(modifier.expiry) & ~6U) != 0) return false;
     std::size_t live = 0, membership = 0;

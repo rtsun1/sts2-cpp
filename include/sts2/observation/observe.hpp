@@ -35,6 +35,11 @@ struct CardView {
     CardRarity rarity = CardRarity::basic;
     std::int32_t strength = 0, weak = 0;
     bool exhaust = false, power = false;
+    CardKeywordMask keyword_mask = 0;
+    CardEnchantment enchantment {};
+    std::optional<EnchantmentRuntimeData> enchantment_runtime {};
+    CardAffliction affliction {};
+    std::int32_t base_replay_count = 0;
 };
 [[nodiscard]] std::optional<CardView> observe_card(ConstCombatView, CardHandle, const Ruleset& = Ruleset::pinned()) noexcept;
 // Metadata for inspectable hand/draw/discard/exhaust cards; never pile position.

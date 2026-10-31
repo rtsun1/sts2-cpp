@@ -55,6 +55,52 @@ void set_card_extra(RunView state, PersistentCardHandle card, CardExtraData data
 }
 bool valid_card_extra(ConstCombatView state) noexcept { return valid_extra(state.card_extra, state.cards); }
 bool valid_card_extra(ConstRunView state) noexcept { return valid_extra(state.card_extra, state.deck); }
+bool valid_enchantment(CardEnchantment value) noexcept {
+    return value.definition < EnchantmentId::count &&
+        (value.definition != EnchantmentId::none || value.amount == 0);
+}
+namespace {
+bool valid_runtime(EnchantmentId enchantment, const EnchantmentRuntimeData& data) noexcept {
+    switch (enchantment) {
+    case EnchantmentId::swift: case EnchantmentId::sown: case EnchantmentId::vigorous: case EnchantmentId::glam:
+        return std::holds_alternative<EnchantmentUseState>(data);
+    case EnchantmentId::momentum: return std::holds_alternative<MomentumState>(data);
+    default: return false;
+    }
+}
+}
+const EnchantmentRuntimeData* find_enchantment_runtime(ConstCombatView state, CardHandle card) noexcept {
+    return state.cards.get(card) ? find_extra(state.enchantment_runtime, card) : nullptr;
+}
+void set_enchantment_runtime(CombatView state, CardHandle card, EnchantmentRuntimeData data) {
+    const auto* instance = state.cards.get(card);
+    if (!instance || !valid_runtime(instance->enchantment.definition, data))
+        throw std::invalid_argument("Invalid enchantment runtime attachment");
+    if (auto* existing = find_extra(state.enchantment_runtime, card)) *existing = data;
+    else state.enchantment_runtime.push_back({card, data});
+}
+bool valid_card_modifiers(ConstCombatView state) noexcept {
+    for (const auto& slot : state.cards.slots()) {
+        const auto& card = slot.value;
+        if (!valid_enchantment(card.enchantment) || card.affliction.definition >= AfflictionId::count ||
+            (card.affliction.definition == AfflictionId::none && card.affliction.amount != 0) ||
+            (card.keyword_mask & ~127U) != 0 || card.base_replay_count < 0) return false;
+    }
+    for (std::size_t i = 0; i < state.enchantment_runtime.size(); ++i) {
+        const auto& entry = state.enchantment_runtime[i];
+        const auto* card = state.cards.get(entry.card);
+        if (!card || !valid_runtime(card->enchantment.definition, entry.data)) return false;
+        for (std::size_t j = 0; j < i; ++j)
+            if (state.enchantment_runtime[j].card == entry.card) return false;
+    }
+    return true;
+}
+bool supported_card_modifiers(const CombatCard& card) noexcept {
+    // Representation support does not imply implemented hook/replay mechanics.
+    return (card.enchantment.definition == EnchantmentId::none || card.enchantment.definition == EnchantmentId::souls_power) &&
+        card.affliction.definition == AfflictionId::none && card.base_replay_count == 0 &&
+        (card.keyword_mask & ~3U) == 0 && !card.single_turn_sly;
+}
 void move_card(CombatView state, Zone from, Zone to, CardHandle card) {
     auto source = state.zone(from);
     source.erase(std::find(source.begin(), source.end(), card));
@@ -64,10 +110,14 @@ void discard_card(CombatView state, Scratch& scratch, CardHandle card) {
     move_card(state, Zone::hand, Zone::discard, card);
     emit(state, scratch, CombatEventKind::discarded, false, false, card);
 }
-void discard_hand_at_turn_end(CombatView state, const Ruleset& rules) {
+void discard_hand_at_turn_end(CombatView state, const Ruleset&) {
     auto hand = state.zone(Zone::hand); auto discard = state.zone(Zone::discard);
-    for (auto card : hand) if (!rules.card(state.cards.get(card)->definition)->retain) discard.push_back(card);
-    hand.erase(std::remove_if(hand.begin(), hand.end(), [&](auto card) { return !rules.card(state.cards.get(card)->definition)->retain; }), hand.end());
+    for (auto card : hand) if (!state.cards.get(card)->single_turn_retain && !has_keyword(state.cards.get(card)->keyword_mask, CardKeyword::retain)) discard.push_back(card);
+    hand.erase(std::remove_if(hand.begin(), hand.end(), [&](auto card) { return !state.cards.get(card)->single_turn_retain && !has_keyword(state.cards.get(card)->keyword_mask, CardKeyword::retain); }), hand.end());
+    for (auto& slot : state.cards.slots()) {
+        slot.value.single_turn_retain = false;
+        slot.value.single_turn_sly = false;
+    }
 }
 void exhaust(CombatView state, Scratch& scratch, Zone from, CardHandle card) {
     if (state.enemy.hp == 0 || state.player.hp == 0) return;

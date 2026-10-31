@@ -1,4 +1,6 @@
 #include "sts2/json_io/native_run.hpp"
+#include "card_modifiers.hpp"
+#include "../engine/mechanics/cards.hpp"
 #include <bit>
 #include <algorithm>
 #include <stdexcept>
@@ -58,7 +60,7 @@ void export_rewards(Json& out, ConstRunView run_view) {
         }
         auto cards = entry("CardReward", nullptr, rewards.card_taken); cards["can_skip"] = true;
         auto saved_card = [](const PersistentCard& c, Json floor = nullptr) {
-            return Json{{"current_upgrade_level", c.upgrade}, {"enchantment", nullptr}, {"floor_added_to_deck", floor},
+            return Json{{"current_upgrade_level", c.upgrade}, {"enchantment", saved_enchantment(c.enchantment)}, {"floor_added_to_deck", floor},
                 {"id", SetupRules::name(c.definition)}, {"props", nullptr}};
         };
         for (std::size_t i = 0; i < rewards.cards.size(); ++i) if (i != rewards.selected_card)
@@ -174,14 +176,17 @@ void export_native_combat(Json& out, const RunState& run, const RecordedCombat& 
             out["native_model_state"]["/players/0/deck/" + std::to_string(deck_index)] = {{"model_fields", Json::object()}, {"dynamic_vars", variables(permanent)}};
         }
         if (won) continue;
-        const Json saved = has_origin ? out["players"][0]["deck"][deck_index] : Json{{"current_upgrade_level", card.upgraded ? 1 : 0}, {"enchantment", nullptr}, {"floor_added_to_deck", nullptr}, {"id", Ruleset::pinned().card(card.definition)->model_id}, {"props", nullptr}};
+        Json saved = has_origin ? out["players"][0]["deck"][deck_index] : Json{{"current_upgrade_level", card.upgraded ? 1 : 0}, {"enchantment", nullptr}, {"floor_added_to_deck", nullptr}, {"id", Ruleset::pinned().card(card.definition)->model_id}, {"props", nullptr}};
+        saved["enchantment"] = saved_enchantment(card.enchantment);
+        if (card.affliction.definition != AfflictionId::none)
+            combat["afflictions"]["affliction_" + std::to_string(i)] = {{"id", model_id(card.affliction.definition)}, {"amount", card.affliction.amount}};
         const Json deck_version = has_origin ? Json("/players/0/deck/" + std::to_string(deck_index)) : Json(nullptr);
         combat["cards"]["card_" + std::to_string(i)] = {{"saved", saved},
             {"owner", "/players/0"}, {"deck_version", deck_version}, {"clone_of", nullptr},
-            {"is_dupe", false}, {"base_replay_count", 0}, {"local_keywords", card.definition == CardId::purity ? Json::array({"Retain", "Exhaust"}) : card.definition == CardId::shockwave || card.definition == CardId::tremble ? Json::array({"Exhaust"}) : Json::array()}, {"exhaust_on_next_play", false},
-            {"has_single_turn_retain", false}, {"has_single_turn_sly", false}, {"has_been_removed_from_state", card.removed},
+            {"is_dupe", false}, {"base_replay_count", card.base_replay_count}, {"local_keywords", local_keywords(card.keyword_mask)}, {"exhaust_on_next_play", card.exhaust_on_next_play},
+            {"has_single_turn_retain", card.single_turn_retain}, {"has_single_turn_sly", card.single_turn_sly}, {"has_been_removed_from_state", card.removed},
             {"dynamic_vars", vars}, {"energy_cost", {{"base", Ruleset::pinned().card(card.definition)->cost}, {"captured_x_value", 0}, {"local_modifiers", local_modifiers}}},
-            {"base_star_cost", -1}, {"temporary_star_costs", Json::array()}, {"last_stars_spent", 0}, {"affliction", nullptr}, {"enchantment_runtime", nullptr}, {"model_fields", Json::object()}};
+            {"base_star_cost", -1}, {"temporary_star_costs", Json::array()}, {"last_stars_spent", 0}, {"affliction", card.affliction.definition == AfflictionId::none ? Json(nullptr) : Json("/combat/afflictions/affliction_" + std::to_string(i))}, {"enchantment_runtime", enchantment_runtime(card, gameplay::find_enchantment_runtime(s, CardHandle{static_cast<std::uint32_t>(i), slot.generation}))}, {"model_fields", Json::object()}};
     }
     if (!won) for (std::size_t i = 0; i < s.cards.slots().size(); ++i) {
         const auto& slot = s.cards.slots()[i]; if (!slot.live) continue;

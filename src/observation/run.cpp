@@ -24,7 +24,7 @@ RunObservation observe(const RunState& state) {
     view.ascension = state_view.ascension; view.act = state_view.act_index + 1;
     view.hp = state_view.hp; view.max_hp = state_view.max_hp; view.gold = state_view.gold;
     view.potion_capacity = state_view.potion_slots;
-    for (const auto& card : state_view.deck) view.deck.push_back({card.instance, SetupRules::name(card.definition), card.upgrade, card_cost(SetupRules::name(card.definition))});
+    for (const auto& card : state_view.deck) view.deck.push_back({card.instance, SetupRules::name(card.definition), card.upgrade, card_cost(SetupRules::name(card.definition)), card.enchantment});
     for (std::size_t i = 0; i < state_view.relics.size(); ++i) {
         const auto name = SetupRules::name(state_view.relics[i]);
         view.relics.push_back({static_cast<std::uint32_t>(i), name, name == "RELIC.JOSS_PAPER" ? std::optional(state_view.joss_paper_counter) : std::nullopt});
@@ -74,7 +74,7 @@ RunObservation observe(const RunState& state) {
         if (rewards.potion != no_content) view.rewards.push_back({1, RewardKind::potion, 0, SetupRules::name(rewards.potion), rewards.potion_taken});
         view.rewards.push_back({static_cast<std::uint32_t>(view.rewards.size()), RewardKind::cards, 0, {}, rewards.card_taken});
         if (rewards.selecting_card)
-            for (std::size_t i = 0; i < rewards.cards.size(); ++i) view.reward_cards.push_back({static_cast<std::uint32_t>(i), SetupRules::name(rewards.cards[i].definition), rewards.cards[i].upgrade, card_cost(SetupRules::name(rewards.cards[i].definition))});
+            for (std::size_t i = 0; i < rewards.cards.size(); ++i) view.reward_cards.push_back({static_cast<std::uint32_t>(i), SetupRules::name(rewards.cards[i].definition), rewards.cards[i].upgrade, card_cost(SetupRules::name(rewards.cards[i].definition)), rewards.cards[i].enchantment});
     }
     if (state_view.phase == RunPhase::combat && state_view.combat) {
         view.combat = observe(*state_view.combat);
@@ -133,6 +133,10 @@ DefinitionText describe(const VisibleCard& card) {
             if (op.opcode == Opcode::block) preview.block = value;
             if (op.opcode == Opcode::vulnerable) preview.vulnerable = value;
         }
+        preview.keyword_mask = definition.keyword_mask;
+        if (card.enchantment.definition == EnchantmentId::souls_power)
+            preview.keyword_mask &= ~static_cast<CardKeywordMask>(CardKeyword::exhaust);
+        preview.exhaust = has_keyword(preview.keyword_mask, CardKeyword::exhaust);
         return {std::string(definition.name), describe(preview), true};
     }
     if (card.model_id == "CARD.TRUE_GRIT")

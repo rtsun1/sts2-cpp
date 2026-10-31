@@ -97,7 +97,7 @@ std::uint64_t content_fingerprint() {
         w.u32(static_cast<std::uint32_t>(card.model_id.size())); w.text(card.model_id);
         w.u32(static_cast<std::uint32_t>(card.name.size())); w.text(card.name);
         w.i32(card.cost); w.u8(card.enemy_target); w.u8(static_cast<std::uint8_t>(card.rarity));
-        w.u8(static_cast<std::uint8_t>(card.kind)); w.u8(static_cast<std::uint8_t>(card.destination)); w.u8(card.retain);
+        w.u8(static_cast<std::uint8_t>(card.kind)); w.u8(card.keyword_mask);
         w.u32(static_cast<std::uint32_t>(card.program.size()));
         for (const auto& instruction : card.program) { w.u8(static_cast<std::uint8_t>(instruction.opcode)); w.i32(instruction.base); w.i32(instruction.upgrade); }
     }
@@ -108,7 +108,7 @@ std::uint64_t content_fingerprint() {
 Checkpoint checkpoint(ConstCombatView s) {
     if (!valid_combat(s)) throw std::invalid_argument("Cannot checkpoint invalid simulation");
     Writer w;
-    w.text("STS2CP15"); w.u32(15); w.u32(s.rules); w.text(game_digest); w.u64(content_fingerprint());
+    w.text("STS2CP17"); w.u32(17); w.u32(s.rules); w.text(game_digest); w.u64(content_fingerprint());
     w.u32(static_cast<std::uint32_t>(s.seed.size())); w.text(s.seed); w.u64(s.numeric_seed);
     w.u32(s.boundary.value); w.u8(static_cast<std::uint8_t>(s.phase));
     const auto config = s.clock.config();
@@ -125,6 +125,16 @@ Checkpoint checkpoint(ConstCombatView s) {
     for (const auto& slot : s.cards.slots()) {
         w.u32(slot.generation); w.u8(slot.live); w.u8(static_cast<std::uint8_t>(slot.value.definition));
         w.u8(slot.value.upgraded); w.u32(slot.value.creation_order); w.u32(slot.value.origin.slot); w.u32(slot.value.origin.generation); w.i32(slot.value.last_finished_player_turn); w.u8(slot.value.removed);
+        const auto& c = slot.value;
+        w.u8(static_cast<std::uint8_t>(c.enchantment.definition)); w.i32(c.enchantment.amount);
+        w.u8(static_cast<std::uint8_t>(c.affliction.definition)); w.i32(c.affliction.amount);
+        w.u8(c.keyword_mask); w.u8(c.single_turn_retain); w.u8(c.single_turn_sly); w.u8(c.exhaust_on_next_play); w.i32(c.base_replay_count);
+    }
+    w.u32(static_cast<std::uint32_t>(s.enchantment_runtime.size()));
+    for (const auto& entry : s.enchantment_runtime) {
+        w.handle(entry.card); w.u8(static_cast<std::uint8_t>(entry.data.index()));
+        if (const auto* use = std::get_if<EnchantmentUseState>(&entry.data)) w.u8(use->consumed);
+        else w.i32(std::get<MomentumState>(entry.data).extra_damage);
     }
     w.u32(static_cast<std::uint32_t>(s.card_extra.size()));
     for (const auto& entry : s.card_extra) { w.handle(entry.card); w.card_extra(entry.data); }
@@ -165,8 +175,8 @@ RestoreStatus restore(CombatView destination, std::span<const std::byte> bytes, 
         Reader trailer{bytes.last(8)};
         if (trailer.u64() != digest(bytes.first(bytes.size() - 8))) return RestoreStatus::malformed;
         Reader r{bytes.first(bytes.size() - 8)};
-        for (char c : std::string_view("STS2CP15")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
-        if (r.u32() != 15 || r.u32() != rules_revision) return RestoreStatus::incompatible;
+        for (char c : std::string_view("STS2CP17")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
+        if (r.u32() != 17 || r.u32() != rules_revision) return RestoreStatus::incompatible;
         for (char c : game_digest) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
         if (r.u64() != content_fingerprint()) return RestoreStatus::incompatible;
         CombatState s(destination.overflow.allocator()); auto s_view = s.view();
@@ -189,11 +199,26 @@ RestoreStatus restore(CombatView destination, std::span<const std::byte> bytes, 
         const auto highest_generation = r.u32();
         const auto count = r.u32();
         if (count > limits.cards) return RestoreStatus::resource_limit;
-        if (count > (r.bytes.size() - r.at) / 24) return RestoreStatus::malformed;
+        if (count > (r.bytes.size() - r.at) / 42) return RestoreStatus::malformed;
         std::vector<CardPool::Slot> slots(count);
         for (auto& slot : slots) {
             slot.generation = r.u32(); slot.live = r.boolean(); slot.value.definition = static_cast<CardId>(r.u8());
             slot.value.upgraded = r.boolean(); slot.value.creation_order = r.u32(); slot.value.origin.slot = r.u32(); slot.value.origin.generation = r.u32(); slot.value.last_finished_player_turn = r.i32(); slot.value.removed = r.boolean();
+            auto& c = slot.value;
+            c.enchantment = {static_cast<EnchantmentId>(r.u8()), r.i32()};
+            c.affliction = {static_cast<AfflictionId>(r.u8()), r.i32()};
+            c.keyword_mask = r.u8(); c.single_turn_retain = r.boolean(); c.single_turn_sly = r.boolean(); c.exhaust_on_next_play = r.boolean(); c.base_replay_count = r.i32();
+        }
+        const auto runtime_count = r.count(10, limits.cards);
+        for (std::uint32_t i = 0; i < runtime_count; ++i) {
+            const auto card = r.handle();
+            EnchantmentRuntimeData data;
+            switch (r.u8()) {
+            case 0: data = EnchantmentUseState{r.boolean()}; break;
+            case 1: data = MomentumState{r.i32()}; break;
+            default: return RestoreStatus::malformed;
+            }
+            s_view.enchantment_runtime.push_back({card, data});
         }
         const auto extra_count = r.count(17, limits.cards);
         for (std::uint32_t i = 0; i < extra_count; ++i) {

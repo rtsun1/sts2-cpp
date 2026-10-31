@@ -1,6 +1,7 @@
 #include "sts2/observation/observe.hpp"
 #include "../engine/content/monsters.hpp"
 #include "../engine/content/powers.hpp"
+#include "../engine/mechanics/cards.hpp"
 #include <algorithm>
 
 namespace sts2::engine {
@@ -43,7 +44,13 @@ std::optional<CardView> inspect_card(ConstCombatView s, CardHandle h, const Rule
         else if (op.opcode == Opcode::strength) view.strength = value;
         else if (op.opcode == Opcode::weak) view.weak = value;
     }
-    view.exhaust = instance->definition == CardId::shockwave || instance->definition == CardId::tremble;
+    view.keyword_mask = instance->keyword_mask;
+    if (instance->single_turn_retain) view.keyword_mask |= static_cast<CardKeywordMask>(CardKeyword::retain);
+    if (instance->single_turn_sly) view.keyword_mask |= static_cast<CardKeywordMask>(CardKeyword::sly);
+    view.exhaust = instance->exhaust_on_next_play || has_keyword(view.keyword_mask, CardKeyword::exhaust);
+    view.enchantment = instance->enchantment;
+    if (const auto* runtime = gameplay::find_enchantment_runtime(s, h)) view.enchantment_runtime = *runtime;
+    view.affliction = instance->affliction; view.base_replay_count = instance->base_replay_count;
     view.power = instance->definition == CardId::inflame;
     return view;
 }
@@ -54,9 +61,10 @@ std::string describe(const CardView& card) {
     if (card.vulnerable) text += " Apply " + std::to_string(card.vulnerable) + " Vulnerable.";
     if (card.strength) text += " Gain " + std::to_string(card.strength) + " Strength.";
     if (card.weak) text += " Apply " + std::to_string(card.weak) + " Weak.";
+    if (has_keyword(card.keyword_mask, CardKeyword::retain)) text += " Retain.";
     if (card.exhaust) text += " Exhaust.";
     if (card.model_id == "CARD.SURVIVOR") text += " Discard 1 card.";
-    if (card.model_id == "CARD.PURITY") text += std::string("Retain. Exhaust up to ") + (card.upgraded ? "5" : "3") + " cards in your hand. Exhaust.";
+    if (card.model_id == "CARD.PURITY") text += std::string(" Exhaust up to ") + (card.upgraded ? "5" : "3") + " cards in your hand.";
     if (card.model_id == "CARD.ARMAMENTS") text += card.upgraded ? " Upgrade all cards in your hand." : " Upgrade a card in your hand.";
     if (card.model_id == "CARD.HEADBUTT") text += " Put a card from your discard pile on top of your draw pile.";
     if (card.model_id == "CARD.BURNING_PACT") text += std::string("Exhaust 1 card. Draw ") + (card.upgraded ? "3" : "2") + " cards.";

@@ -68,6 +68,29 @@ as card extra data. Each live card has at most one side entry; stale and duplica
 keys are invalid. Deck erasure removes persistent entries; combat cleanup clears
 combat entries. Combat setup copies persistent-origin payloads, while permanent
 updates remain explicit. Side stores participate in equality and checkpoints.
+
+Card modifiers now have explicit saved enchantment ID/amount, combat-only affliction
+ID/amount, an instance-owned `CardKeywordMask keyword_mask`, temporary Retain/Sly
+and exhaust-on-next-play flags, and an inline 32-bit base replay count. Combat setup
+copies saved enchantments into independent combat cards, including scenarios without
+a permanent origin. Retain and Exhaust execution read the mask directly; Soul's
+Power removes Exhaust during setup. No global keyword resolver is implemented.
+Definitions store the default keyword mask directly; setup copies it into each card.
+There is no separate Retain or destination field on definitions. Power cards are
+removed after play based on their card kind; other cards use the instance Exhaust bit.
+Sparse enchantment runtime records use generational card handles and a typed payload:
+one shared consumed flag for Swift/Sown/Vigorous/Glam, or Momentum's accumulated
+extra damage. Two runtime entries fit inline; further entries use the existing
+overflow mechanism. Missing entries mean unused/zero. There is no stored Status.
+These fields participate in validation, clone/equality, observations and checkpoints;
+the binary combat/run checkpoint versions are now 17/15. Old versions are rejected.
+Only Soul's Power and Retain/Exhaust mutations have execution support in this slice.
+Other enchantment hooks, affliction effects, Sly/Ethereal/Innate/Unplayable/Eternal and replay execution
+remain unsupported and are rejected before stepping; metadata transport is not a
+claim of native gameplay parity. Enchantment saved properties are not yet modeled.
+On this build, `CombatCard` is 48 bytes and `PersistentCard` is 24 bytes. Inline versus
+sparse placement of the remaining fields has not been established as optimal.
+
 Native diagnostics reject populated stores until their content mapping is
 implemented. Temporary selections still belong to prompt and continuation state.
 Controlled shuffle reactions remain architecture fixtures.

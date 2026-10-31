@@ -100,18 +100,21 @@ StepResult execute_instruction(CombatView state, Scratch& scratch, const Ruleset
             if (it->card == card && (static_cast<unsigned>(it->expiry) & 4U) != 0) it = state.cost_modifiers.erase(it);
             else ++it;
         }
+        const bool exhaust_after_play = source->exhaust_on_next_play ||
+            has_keyword(source->keyword_mask, CardKeyword::exhaust);
+        state.cards.get(card)->exhaust_on_next_play = false;
         if (source->removed) {
             // A captured source can outlive its active zone membership.
-        } else if (definition->destination == CardDestination::remove) {
+        } else if (definition->kind == CardKind::power) {
             auto pile = state.zone(Zone::play); pile.erase(std::find(pile.begin(), pile.end(), card));
             state.cards.get(card)->removed = true;
-        } else if (definition->destination == CardDestination::discard)
+        } else if (!exhaust_after_play)
             move_card(state, Zone::play, Zone::discard, card);
         if (state.enemy.hp == 0) { end_combat(state, scratch, true); return result(state); }
         ++state.counters.finished_plays;
         state.cards.get(card)->last_finished_player_turn = state.turn;
         emit(state, scratch, CombatEventKind::play_finished, false, false, card, play);
-        if (!source->removed && definition->destination == CardDestination::exhaust)
+        if (!source->removed && exhaust_after_play)
             exhaust(state, scratch, Zone::play, card);
         if (state.enemy.hp == 0) { end_combat(state, scratch, true); return result(state); }
         break;
