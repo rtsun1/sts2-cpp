@@ -36,8 +36,8 @@ std::optional<CardView> inspect_card(ConstCombatView s, CardHandle h, const Rule
     // exposes live pile cards, never upgrade-preview copies or the playing pile.
     const auto& hand = s.zone(Zone::hand);
     const bool active_preview = std::find(hand.begin(), hand.end(), h) != hand.end();
-    for (const auto& op : def->program) {
-        const auto value = op.base + (instance->upgraded ? op.upgrade : 0);
+    for (const auto& op : def->program(instance->upgraded)) {
+        const auto value = op.base;
         if (op.opcode == Opcode::damage) view.damage = gameplay::preview_attack_damage(s, value, active_preview);
         else if (op.opcode == Opcode::block) view.block = gameplay::preview_block(s, value, active_preview);
         else if (op.opcode == Opcode::vulnerable) view.vulnerable = value;

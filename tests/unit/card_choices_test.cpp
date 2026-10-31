@@ -340,3 +340,26 @@ TEST(CardChoices, CommonPartialPromptClonesUseOnlyByteCopyStorage) {
     EXPECT_EQ(allocation.allocations, count);
 }
 } // namespace sts2::engine
+
+namespace sts2::engine {
+TEST(CardChoices, ArmamentsUpgradeMakesTrueGritUseChosenExhaustOnNextPlay) {
+    const std::array deck{CardSpec{CardId::armaments, true}, CardSpec{CardId::true_grit},
+                          CardSpec{CardId::strike}, CardSpec{CardId::defend}};
+    CombatConfig config; config.deck = deck;
+    CombatState state; Scratch scratch;
+    ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
+    const auto grit = find(state, CardId::true_grit);
+    ASSERT_EQ(play(state, find(state, CardId::armaments), scratch).status, StepStatus::awaiting_input);
+    ASSERT_TRUE(state.view().cards.get(grit)->upgraded);
+    const auto rng = state.view().rng.get(RunStream::combat_card_selection).state();
+    ASSERT_EQ(play(state, grit, scratch).status, StepStatus::awaiting_input);
+    EXPECT_EQ(state.view().player.block, 14);
+    ASSERT_EQ(state.view().phase, CombatPhase::card_choice);
+    const auto selected = state.view().selection_candidates.front();
+    ASSERT_EQ(choose(state, CombatInputKind::select_card, scratch, selected).status, StepStatus::awaiting_input);
+    ASSERT_EQ(choose(state, CombatInputKind::confirm_selection, scratch).status, StepStatus::awaiting_input);
+    EXPECT_EQ(state.zone(Zone::exhaust), (std::vector<CardHandle>{selected}));
+    EXPECT_EQ(state.view().rng.get(RunStream::combat_card_selection).state(), rng);
+    EXPECT_TRUE(valid_combat(state));
+}
+}

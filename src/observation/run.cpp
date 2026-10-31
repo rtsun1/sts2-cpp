@@ -127,8 +127,8 @@ DefinitionText describe(const VisibleCard& card) {
     for (const auto& definition : Ruleset::pinned().cards()) {
         if (definition.model_id != card.model_id) continue;
         CardView preview{{}, definition.model_id, definition.name, definition.cost, 0, 0, 0, card.upgrade != 0, definition.enemy_target};
-        for (const auto& op : definition.program) {
-            const auto value = op.base + (card.upgrade ? op.upgrade : 0);
+        for (const auto& op : definition.program(card.upgrade != 0)) {
+            const auto value = op.base;
             if (op.opcode == Opcode::damage) preview.damage = value;
             if (op.opcode == Opcode::block) preview.block = value;
             if (op.opcode == Opcode::vulnerable) preview.vulnerable = value;

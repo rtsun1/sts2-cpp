@@ -69,12 +69,12 @@ bool valid_selection(ConstCombatView state, const Ruleset& rules) noexcept {
         } else if (std::holds_alternative<std::monostate>(frame.pending)) {
             const auto* source = state.cards.get(frame.source);
             const auto* definition = source ? rules.card(source->definition) : nullptr;
-            if (!definition || frame.instruction == 0 || frame.instruction >= definition->program.size()) return false;
-            const auto opcode = definition->program[frame.instruction - 1].opcode;
-            if (opcode == Opcode::exhaust_choice) { effect = SelectionEffect::exhaust; minimum = 0; maximum = source->upgraded ? 5 : 3; }
-            else if (opcode == Opcode::upgrade_choice && !source->upgraded) effect = SelectionEffect::upgrade;
+            if (!definition || frame.instruction == 0 || frame.instruction >= definition->program(source->upgraded).size()) return false;
+            const auto opcode = definition->program(source->upgraded)[frame.instruction - 1].opcode;
+            if (opcode == Opcode::exhaust_choice) { effect = SelectionEffect::exhaust; minimum = 0; maximum = static_cast<std::uint32_t>(definition->program(source->upgraded)[frame.instruction - 1].base); }
+            else if (opcode == Opcode::upgrade_choice) effect = SelectionEffect::upgrade;
             else if (opcode == Opcode::topdeck_choice) { effect = SelectionEffect::topdeck; zone = Zone::discard; automatic = true; }
-            else if (opcode == Opcode::exhaust_one || (opcode == Opcode::grit_exhaust && source->upgraded)) effect = SelectionEffect::exhaust;
+            else if (opcode == Opcode::exhaust_one) effect = SelectionEffect::exhaust;
             else return false;
         } else return false;
         maximum = std::min(maximum, static_cast<std::uint32_t>(state.selection_candidates.size()));
@@ -92,8 +92,8 @@ bool valid_selection(ConstCombatView state, const Ruleset& rules) noexcept {
         if (state.execution.empty() || state.zone(Zone::hand).empty()) return false;
         const auto& frame = state.execution.back();
         const auto* card = state.cards.get(frame.source); const auto* definition = card ? rules.card(card->definition) : nullptr;
-        if (!std::holds_alternative<std::monostate>(frame.pending) || !definition || frame.instruction == 0 || frame.instruction >= definition->program.size() ||
-            definition->program[frame.instruction - 1].opcode != Opcode::discard_choice) return false;
+        if (!std::holds_alternative<std::monostate>(frame.pending) || !definition || frame.instruction == 0 || frame.instruction >= definition->program(card->upgraded).size() ||
+            definition->program(card->upgraded)[frame.instruction - 1].opcode != Opcode::discard_choice) return false;
     } else if (!state.execution.empty() || !state.zone(Zone::play).empty()) return false;
     return true;
 }

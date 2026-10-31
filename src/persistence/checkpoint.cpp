@@ -98,8 +98,10 @@ std::uint64_t content_fingerprint() {
         w.u32(static_cast<std::uint32_t>(card.name.size())); w.text(card.name);
         w.i32(card.cost); w.u8(card.enemy_target); w.u8(static_cast<std::uint8_t>(card.rarity));
         w.u8(static_cast<std::uint8_t>(card.kind)); w.u8(card.keyword_mask);
-        w.u32(static_cast<std::uint32_t>(card.program.size()));
-        for (const auto& instruction : card.program) { w.u8(static_cast<std::uint8_t>(instruction.opcode)); w.i32(instruction.base); w.i32(instruction.upgrade); }
+        for (const auto program : card.programs) {
+            w.u32(static_cast<std::uint32_t>(program.size()));
+            for (const auto& instruction : program) { w.u8(static_cast<std::uint8_t>(instruction.opcode)); w.i32(instruction.base); }
+        }
     }
     // Version exceptional enemy/power/relic handlers and clock/RNG semantics too.
     w.text("shrinker-a0:niche:38-40:late-victory:retained-death:duration-history:shrink70:chomp7:stomp13;vulnerable150;burning-blood6;survivor1;action_clock_v1;xoshiro256ss-v1");

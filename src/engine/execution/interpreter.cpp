@@ -15,24 +15,22 @@ StepResult execute_instruction(CombatView state, Scratch& scratch, const Ruleset
     auto& frame = state.execution.back(); const auto* source = state.cards.get(frame.source);
     if (!source) return fail(state, Restriction::invalid_state);
     const auto* definition = rules.card(source->definition);
-    if (!definition || frame.instruction >= definition->program.size()) return fail(state, Restriction::invalid_state);
+    if (!definition || frame.instruction >= definition->program(source->upgraded).size()) return fail(state, Restriction::invalid_state);
     auto* target = state.creature(frame.target);
     if (!target) return fail(state, Restriction::invalid_state);
-    const auto instruction = definition->program[frame.instruction++];
-    const int amount = instruction.base + (source->upgraded ? instruction.upgrade : 0);
+    const auto instruction = definition->program(source->upgraded)[frame.instruction++];
+    const int amount = instruction.base;
     switch (instruction.opcode) {
     case Opcode::draw: draw(state, scratch, amount, rules, false); break;
-    case Opcode::grit_exhaust:
-        if (!source->upgraded) {
-            const auto& hand = state.zone(Zone::hand);
-            if (!hand.empty()) {
-                std::int32_t index;
-                if (!state.rng.get(RunStream::combat_card_selection).next_int(0, static_cast<std::int32_t>(hand.size()), index)) return fail(state, Restriction::invalid_state);
-                exhaust(state, scratch, Zone::hand, hand[index]);
-            }
-            break;
+    case Opcode::exhaust_random: {
+        const auto& hand = state.zone(Zone::hand);
+        if (!hand.empty()) {
+            std::int32_t index;
+            if (!state.rng.get(RunStream::combat_card_selection).next_int(0, static_cast<std::int32_t>(hand.size()), index)) return fail(state, Restriction::invalid_state);
+            exhaust(state, scratch, Zone::hand, hand[index]);
         }
-        [[fallthrough]];
+        break;
+    }
     case Opcode::exhaust_one:
         if (state.zone(Zone::hand).size() == 1) {
             exhaust(state, scratch, Zone::hand, state.zone(Zone::hand).front());
@@ -53,10 +51,13 @@ StepResult execute_instruction(CombatView state, Scratch& scratch, const Ruleset
         }
         break;
     }
+    case Opcode::upgrade_all:
+        for (auto card : state.zone(Zone::hand)) state.cards.get(card)->upgraded = true;
+        break;
     case Opcode::upgrade_choice: {
         std::size_t count = 0;
         for (auto card : state.zone(Zone::hand)) count += !state.cards.get(card)->upgraded;
-        if (source->upgraded || count <= 1) {
+        if (count <= 1) {
             for (auto card : state.zone(Zone::hand)) state.cards.get(card)->upgraded = true;
         } else {
             if (state.next_prompt.value == UINT32_MAX) return fail(state, Restriction::capacity);
@@ -201,7 +202,7 @@ bool valid_continuations(ConstCombatView state, const Ruleset& rules) noexcept {
         if (frame.energy < 0 || (frame.source.present() && !source)) return false;
         if (std::holds_alternative<std::monostate>(frame.pending)) {
             const auto* definition = source ? rules.card(source->definition) : nullptr;
-            if (!definition || !state.creature(frame.target) || frame.play >= state.counters.started_plays || frame.instruction >= definition->program.size()) return false;
+            if (!definition || !state.creature(frame.target) || frame.play >= state.counters.started_plays || frame.instruction >= definition->program(source->upgraded).size()) return false;
             if (!source->removed && std::find(state.zone(Zone::play).begin(), state.zone(Zone::play).end(), frame.source) == state.zone(Zone::play).end()) return false;
         } else if (const auto* draw_state = std::get_if<DrawContinuation>(&frame.pending)) {
             if (draw_state->remaining < 0) return false;
