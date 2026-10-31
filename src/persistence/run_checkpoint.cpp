@@ -10,6 +10,7 @@ struct Capacity {};
 struct Writer {
     std::vector<std::byte> bytes;
     void u8(std::uint8_t value) { bytes.push_back(std::byte(value)); }
+    void u16(std::uint16_t value) { for (unsigned i = 0; i < 2; ++i) u8(static_cast<std::uint8_t>(value >> (8 * i))); }
     void u32(std::uint32_t value) { for (unsigned i = 0; i < 4; ++i) u8(static_cast<std::uint8_t>(value >> (8 * i))); }
     void u64(std::uint64_t value) { for (unsigned i = 0; i < 8; ++i) u8(static_cast<std::uint8_t>(value >> (8 * i))); }
     void i32(std::int32_t value) { u32(std::bit_cast<std::uint32_t>(value)); }
@@ -28,7 +29,7 @@ struct Writer {
         u32(static_cast<std::uint32_t>(c.powers.size()));
         for (const auto& p : c.power_instances(owner)) {
             const auto id = p.definition;
-            u8(static_cast<std::uint8_t>(id)); u32(p.instance); i32(p.amount); i32(p.amount_on_turn_start);
+            u16(static_cast<std::uint16_t>(id)); u32(p.instance); i32(p.amount); i32(p.amount_on_turn_start);
             u8(p.enemy_owner); u8(p.skip_next_tick); u8(p.has_applier); u8(p.applier_enemy); handle(p.source); u32(p.applier.slot); u32(p.applier.generation); u8(static_cast<std::uint8_t>(p.stacking));
         }
     }
@@ -53,6 +54,7 @@ struct Reader {
     std::span<const std::byte> bytes;
     std::size_t at = 0;
     std::uint8_t u8() { if (at == bytes.size()) throw std::invalid_argument("Truncated run checkpoint"); return std::to_integer<std::uint8_t>(bytes[at++]); }
+    std::uint16_t u16() { const auto low = u8(); return static_cast<std::uint16_t>(low | (std::uint16_t(u8()) << 8)); }
     bool boolean() { const auto value = u8(); if (value > 1) throw std::invalid_argument("Invalid boolean"); return value != 0; }
     std::uint32_t u32() { std::uint32_t value = 0; for (unsigned i = 0; i < 4; ++i) value |= std::uint32_t(u8()) << (8 * i); return value; }
     std::uint64_t u64() { std::uint64_t value = 0; for (unsigned i = 0; i < 8; ++i) value |= std::uint64_t(u8()) << (8 * i); return value; }
@@ -79,7 +81,7 @@ struct Reader {
         const auto count = u32();
         if (count > 65536) throw std::invalid_argument("Invalid power count");
         for (std::uint32_t i = 0; i < count; ++i) {
-            const auto id = static_cast<PowerId>(u8());
+            const auto id = static_cast<PowerId>(u16());
             if (id >= PowerId::count) throw std::invalid_argument("Invalid power slot");
             PowerInstance p; p.definition = id; p.instance = u32(); p.amount = i32(); p.amount_on_turn_start = i32();
             p.enemy_owner = boolean(); p.skip_next_tick = boolean(); p.active = true;
@@ -111,7 +113,7 @@ std::uint64_t checksum(std::span<const std::byte> bytes) { return game_hash({rei
 Checkpoint checkpoint(const RunState& run) {
     if (!valid_run(run)) throw std::invalid_argument("Cannot checkpoint invalid run");
     auto run_view = run.view();
-    Writer w; w.text("STS2RUN1"); w.u32(15); w.u32(rules_revision); w.text(game_digest); w.text(SetupRules::fingerprint()); w.u64(content_fingerprint());
+    Writer w; w.text("STS2RUN1"); w.u32(16); w.u32(rules_revision); w.text(game_digest); w.text(SetupRules::fingerprint()); w.u64(content_fingerprint());
     const auto s = run_view;
     w.u32(s.creatures.data.highest_generation);
     w.u32(static_cast<std::uint32_t>(s.creatures.slots().size()));
@@ -165,7 +167,7 @@ RestoreStatus restore(RunState& destination, std::span<const std::byte> bytes, S
         Reader trailer{bytes.last(8)}; if (trailer.u64() != checksum(bytes.first(bytes.size() - 8))) return RestoreStatus::malformed;
         Reader r{bytes.first(bytes.size() - 8)};
         for (char c : std::string_view("STS2RUN1")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
-        if (r.u32() != 15 || r.u32() != rules_revision) return RestoreStatus::incompatible;
+        if (r.u32() != 16 || r.u32() != rules_revision) return RestoreStatus::incompatible;
         for (const auto identity : {game_digest, SetupRules::fingerprint()}) for (char c : identity)
             if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
         if (r.u64() != content_fingerprint()) return RestoreStatus::incompatible;

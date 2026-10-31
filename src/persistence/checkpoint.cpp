@@ -9,6 +9,7 @@ namespace {
 struct Writer {
     std::vector<std::byte> data;
     void u8(std::uint8_t v) { data.push_back(std::byte(v)); }
+    void u16(std::uint16_t value) { for (unsigned i = 0; i < 2; ++i) u8(static_cast<std::uint8_t>(value >> (8 * i))); }
     void u32(std::uint32_t v) { for (unsigned i = 0; i < 4; ++i) u8(static_cast<std::uint8_t>(v >> (i * 8))); }
     void u64(std::uint64_t v) { for (unsigned i = 0; i < 8; ++i) u8(static_cast<std::uint8_t>(v >> (i * 8))); }
     void i32(std::int32_t v) { u32(std::bit_cast<std::uint32_t>(v)); }
@@ -33,7 +34,7 @@ struct Writer {
         u32(static_cast<std::uint32_t>(c.powers.size()));
         for (const auto& p : c.power_instances(owner)) {
             const auto id = p.definition;
-            u8(static_cast<std::uint8_t>(id)); u32(p.instance); i32(p.amount); i32(p.amount_on_turn_start);
+            u16(static_cast<std::uint16_t>(id)); u32(p.instance); i32(p.amount); i32(p.amount_on_turn_start);
             u8(p.enemy_owner); u8(p.skip_next_tick); u8(p.has_applier); u8(p.applier_enemy); handle(p.source); u32(p.applier.slot); u32(p.applier.generation); u8(static_cast<std::uint8_t>(p.stacking));
         }
     }
@@ -42,6 +43,7 @@ struct Reader {
     std::span<const std::byte> bytes;
     std::size_t at = 0;
     std::uint8_t u8() { if (at == bytes.size()) throw std::invalid_argument("truncated checkpoint"); return std::to_integer<std::uint8_t>(bytes[at++]); }
+    std::uint16_t u16() { const auto low = u8(); return static_cast<std::uint16_t>(low | (std::uint16_t(u8()) << 8)); }
     bool boolean() { const auto v = u8(); if (v > 1) throw std::invalid_argument("invalid boolean"); return v != 0; }
     std::uint32_t u32() { std::uint32_t v = 0; for (unsigned i = 0; i < 4; ++i) v |= std::uint32_t(u8()) << (8 * i); return v; }
     std::uint64_t u64() { std::uint64_t v = 0; for (unsigned i = 0; i < 8; ++i) v |= std::uint64_t(u8()) << (8 * i); return v; }
@@ -77,7 +79,7 @@ struct Reader {
         const auto count = u32();
         if (count > 65536) throw std::invalid_argument("Invalid power count");
         for (std::uint32_t i = 0; i < count; ++i) {
-            const auto id = static_cast<PowerId>(u8());
+            const auto id = static_cast<PowerId>(u16());
             if (id >= PowerId::count) throw std::invalid_argument("Invalid power slot");
             PowerInstance p; p.definition = id; p.instance = u32(); p.amount = i32(); p.amount_on_turn_start = i32();
             p.enemy_owner = boolean(); p.skip_next_tick = boolean(); p.active = true;
@@ -110,7 +112,7 @@ std::uint64_t content_fingerprint() {
 Checkpoint checkpoint(ConstCombatView s) {
     if (!valid_combat(s)) throw std::invalid_argument("Cannot checkpoint invalid simulation");
     Writer w;
-    w.text("STS2CP17"); w.u32(17); w.u32(s.rules); w.text(game_digest); w.u64(content_fingerprint());
+    w.text("STS2CP18"); w.u32(18); w.u32(s.rules); w.text(game_digest); w.u64(content_fingerprint());
     w.u32(static_cast<std::uint32_t>(s.seed.size())); w.text(s.seed); w.u64(s.numeric_seed);
     w.u32(s.boundary.value); w.u8(static_cast<std::uint8_t>(s.phase));
     const auto config = s.clock.config();
@@ -125,7 +127,7 @@ Checkpoint checkpoint(ConstCombatView s) {
     w.u32(s.cards.data.highest_generation);
     w.u32(static_cast<std::uint32_t>(s.cards.slots().size()));
     for (const auto& slot : s.cards.slots()) {
-        w.u32(slot.generation); w.u8(slot.live); w.u8(static_cast<std::uint8_t>(slot.value.definition));
+        w.u32(slot.generation); w.u8(slot.live); w.u16(static_cast<std::uint16_t>(slot.value.definition));
         w.u8(slot.value.upgraded); w.u32(slot.value.creation_order); w.u32(slot.value.origin.slot); w.u32(slot.value.origin.generation); w.i32(slot.value.last_finished_player_turn); w.u8(slot.value.removed);
         const auto& c = slot.value;
         w.u8(static_cast<std::uint8_t>(c.enchantment.definition)); w.i32(c.enchantment.amount);
@@ -177,8 +179,8 @@ RestoreStatus restore(CombatView destination, std::span<const std::byte> bytes, 
         Reader trailer{bytes.last(8)};
         if (trailer.u64() != digest(bytes.first(bytes.size() - 8))) return RestoreStatus::malformed;
         Reader r{bytes.first(bytes.size() - 8)};
-        for (char c : std::string_view("STS2CP17")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
-        if (r.u32() != 17 || r.u32() != rules_revision) return RestoreStatus::incompatible;
+        for (char c : std::string_view("STS2CP18")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
+        if (r.u32() != 18 || r.u32() != rules_revision) return RestoreStatus::incompatible;
         for (char c : game_digest) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
         if (r.u64() != content_fingerprint()) return RestoreStatus::incompatible;
         CombatState s(destination.overflow.allocator()); auto s_view = s.view();
@@ -201,10 +203,10 @@ RestoreStatus restore(CombatView destination, std::span<const std::byte> bytes, 
         const auto highest_generation = r.u32();
         const auto count = r.u32();
         if (count > limits.cards) return RestoreStatus::resource_limit;
-        if (count > (r.bytes.size() - r.at) / 42) return RestoreStatus::malformed;
+        if (count > (r.bytes.size() - r.at) / 43) return RestoreStatus::malformed;
         std::vector<CardPool::Slot> slots(count);
         for (auto& slot : slots) {
-            slot.generation = r.u32(); slot.live = r.boolean(); slot.value.definition = static_cast<CardId>(r.u8());
+            slot.generation = r.u32(); slot.live = r.boolean(); slot.value.definition = static_cast<CardId>(r.u16());
             slot.value.upgraded = r.boolean(); slot.value.creation_order = r.u32(); slot.value.origin.slot = r.u32(); slot.value.origin.generation = r.u32(); slot.value.last_finished_player_turn = r.i32(); slot.value.removed = r.boolean();
             auto& c = slot.value;
             c.enchantment = {static_cast<EnchantmentId>(r.u8()), r.i32()};

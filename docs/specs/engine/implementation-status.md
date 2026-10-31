@@ -279,9 +279,11 @@ persistent inventory, all RNG streams, exact float bits and nested combat contin
 Wire-session card-label bindings are JSON I/O context; the C++ run codec resumes
 with typed handles, not a native save or a recording-label import.
 
-The next integrated slice needs general room-history ownership and additional
-encounters, followed by other room categories and a natural victory. Expand canonical
-recordings alongside each supported feature. Native-save continuation, graphical
+The remaining run-content work includes additional encounters, other room categories
+and naturally reached victory. As each feature is supported, preserve the cross-room
+information its audited mechanics require under the
+[current compact-state ownership rules](../../adr/0003-inline-state-with-correct-overflow.md),
+and expand canonical recordings alongside it. Native-save continuation, graphical
 recording and comparison-snapshot restoration remain deferred as requested.
 
 ## Reference/interface limitations

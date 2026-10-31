@@ -319,8 +319,8 @@ TEST(Checkpoint, PreviousFormatIsRejectedAtomically) {
     const auto before = checkpoint(state).bytes;
     for (bool old_magic : {false, true}) {
         auto previous = before;
-        previous[8] = std::byte{14};
-        if (old_magic) previous[7] = std::byte{'4'};
+        previous[8] = std::byte{17};
+        if (old_magic) previous[7] = std::byte{'7'};
         const auto hash = game_hash({reinterpret_cast<const char*>(previous.data()), previous.size() - 8});
         for (unsigned i = 0; i < 8; ++i) previous[previous.size() - 8 + i] = std::byte(hash >> (8 * i));
         EXPECT_EQ(restore(state, previous, scratch), RestoreStatus::incompatible);

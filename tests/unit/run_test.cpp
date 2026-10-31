@@ -586,7 +586,7 @@ TEST(PublicRun, PreviousCheckpointFormatIsRejectedAtomically) {
     ASSERT_EQ(initialize_run(state, {}).status, StepStatus::awaiting_input);
     const auto before = checkpoint(state).bytes;
     auto previous = before;
-    previous[8] = std::byte{12};
+    previous[8] = std::byte{15};
     const auto hash = game_hash({reinterpret_cast<const char*>(previous.data()), previous.size() - 8});
     for (unsigned i = 0; i < 8; ++i) previous[previous.size() - 8 + i] = std::byte(hash >> (8 * i));
     EXPECT_EQ(restore(state, previous, scratch), RestoreStatus::incompatible);
