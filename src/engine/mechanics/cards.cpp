@@ -1,7 +1,5 @@
 #include "cards.hpp"
 #include "../combat/trace.hpp"
-#include "../hooks/dispatch.hpp"
-#include "../execution/interpreter.hpp"
 #include "sts2/core/sort.hpp"
 #include "sts2/engine/run.hpp"
 #include <algorithm>
@@ -110,39 +108,9 @@ void discard_hand_at_turn_end(CombatView state, const Ruleset&) {
         slot.value.single_turn_sly = false;
     }
 }
-void exhaust(CombatView state, Scratch& scratch, Zone from, CardHandle card) {
-    if (state.enemy.hp == 0 || state.player.hp == 0) return;
-    move_card(state, from, Zone::exhaust, card);
-    emit(state, scratch, CombatEventKind::exhausted, false, false, card);
-    after_card_exhausted(state, scratch, card);
-}
 
-void reshuffle(CombatView state, const Ruleset& rules) {
-    auto pile = state.zone(Zone::draw); auto discard = state.zone(Zone::discard);
-    pile.insert(pile.end(), discard.begin(), discard.end()); discard.clear();
-    game_sort<CardHandle>(pile, [&](CardHandle a, CardHandle b) {
-        const auto& ca = *state.cards.get(a); const auto& cb = *state.cards.get(b);
-        const auto ida = rules.card(ca.definition)->model_id, idb = rules.card(cb.definition)->model_id;
-        return ida == idb ? ca.upgraded < cb.upgraded : ida < idb;
-    });
-    state.rng.get(RunStream::shuffle).shuffle<CardHandle>(pile);
-}
-void draw_one(CombatView state, Scratch& scratch, bool from_hand_draw) {
-    auto pile = state.zone(Zone::draw); auto hand = state.zone(Zone::hand);
-    auto card = pile.front(); pile.erase(pile.begin()); hand.push_back(card);
-    if (!from_hand_draw) {
-        if (state.counters.non_hand_draws_this_turn == UINT32_MAX) throw std::length_error("draw count exhausted");
-        ++state.counters.non_hand_draws_this_turn;
-    }
-    if (scratch.trace.receive) {
-        CombatEvent event{CombatEventKind::drawn, state.turn, false, false, card};
-        event.from_hand_draw = from_hand_draw; scratch.trace.emit(state, event);
-    }
-}
-void draw(CombatView state, Scratch&, int count, const Ruleset&, bool from_hand_draw) {
-    if (state.enemy.hp == 0 || state.player.hp == 0 || count <= 0) return;
-    defer_draw(state, count, from_hand_draw);
-}
+
+
 }
 
 namespace sts2::engine {

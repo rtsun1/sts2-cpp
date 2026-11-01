@@ -56,7 +56,7 @@ StepResult initialize_combat(CombatView state, const CombatConfig& config, Scrat
         emit(next, scratch, CombatEventKind::combat_started);
         next_view.phase = CombatPhase::play;
         scratch.steps = 0;
-        draw(next, scratch, 5, rules);
+        next_view.execution.push_back(DrawFrame{.remaining = 5});
         const auto drawn = advance_combat(next, scratch, rules);
         if (drawn.status == StepStatus::engine_error || drawn.status == StepStatus::resource_limit)
             return {drawn.status, state.boundary, drawn.reason};

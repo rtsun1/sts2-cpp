@@ -35,7 +35,7 @@ StepResult end_player_turn(CombatView state, Scratch& scratch, const Ruleset& ru
             if ((static_cast<unsigned>(it->expiry) & 2U) != 0) it = state.cost_modifiers.erase(it);
             else ++it;
         }
-        ++state.turn; refresh_energy(state, 3); draw(state, scratch, 5, rules);
+        ++state.turn; refresh_energy(state, 3); state.execution.push_back(DrawFrame{.remaining = 5});
     }
     return result(state);
 }

@@ -1,6 +1,6 @@
 #include "sts2/engine/combat.hpp"
 #include "validation.hpp"
-#include "../execution/interpreter.hpp"
+#include "../execution/validation.hpp"
 #include "../execution/selection.hpp"
 #include "../mechanics/cards.hpp"
 #include "../content/powers.hpp"
@@ -81,7 +81,12 @@ bool valid_combat(ConstCombatView state, const Ruleset& rules) noexcept {
     if (!state.player_handle.present() || !state.enemy_handle.present() || state.player_handle == state.enemy_handle) return false;
     if (!state.valid_storage() || !state.cards.valid()) return false;
     if (state.exhaust_relic_count > state.exhaust_relics.size() ||
-        (state.joss_paper_counter >= 5 && std::none_of(state.execution.begin(), state.execution.end(), [](const auto& frame) { return std::holds_alternative<RelicDrawCompletionFrame>(frame); }))) return false;
+        (state.joss_paper_counter >= 5 && std::none_of(state.execution.begin(), state.execution.end(), [&](const auto& frame) {
+            const auto* exhaust = std::get_if<ExhaustCardsFrame>(&frame);
+            if (!exhaust || exhaust->phase != ExhaustPhase::hooks || exhaust->handler.stage != 1 || exhaust->listeners.cursor >= exhaust->listeners.count) return false;
+            const auto index = std::uint64_t(exhaust->listeners.begin) + exhaust->listeners.cursor;
+            return index < state.captured_hook_listeners.size() && state.captured_hook_listeners[static_cast<std::size_t>(index)].handler == HookHandler::joss_paper;
+        }))) return false;
     bool joss = false;
     for (std::size_t i = 0; i < state.exhaust_relics.size(); ++i) {
         if (i >= state.exhaust_relic_count) { if (state.exhaust_relics[i] != ExhaustRelic{}) return false; continue; }

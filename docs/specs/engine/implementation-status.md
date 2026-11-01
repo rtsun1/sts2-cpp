@@ -114,10 +114,13 @@ beside their implementations. Synchronous damage, block and power modifiers
 return values directly. Reaction hooks retain explicit native traversal order.
 Immutable card metadata determines attack classification, retention and completion
 destinations, so these behaviors do not require named card checks in the central
-controller. `src/engine/execution/interpreter.cpp` holds both instruction execution
-and selective continuation resumption for unfinished draw, selection, exhaust-hook
-and relic-draw completion work. `execution/selection.cpp` owns prompt construction,
-selection validation and transferring accepted choices into continuation frames.
+controller. `src/engine/execution/interpreter.cpp` only dispatches saved frames;
+`execution/card_program.cpp` runs instructions. Mechanics owns resumable batch
+draw, batch exhaust, and shuffle operations with embedded hook/handler progress.
+`hooks/dispatch.cpp` captures and advances listeners without owning operation
+frames. `execution/selection.cpp` owns prompt construction, selection validation,
+and transferring accepted exhaust operands into an `ExhaustCardsFrame`.
+There are no separate selection-resolution or relic-completion frame types.
 Guaranteed synchronous mechanics remain direct calls. Captured content identities and
 ordered operands belong to complete state, including their overflow; prompts name
 the frame that receives their result. Joss Paper's persistent counter is run-owned

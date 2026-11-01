@@ -10,9 +10,9 @@ and continuation terminology.
 | Module | Owns |
 | --- | --- |
 | `src/engine/content/` | Behavior specific to cards, powers, relics, monsters, and other game objects; trigger conditions, modifier formulas, and content-specific completion effects |
-| `src/engine/hooks/` | Generic hook entry points; candidate capture, native order and eligibility; selecting named content handlers; creating, advancing, and releasing hook-dispatch continuations |
-| `src/engine/mechanics/` | Reusable state-changing operations such as drawing, moving cards, damage, and power application; invoking hooks at the relevant transition points |
-| `src/engine/execution/` | Instructions, prompts, deferred-operation scheduling, and execution-frame lifecycle; driving saved work until it finishes or needs input |
+| `src/engine/hooks/` | Generic hook entry points; candidate capture, native order and eligibility; listener iteration and selecting named content handlers; no operation-frame push/pop |
+| `src/engine/mechanics/` | Reusable mutations and draw/exhaust/shuffle operation resumption; owning operation phases, hook progress, and frame lifecycle |
+| `src/engine/execution/` | Generic frame dispatch, card programs, prompts/answers, and saved-progress validation |
 | `include/sts2/state/` | Authoritative values, identities, operands, and progress needed to clone or resume gameplay |
 
 These are ownership boundaries, not a prohibition on calls between folders.
@@ -23,9 +23,13 @@ Use explicit compiled functions between modules, as ADR 0006 requires.
 - Content owns an object's conditions and effects. For example, Joss Paper's
   threshold and counter reset belong in content. Hook eligibility means native
   membership/activity checks, distinct from those content-specific conditions.
-- Content and mechanics request deferred operations through execution functions.
-  They must not inspect, copy, push, or pop execution frames themselves. Hooks
-  manages its own dispatch frames; execution drives them through `resume_*`.
+- Content and mechanics may construct typed child frames and insert them with
+  `state.execution.push_back`. There is no one-line scheduling wrapper. Record
+  progress first, push at most one child, then yield to the interpreter.
+- Operation resumers inspect and complete their own frames. Content handlers do
+  not inspect, copy, or pop caller frames; they interpret only their supplied
+  progress and operands. Hooks advances supplied listener ranges without owning
+  an operation frame.
 - A content handler may request a prompt through execution. Execution owns the
   prompt lifecycle and reusable selection resolution; content specifies the
   requested operation and constraints.
@@ -55,10 +59,12 @@ Putting Artifact's implementation in content is correct; putting the generic
 `after_power_application` entry point there is not. The same distinction applies
 to `before_power_application`. Damage/block modifier formulas remain in content.
 
-`resume_*` advances saved hook dispatch by at most one candidate. `defer_*`
-functions in execution schedule unfinished work. A synchronous content completion
-such as `joss_paper_after_draw` updates the object's state; execution then removes
-the completion frame. A content callback must not pop its caller's frame.
+`resume_frame` only dispatches. Card programs live in execution; `resume_draw`,
+`resume_exhaust_cards`, and `resume_shuffle` live in mechanics. Hooks owns
+`capture_*_listeners` and `resume_listeners`; content owns resumable named handlers.
+Synchronous content handlers can ignore progress. A handler that schedules a child
+records its stage and returns yield. The return chain must not touch old execution
+references after insertion, which can relocate storage.
 
 ## Review checks
 
@@ -66,8 +72,8 @@ When adding or moving a hook or handler, verify:
 
 1. The generic entry point and handler selection are in hooks; the named effect
    and its formulas are in the owning content module.
-2. Reusable mutations remain in mechanics; prompt and deferred-operation frame
-   management are requested through execution-owned functions.
+2. Operations remain in mechanics; prompts remain in execution. Child frame
+   construction belongs to its requester and does not drive the child inline.
 3. Candidate capture preserves native order and type-specific eligibility without
    another registration system. Changed candidate membership does not silently
    replace the identities of an existing dispatch.
@@ -80,6 +86,11 @@ When adding or moving a hook or handler, verify:
 
 The retained decompilation under `build/combat-state-audit/decompiled/` comes from
 assembly SHA-256 `0861bfa1df347538d932f22d580e75420f08082792eb914e53b4882764acdbe9`.
+The [operation and hook continuation audit](frame-semantics-audit.md) extends this
+evidence to per-card draw phases, Fiend Fire, content completions, and death hooks
+that can detach choice work into a queued action. Its findings constrain both
+separate and combined hook-frame designs; they do not select a representation.
+
 These observations are static evidence, not a new runtime parity recording:
 
 - `MegaCrit.Sts2.Core.Combat/CombatState.cs:411`, `IterateHookListeners`, builds a
@@ -113,32 +124,52 @@ native ethereal deferral is consequently outside this slice.
 
 ## Execution frames
 
-The execution stack stores `ExecutionFrame`, a variant of `CardProgramFrame`,
-`DrawFrame`, `ShuffleFrame`, `SelectionFrame`, `ExhaustFrame`, and
-`RelicDrawCompletionFrame`. Each alternative owns its operation's operands and
-progress. Only `CardProgramFrame` stores the source card, play identity, energy,
-target, and instruction position; deferred operations do not copy this context.
+The execution stack stores four alternatives: `CardProgramFrame`, `DrawFrame`,
+`ExhaustCardsFrame`, and `ShuffleFrame`. Each owns the unfinished operation it
+names. Operation frames own both batch progress and current hook progress.
+`SelectionFrame`, the old exhaust-hook-only `ExhaustFrame`, and
+`RelicDrawCompletionFrame` have been removed.
 
-`resume_frame` dispatches to separate operation handlers. A handler processes
-work until its frame finishes, schedules child work, needs input, or fails.
-Handlers charge the execution budget per instruction, drawn card, selection
-operand, or hook-listener iteration, including the existing completion checks.
-Batching does not change stack nesting or child-before-parent ordering.
-Progress advances before an effect can schedule children; frame references must
-not be used after storage may relocate. A final selection operand releases its
-frame before running the effect, so child work can replace it at the same depth.
+`resume_frame` delegates to operation-specific functions. Each processes work
+until completion, a child request, input, or failure. A parent records progress
+before scheduling at most one child and yielding. Finishing a card program may
+tail-delegate its final exhaust to a replacement frame at the same depth, so
+stack-depth equality is not an identity/completion test.
+
+Exhaust requests capture card identities in shared operand storage. Exhausting
+one card finishes its listeners and their child work before advancing the card
+cursor. Captured cards stay owned until the batch finishes. Draws instead retain
+a remaining count and determine each next card after previous effects. Early
+and normal draw hooks have distinct capture phases, but no draw listeners are
+implemented in the current supported content.
+
+`ShuffleFrame` owns rearrangement and its after-shuffle dispatch. Draw waits for
+this child before trying the next card. No future Reboot/auto-play content is
+implemented merely by making shuffle independently resumable.
+
+`HandlerProgress` contains a byte-sized stage interpreted by content. Joss Paper
+records its post-draw stage, requests one draw child, and performs its live-counter
+modulo only when resumed. No separate completion entry is pushed. Stateless
+handlers remain ordinary calls. More complicated future content can require saved
+operands beyond this stage; such a layout change needs review.
+
+Work-unit budget charges are preserved rather than charged on every phase change.
+Selected-card application is charged per operand; a direct instruction's single
+exhaust mutation is already covered by that instruction. Shuffle retains the
+former interrupted-draw charge only when listeners actually interrupted the old
+path. A resumed tail-await handler adds no charge solely for returning again;
+Joss Paper's actual reset retains its former completion charge.
+
+The implemented ABI measurements are recorded in the
+[layout and migration record](../../planning/operation-frame-refactor.md).
 
 ## Default frame scheduling and deferred optimization
 
-Drawing always schedules a `DrawFrame` when there is draw work. Exhaust-hook
-notifications always use an `ExhaustFrame` when captured listeners exist. Joss
-Paper always schedules its completion after its child draw. There is no separate
-synchronous path selected by inspecting active powers or predicting trigger chains.
-Zero-work requests and empty listener lists need no frame. Primitive mutations
-such as moving a card, dealing damage, or gaining energy remain direct calls.
-The initial hand draw is drained through the execution driver before initialization
-publishes its first decision boundary; it also consumes the execution budget.
-End-turn and card-effect draws use the same scheduled path.
+Draw and exhaust operations use their frame path regardless of whether active
+content could request input. There is no prediction-based synchronous fast path.
+Primitive mutations such as moving a card, dealing damage, and gaining energy
+remain compiled calls. Initial drawing is drained before initialization publishes
+its first boundary and consumes the execution budget transactionally.
 
 Effect summaries are a potential optimization lever, not an implemented feature.
 A conservative summary could certify that an operation and every reachable trigger
@@ -155,11 +186,9 @@ represent actual draw/exhaust frequencies, active trigger combinations, nesting,
 choices, and cloning rates. Existing batching microbenchmarks do not establish
 whether these summaries would pay for themselves.
 
-Verification of the always-scheduled baseline: release build succeeded; all 32
-focused frame/hook/card-choice checks and all 275 release CTest checks passed.
-Three added regressions cover no-Stratagem scheduling, Joss Paper completion
-ordering, and transactional initial-draw budget failure. Logs are under
-`/tmp/always-frame-baseline/`. This policy has not been measured on MCTS workloads.
+The earlier always-scheduled six-frame baseline passed 275 release checks. Its
+logs remain in `/tmp/always-frame-baseline/`; those are historical results rather
+than verification of the current four-frame refactor.
 
 ## Saved dispatch progress
 
@@ -171,23 +200,21 @@ not pointers or callable objects. A captured power uses its live amount while
 present. Before erasure, mechanics retain its final amount in any captured
 candidate so a replacement power cannot change the old candidate's behavior.
 
-`after_*` starts dispatch by pushing a frame when candidates exist. `resume_*`
-processes candidates until completion, child work, input, or failure, copying each
-candidate and advancing the saved cursor before content can grow the stack.
-Stratagem's handler constructs a draw-pile selection. The dispatch saves the required selection count and marks itself
-waiting; the interpreter returns when phase becomes `card_choice`. Selecting the
-required cards moves them to hand (or discard if hand is full) synchronously,
-then resumes dispatch and the interrupted draw. A C++ call stack is never saved.
+`capture_*_listeners` returns a captured range to its operation owner. Generic
+`resume_listeners` advances the active handler, yields to its child or prompt, and
+only advances the listener cursor after completion. A stage is saved before child
+work, so revisiting the same listener does not repeat its initial effect. Finishing
+one dispatch releases its captured range before the next card's fresh capture.
 
-Content and mechanics request deferred draw work through execution-owned
-functions. Joss Paper requests a completion before starting its child draw;
-execution creates the frame, later calls the content-owned counter reset, and
-removes the frame. Relic content does not inspect or mutate the execution stack.
+Stratagem retains the requested selection count in its shuffle operation. The
+interpreter returns at `card_choice`. Accepted cards move to hand (or discard if
+full) synchronously in supported content, then the handler finishes and the
+interrupted draw resumes. Full native pile-change hooks remain outside this slice.
 
 ## Compatibility and verification
 
-Binary combat checkpoint revision 19 encodes only the active frame alternative;
-revision 18 checkpoints are rejected. Run revision 16 embeds the combat format
+Binary combat checkpoint revision 20 encodes the four operation alternatives,
+embedded ranges, and handler stages; revisions 19 and earlier are rejected. Run revision 16 embeds the combat format
 and rejects older embedded combat checkpoints. Revision 18 originally replaced
 fixture-only listener storage with real captured candidates.
 The new powers and Stratagem's combat-pile prompt have no complete native diagnostic
@@ -201,9 +228,15 @@ Large-pile variants exercise actual card/selection storage overflow instead of
 inventing arbitrary nested shuffle handlers. Allocation tests are correctness
 checks, not throughput measurements. No benchmark was run for this refactor.
 
-Final verification: `cmake --build --preset debug --parallel 2` completed with no
+Historical hook-extraction verification: `cmake --build --preset debug --parallel 2` completed with no
 compiler warnings; `ctest --preset debug --parallel 2` passed all 267 tests,
 including 181 engine checks and 23 replay-parity checks. `git diff --check` passed.
 The layout-only compiler probe reported `CombatData` at 4,712 bytes (previously
 4,800), `EffectFrame` unchanged at 48 bytes, and `HookListener` at 20 bytes.
 These sizes and allocation regressions do not establish a throughput improvement.
+
+
+Current four-operation verification: all 279 release checks pass, and differential
+budget/trace and sanitizer probes pass. See the
+[verification report](architecture-verification.md#operation-owned-hook-progress-2026-11-01)
+for normal/LTO timing results, allocation observations, and scope limits.

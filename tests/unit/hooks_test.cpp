@@ -2,6 +2,7 @@
 #include "sts2/persistence/checkpoint.hpp"
 #include "../../src/engine/hooks/dispatch.hpp"
 #include "../../src/engine/execution/interpreter.hpp"
+#include "../../src/engine/mechanics/exhaust.hpp"
 #include "../../src/engine/mechanics/cards.hpp"
 #include "../../src/engine/mechanics/powers.hpp"
 #include "../support/continuation_fixture.hpp"
@@ -81,8 +82,8 @@ TEST(HookDispatch, StratagemOffersSortedCandidatesWithoutReorderingTheDrawPile) 
     for (std::uint32_t i = 0; i < deck.size(); ++i)
         gameplay::move_card(combat, Zone::hand, Zone::draw, {i, combat.cards.slots()[i].generation});
     const std::vector<CardHandle> draw(combat.zone(Zone::draw).begin(), combat.zone(Zone::draw).end());
-    combat.execution.push_back(DrawFrame{0, false});
-    gameplay::after_shuffle(combat);
+    combat.execution.push_back(DrawFrame{.phase = DrawPhase::after_shuffle, .from_hand_draw = false});
+    combat.execution.push_back(ShuffleFrame{.listeners = gameplay::capture_shuffle_listeners(combat), .phase = ShufflePhase::hooks});
     ASSERT_EQ(advance_combat(state, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(combat.phase, CombatPhase::card_choice);
     EXPECT_EQ(combat.cards.get(combat.selection_candidates.front())->definition, CardId::defend);
@@ -110,7 +111,7 @@ TEST(HookDispatch, StratagemRunsAgainOnTheNextShuffle) {
         auto combat = state.view();
         for (auto zone : {Zone::hand, Zone::draw})
             while (!combat.zone(zone).empty()) gameplay::move_card(combat, zone, Zone::discard, combat.zone(zone).front());
-        gameplay::draw(combat, scratch, 1, Ruleset::pinned(), false);
+        combat.execution.push_back(DrawFrame{.remaining = 1, .from_hand_draw = false});
         ASSERT_EQ(advance_combat(state, scratch).status, StepStatus::awaiting_input);
         ASSERT_EQ(state.view().phase, CombatPhase::card_choice);
         EXPECT_NE(state.view().selection.id, previous);
@@ -127,8 +128,8 @@ TEST(HookDispatch, CapturedPowerKeepsItsIdentityAndFinalAmountAfterRemovalAndRea
     ASSERT_EQ(initialize_combat(state, {}, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(apply_power_scenario(state, {PowerId::stratagem, 1}, scratch).status, StepStatus::awaiting_input);
     auto combat = state.view();
-    combat.execution.push_back(DrawFrame{0, false});
-    gameplay::after_shuffle(combat);
+    combat.execution.push_back(DrawFrame{.phase = DrawPhase::after_shuffle, .from_hand_draw = false});
+    combat.execution.push_back(ShuffleFrame{.listeners = gameplay::capture_shuffle_listeners(combat), .phase = ShufflePhase::hooks});
     const auto captured = combat.captured_hook_listeners.front().power_instance;
     gameplay::apply_power(combat, scratch, PowerId::stratagem, -1, false, false);
     gameplay::apply_power(combat, scratch, PowerId::stratagem, 1, false, false);
@@ -149,8 +150,8 @@ TEST(HookDispatch, StratagemHandOverflowGoesToDiscardWithoutCountingAsDraw) {
     ASSERT_EQ(apply_power_scenario(state, {PowerId::stratagem, 1}, scratch).status, StepStatus::awaiting_input);
     auto combat = state.view();
     while (combat.zone(Zone::hand).size() < 10) gameplay::move_card(combat, Zone::draw, Zone::hand, combat.zone(Zone::draw).front());
-    combat.execution.push_back(DrawFrame{0, false});
-    gameplay::after_shuffle(combat);
+    combat.execution.push_back(DrawFrame{.phase = DrawPhase::after_shuffle, .from_hand_draw = false});
+    combat.execution.push_back(ShuffleFrame{.listeners = gameplay::capture_shuffle_listeners(combat), .phase = ShufflePhase::hooks});
     ASSERT_EQ(advance_combat(state, scratch).status, StepStatus::awaiting_input);
     const auto prompt = combat.selection.id; const auto card = combat.selection_candidates.front();
     ASSERT_EQ(apply_combat(state, {combat.boundary, CombatInputKind::select_card, card, false, prompt}, scratch).status, StepStatus::awaiting_input);
@@ -167,7 +168,7 @@ TEST(ExecutionFrames, DrawSchedulesWithoutSuspendingPowers) {
     ASSERT_TRUE(combat.execution.empty());
     ASSERT_FALSE(combat.player.has_power(PowerId::stratagem, combat.creature_overflow));
     const auto hand_size = combat.zone(Zone::hand).size();
-    gameplay::draw(combat, scratch, 2, Ruleset::pinned(), false);
+    combat.execution.push_back(DrawFrame{.remaining = 2, .from_hand_draw = false});
     ASSERT_EQ(combat.execution.size(), 1u);
     EXPECT_EQ(std::get<DrawFrame>(combat.execution.back()).remaining, 2);
     EXPECT_EQ(combat.zone(Zone::hand).size(), hand_size);
@@ -184,16 +185,19 @@ TEST(ExecutionFrames, ExhaustAndJossPaperUseFramesWithoutSuspendingPowers) {
     ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
     auto combat = state.view();
     const auto hand_size = combat.zone(Zone::hand).size();
-    gameplay::exhaust(combat, scratch, Zone::hand, combat.zone(Zone::hand).front());
+    const auto card = combat.zone(Zone::hand).front();
+    const auto cards = gameplay::capture_exhaust_cards(combat, std::span(&card, 1));
+    combat.execution.push_back(ExhaustCardsFrame{.cards = cards});
     ASSERT_EQ(combat.execution.size(), 1u);
-    ASSERT_TRUE(std::holds_alternative<ExhaustFrame>(combat.execution.back()));
+    ASSERT_TRUE(std::holds_alternative<ExhaustCardsFrame>(combat.execution.back()));
     EXPECT_EQ(combat.joss_paper_counter, 4u);
     gameplay::resume_frame(combat, scratch, Ruleset::pinned());
-    ASSERT_EQ(combat.execution.size(), 3u);
+    ASSERT_EQ(combat.execution.size(), 2u);
     EXPECT_TRUE(std::holds_alternative<DrawFrame>(combat.execution.back()));
     EXPECT_EQ(combat.joss_paper_counter, 5u);
     gameplay::resume_frame(combat, scratch, Ruleset::pinned());
-    ASSERT_TRUE(std::holds_alternative<RelicDrawCompletionFrame>(combat.execution.back()));
+    ASSERT_TRUE(std::holds_alternative<ExhaustCardsFrame>(combat.execution.back()));
+    EXPECT_EQ(std::get<ExhaustCardsFrame>(combat.execution.back()).handler.stage, 1u);
     EXPECT_EQ(combat.zone(Zone::hand).size(), hand_size);
     EXPECT_EQ(combat.joss_paper_counter, 5u);
     ASSERT_EQ(advance_combat(state, scratch).status, StepStatus::awaiting_input);
@@ -238,7 +242,7 @@ TEST(ExecutionFrames, DrawBatchesButChargesEachCardAndCompletion) {
     auto combat = state.view();
     const auto hand_size = combat.zone(Zone::hand).size();
     ASSERT_GE(combat.zone(Zone::draw).size(), 3u);
-    gameplay::defer_draw(combat, 3, false);
+    combat.execution.push_back(DrawFrame{.remaining = 3, .from_hand_draw = false});
     scratch.steps = 0;
     gameplay::resume_frame(combat, scratch, Ruleset::pinned());
     EXPECT_TRUE(combat.execution.empty());
@@ -252,7 +256,7 @@ TEST(ExecutionFrames, BatchedDrawStopsAtExecutionBudget) {
     ASSERT_EQ(initialize_combat(state, {}, scratch).status, StepStatus::awaiting_input);
     auto combat = state.view();
     const auto hand_size = combat.zone(Zone::hand).size();
-    gameplay::defer_draw(combat, 3, false);
+    combat.execution.push_back(DrawFrame{.remaining = 3, .from_hand_draw = false});
     scratch.steps = 0; scratch.step_limit = 2;
     const auto stopped = gameplay::resume_frame(combat, scratch, Ruleset::pinned());
     EXPECT_EQ(stopped.reason, Restriction::execution_budget);
@@ -266,7 +270,7 @@ TEST(ExecutionFrames, DrawYieldsToShuffleBeforeDrawingAnyCards) {
     scenario::prepare_exhaust_shuffle(state);
     auto combat = *state.view().combat;
     const auto hand_size = combat.zone(Zone::hand).size();
-    gameplay::defer_draw(combat, 3, false);
+    combat.execution.push_back(DrawFrame{.remaining = 3, .from_hand_draw = false});
     scratch.steps = 0;
     gameplay::resume_frame(combat, scratch, Ruleset::pinned());
     ASSERT_EQ(combat.execution.size(), 2u);
@@ -279,20 +283,109 @@ TEST(ExecutionFrames, DrawYieldsToShuffleBeforeDrawingAnyCards) {
     EXPECT_EQ(scratch.steps, 2u);
 }
 
-TEST(ExecutionFrames, FinalSelectionYieldsWhenChildReplacesItAtSameDepth) {
+TEST(ExecutionFrames, ExhaustOwnsFinalOperandUntilItsChildFinishes) {
     RunState state; Scratch scratch;
     scenario::prepare_exhaust_shuffle(state);
     auto combat = *state.view().combat;
     const auto card = combat.zone(Zone::hand).front();
-    combat.continuation_cards.push_back(card);
-    combat.execution.push_back(SelectionFrame{SelectionEffect::exhaust, Zone::hand, 0, 1, 0});
+    const auto cards = gameplay::capture_exhaust_cards(combat, std::span(&card, 1));
+    combat.execution.push_back(ExhaustCardsFrame{.cards = cards});
     scratch.steps = 0;
     gameplay::resume_frame(combat, scratch, Ruleset::pinned());
-    ASSERT_EQ(combat.execution.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<ExhaustFrame>(combat.execution.back()));
-    EXPECT_TRUE(combat.continuation_cards.empty());
-    EXPECT_EQ(scratch.steps, 1u);
+    ASSERT_EQ(combat.execution.size(), 2u);
+    EXPECT_TRUE(std::holds_alternative<DrawFrame>(combat.execution.back()));
+    const auto& parent = std::get<ExhaustCardsFrame>(combat.execution.front());
+    EXPECT_EQ(parent.cards.cursor, 0u);
+    EXPECT_EQ(parent.handler.stage, 1u);
+    ASSERT_EQ(combat.continuation_cards.size(), 1u);
+    EXPECT_EQ(combat.continuation_cards.front(), card);
+    EXPECT_EQ(scratch.steps, 2u);
     EXPECT_EQ(combat.zone(Zone::exhaust).front(), card);
+    ASSERT_EQ(advance_combat(combat, scratch).status, StepStatus::awaiting_input);
+    EXPECT_EQ(combat.phase, CombatPhase::card_choice);
+    EXPECT_TRUE(valid_run(state));
 }
 
+TEST(ExecutionFrames, ExhaustRecapturesListenersForEachCardAfterChildWork) {
+    CombatState state; Scratch scratch;
+    ASSERT_EQ(initialize_combat(state, {}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_power_scenario(state, {PowerId::dark_embrace, 1}, scratch).status, StepStatus::awaiting_input);
+    auto combat = state.view();
+    const std::array cards{combat.zone(Zone::hand)[0], combat.zone(Zone::hand)[1]};
+    const auto operands = gameplay::capture_exhaust_cards(combat, cards);
+    combat.execution.push_back(ExhaustCardsFrame{.cards = operands});
+    gameplay::resume_frame(combat, scratch, Ruleset::pinned());
+    ASSERT_TRUE(std::holds_alternative<DrawFrame>(combat.execution.back()));
+    EXPECT_EQ(std::get<DrawFrame>(combat.execution.back()).remaining, 1);
+    const auto old_instance = combat.captured_hook_listeners.front().power_instance;
+    gameplay::apply_power(combat, scratch, PowerId::dark_embrace, -1, false, false);
+    gameplay::apply_power(combat, scratch, PowerId::dark_embrace, 2, false, false);
+    const auto replacement = combat.player.find_power(PowerId::dark_embrace, combat.creature_overflow)->instance;
+    ASSERT_NE(old_instance, replacement);
+    gameplay::resume_frame(combat, scratch, Ruleset::pinned()); // Finish first card's draw.
+    gameplay::resume_frame(combat, scratch, Ruleset::pinned()); // Exhaust second card.
+    ASSERT_EQ(combat.execution.size(), 2u);
+    ASSERT_TRUE(std::holds_alternative<DrawFrame>(combat.execution.back()));
+    EXPECT_EQ(std::get<DrawFrame>(combat.execution.back()).remaining, 2);
+    ASSERT_EQ(combat.captured_hook_listeners.size(), 1u);
+    EXPECT_EQ(combat.captured_hook_listeners.front().power_instance, replacement);
+    ASSERT_EQ(advance_combat(state, scratch).status, StepStatus::awaiting_input);
+    EXPECT_TRUE(combat.continuation_cards.empty());
+    EXPECT_TRUE(combat.captured_hook_listeners.empty());
+    EXPECT_TRUE(valid_combat(state));
+}
+
+TEST(ExecutionFrames, ShuffleWithoutListenersPreservesDrawBudget) {
+    CombatState state; Scratch scratch;
+    ASSERT_EQ(initialize_combat(state, {}, scratch).status, StepStatus::awaiting_input);
+    auto combat = state.view();
+    while (!combat.zone(Zone::draw).empty())
+        gameplay::move_card(combat, Zone::draw, Zone::discard, combat.zone(Zone::draw).front());
+    combat.execution.push_back(DrawFrame{.remaining = 2, .from_hand_draw = false});
+    scratch.steps = 0;
+    ASSERT_EQ(advance_combat(state, scratch).status, StepStatus::awaiting_input);
+    EXPECT_EQ(scratch.steps, 3u); // Two draws and the original completion check.
+    EXPECT_EQ(combat.counters.non_hand_draws_this_turn, 2u);
+    EXPECT_TRUE(valid_combat(state));
+}
+
+TEST(ExecutionFrames, RejectsCorruptOperationAndHandlerProgress) {
+    RunState state; Scratch scratch;
+    scenario::prepare_exhaust_shuffle(state);
+    exhaust_into_shuffle(state, scratch);
+    ASSERT_TRUE(valid_run(state));
+    auto copy = state;
+    std::get<ShuffleFrame>(copy.view().combat->execution.back()).handler.stage = 2;
+    EXPECT_FALSE(valid_run(copy));
+    copy = state;
+    std::get<ShuffleFrame>(copy.view().combat->execution.back()).phase = static_cast<ShufflePhase>(255);
+    EXPECT_FALSE(valid_run(copy));
+    copy = state;
+    for (auto& frame : copy.view().combat->execution)
+        if (auto* exhaust = std::get_if<ExhaustCardsFrame>(&frame)) exhaust->cards.begin = UINT32_MAX;
+    EXPECT_FALSE(valid_run(copy));
+}
+
+TEST(ExecutionFrames, CompletionSurvivesChildRelocatingTheExecutionStack) {
+    const std::array relics{ExhaustRelic::joss_paper};
+    CombatConfig config; config.exhaust_relics = relics; config.joss_paper_counter = 4;
+    CombatState state; Scratch scratch;
+    ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
+    auto combat = state.view();
+    for (int i = 0; i < 3; ++i) combat.execution.push_back(DrawFrame{});
+    const auto card = combat.zone(Zone::hand).front();
+    const auto cards = gameplay::capture_exhaust_cards(combat, std::span(&card, 1));
+    combat.execution.push_back(ExhaustCardsFrame{.cards = cards});
+    ASSERT_FALSE(combat.data.execution.overflowed());
+    gameplay::resume_frame(combat, scratch, Ruleset::pinned());
+    ASSERT_EQ(combat.execution.size(), 5u);
+    EXPECT_TRUE(combat.data.execution.overflowed());
+    EXPECT_TRUE(std::holds_alternative<DrawFrame>(combat.execution.back()));
+    EXPECT_EQ(std::get<ExhaustCardsFrame>(combat.execution[3]).handler.stage, 1u);
+    EXPECT_EQ(combat.joss_paper_counter, 5u);
+    ASSERT_EQ(advance_combat(state, scratch).status, StepStatus::awaiting_input);
+    EXPECT_EQ(combat.joss_paper_counter, 0u);
+    EXPECT_TRUE(combat.execution.empty());
+    EXPECT_TRUE(valid_combat(state));
+}
 }

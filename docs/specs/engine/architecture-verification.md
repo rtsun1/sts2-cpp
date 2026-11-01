@@ -230,3 +230,109 @@ samples are under `/tmp/frame-refactor/`. The final samples are
 `kernel_benchmark 100000` and `architecture_benchmark 30` from a release build.
 The isolated LTO build used `CMAKE_INTERPROCEDURAL_OPTIMIZATION=ON`; no repository
 build preset was changed.
+
+
+## Operation-owned hook progress (2026-11-01)
+
+The completed refactor uses four operation alternatives: card program, draw,
+exhaust cards, and shuffle. Hook ranges and resumable handler stages live inside
+operations; selection-resolution and relic-completion alternatives are removed.
+Content constructs child frames directly. Operation resumers live in mechanics,
+card programs and prompts in execution, and listener capture/dispatch in hooks.
+The [implementation record](../../planning/operation-frame-refactor.md) describes
+ownership and compatibility choices.
+
+Actual GCC 11.4.0/x86-64 sizes match the approved prototype: payloads 28/28/28/20
+bytes, `ExecutionFrame` 32, `CombatData` 4,648, `RunData` 34,512, standalone
+`CombatState` 5,808, and `RunState` 34,608 bytes. All remain unchanged in size from
+the six-alternative baseline; saved data is trivially copyable. Binary combat
+checkpoints are now revision 20 and reject revision 19. Fixture/reference versions
+were not changed.
+
+Validation:
+
+- Release build and all 279 CTest checks passed after the final code change.
+- Focused regressions cover per-card listener recapture after child work,
+  operation/handler corruption, last-operand ownership, budget accounting, and
+  child insertion relocating the execution stack.
+- A differential probe ran eleven scenarios at budgets 0–40 (451 setups), yielding
+  1,229 action observations. Baseline and refactor output matched exactly for
+  statuses/reasons, charged steps, trace hashes, selected counters, zones, and RNG.
+  The cases include nested draws/choices and Joss Paper reaching its threshold
+  after a lethal exhaust listener, when its draw child is omitted.
+- The same probe and a forced execution-storage relocation probe passed with
+  AddressSanitizer and UndefinedBehaviorSanitizer. Leak detection was disabled;
+  this was not a sanitizer run of the entire CTest suite.
+- `git diff --check` passed. These are bounded checks, not proof of full-game parity.
+
+The comparison baseline was the staged, tested six-frame implementation on top of
+`a30387f`, extracted through the Git index before this refactor. Its staged patch
+SHA-256 is `b833855f1544ef0941279bb35a588ec6fab99ad8cedadcb6e554d91f63b5b9a1`.
+Differential probe source SHA-256: `6b4985ba2a2a8f5c778a35b26920d9956edba856989f186d7c5af77961e7c397`.
+Matching output SHA-256: `c5bf004061bff339818edde8ee985658600b7268ec54b1e3eca82de917eb7a36`.
+
+Performance samples used GCC 11.4.0 release builds with `-O3 -DNDEBUG` and
+`-ffp-contract=off`; separate LTO builds used `CMAKE_INTERPROCEDURAL_OPTIMIZATION=ON`.
+No builds/tests ran alongside final measurements. Variant order alternated.
+Kernel results use five samples of 100,000 battles / 1,300,000 transitions each;
+all had checksum 9,500,000 and zero warmed allocations. Architecture results use
+three samples of 30 iterations. Joss Paper results use five samples of 10,000
+iterations, with clone reset excluded from prompt-execution timing.
+
+| Build | Median kernel transitions/s | Range |
+| --- | ---: | ---: |
+| before | 572,150 | 549,147–614,947 |
+| after | 565,192 | 533,678–578,643 |
+| before_lto | 727,962 | 709,107–737,774 |
+| after_lto | 724,839 | 713,608–745,353 |
+
+| Standalone Joss Paper choice workload | Before | After | Before LTO | After LTO |
+| --- | ---: | ---: | ---: | ---: |
+| reach_joss_choice ns | 2,450.8 | 2,307.1 | 2,005.0 | 2,003.8 |
+| reach_joss_choice allocations/iteration | 2.0 | 0.0 | 2.0 | 0.0 |
+| clone_joss_choice ns | 132.2 | 102.5 | 135.6 | 102.7 |
+| clone_joss_choice allocations/iteration | 2.0 | 0.0 | 2.0 | 0.0 |
+
+| Architecture step median, ns | Before | After | Before LTO | After LTO |
+| --- | ---: | ---: | ---: | ---: |
+| supported_seeded_combat | 1,491 | 1,613 | 1,179 | 1,185 |
+| controlled_creature_overflow | 2,346 | 2,390 | 2,013 | 2,066 |
+| supported_cards_200_overflow | 3,116 | 3,459 | 2,763 | 3,240 |
+| stratagem_pile_choice_overflow | 30,493 | 28,894 | 24,417 | 21,219 |
+| controlled_power_instances_12_overflow | 2,372 | 2,224 | 1,782 | 1,804 |
+
+The isolated kernel medians are 1.2% lower without LTO and 0.4% lower with LTO,
+with overlapping observed ranges. These samples do not establish a kernel
+speedup or a repeatable regression. Empty draw-hook phases advance within the
+same iteration; repeatedly dispatching empty phases had caused an earlier loss.
+
+The short architecture samples included a slower large-deck LTO step median.
+A follow-up removed the preceding query/clone timing sections and collected five
+samples of 10,000 step iterations per workload, still excluding clone-reset time:
+
+| Step-only median, ns (10,000 iterations/sample) | Before | After | Before LTO | After LTO |
+| --- | ---: | ---: | ---: | ---: |
+| supported_seeded_combat | 1,316.7 | 1,436.8 | 1,152.3 | 1,059.5 |
+| controlled_creature_overflow | 2,148.3 | 2,325.6 | 1,959.2 | 1,876.3 |
+| supported_cards_200_overflow | 2,773.6 | 3,098.1 | 2,479.3 | 2,399.1 |
+| stratagem_pile_choice_overflow | 28,733.6 | 28,840.4 | 24,797.2 | 21,861.1 |
+| controlled_power_instances_12_overflow | 2,007.5 | 2,084.1 | 1,708.6 | 1,688.8 |
+
+The slower large-deck LTO result did not persist in that longer step-only check.
+LTO step-only medians were lower across the five controlled cases. Non-LTO
+step-only medians were higher by roughly 0.4–12%; this refactor is not a universal
+performance win, and default release presets have not been changed to enable LTO.
+
+At the standalone Joss Paper/Stratagem choice, live frames fell from five to four,
+so the operation fits the existing four inline slots. Measured retained state fell
+from 6,112 to 5,808 bytes. Both reaching that prompt and cloning it changed from
+two allocation calls per iteration to zero. LTO prompt-execution time was nearly
+unchanged; standalone prompt-clone median fell from about 136 to 103 ns. This
+bounded standalone case is not a full-run MCTS workload or a general clone-speed
+claim.
+
+Raw samples, comparison source, build/test logs, sanitizer logs, and reproduction
+scripts are under `/tmp/sts2-operation-refactor/`: `performance-samples.json`,
+`step-only-samples.json`, `budget_probe.cpp`, `budget-{before,after}.txt`,
+`final-release-tests.log`, and `final-sanitized-*`. Future optimization decisions
+still need representative MCTS operation/choice/cloning distributions.

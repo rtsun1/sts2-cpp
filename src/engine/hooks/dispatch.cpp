@@ -4,6 +4,7 @@
 #include "../mechanics/powers.hpp"
 #include "../combat/lifecycle.hpp"
 #include <algorithm>
+#include <stdexcept>
 
 namespace sts2::engine::gameplay {
 namespace {
@@ -22,17 +23,22 @@ bool eligible(ConstCombatView state, const HookListener& listener) noexcept {
     return std::find(state.exhaust_relics.begin(), state.exhaust_relics.begin() + state.exhaust_relic_count, relic) !=
         state.exhaust_relics.begin() + state.exhaust_relic_count;
 }
-void call_handler(CombatView state, Scratch& scratch, HookListener listener, const Ruleset& rules) {
-    if (!eligible(state, listener)) return;
+HandlerResult resume_listener(CombatView state, Scratch& scratch, HookListener listener,
+    HandlerProgress& progress, std::uint32_t* expected_selection_count) {
+    // Once started, the handler completes against its captured identity even if
+    // its eligibility changes while its child runs.
+    if (progress.stage == 0 && !eligible(state, listener)) return HandlerResult::complete;
     const auto* owner = state.creature(listener.owner);
-    const auto* power = owner->find_power_instance(listener.power_instance, state.creature_overflow);
+    const auto* power = owner ? owner->find_power_instance(listener.power_instance, state.creature_overflow) : nullptr;
     const auto amount = power ? power->amount : listener.removed_power_amount;
     switch (listener.handler) {
-    case HookHandler::dark_embrace: dark_embrace_after_card_exhausted(state, scratch, amount, rules); break;
-    case HookHandler::stratagem: stratagem_after_shuffle(state, amount); break;
-    case HookHandler::charons_ashes: charons_ashes_after_card_exhausted(state, scratch); break;
-    case HookHandler::joss_paper: joss_paper_after_card_exhausted(state, scratch, rules); break;
+    case HookHandler::dark_embrace: return dark_embrace_after_card_exhausted(state, progress, amount);
+    case HookHandler::stratagem: return stratagem_after_shuffle(state, progress, *expected_selection_count, amount);
+    case HookHandler::charons_ashes:
+        charons_ashes_after_card_exhausted(state, scratch); return HandlerResult::complete;
+    case HookHandler::joss_paper: return joss_paper_after_card_exhausted(state, scratch, progress);
     }
+    throw std::logic_error("Unsupported hook handler");
 }
 void release_candidates(CombatView state, std::uint32_t begin) {
     while (state.captured_hook_listeners.size() > begin) state.captured_hook_listeners.pop_back();
@@ -50,7 +56,7 @@ void retain_removed_power(CombatView state, CreatureHandle owner, const PowerIns
         if (listener.owner == owner && listener.power_instance == power.instance)
             listener.removed_power_amount = power.amount;
 }
-void after_card_exhausted(CombatView state, Scratch&, CardHandle) {
+RangeProgress capture_exhaust_listeners(CombatView state) {
     const auto begin = static_cast<std::uint32_t>(state.captured_hook_listeners.size());
     // Native order is player powers in application order, then relics in inventory order.
     capture_powers(state, PowerId::dark_embrace, HookHandler::dark_embrace);
@@ -58,9 +64,7 @@ void after_card_exhausted(CombatView state, Scratch&, CardHandle) {
         const auto handler = state.exhaust_relics[i] == ExhaustRelic::charons_ashes ? HookHandler::charons_ashes : HookHandler::joss_paper;
         state.captured_hook_listeners.push_back({state.player_handle, UINT32_MAX, 0, handler});
     }
-    const auto count = static_cast<std::uint32_t>(state.captured_hook_listeners.size()) - begin;
-    if (count == 0) return;
-    state.execution.push_back(ExhaustFrame{begin, count, 0});
+    return {begin, static_cast<std::uint32_t>(state.captured_hook_listeners.size()) - begin, 0};
 }
 
 void after_enemy_turn(CombatView state, Scratch& scratch) {
@@ -76,44 +80,33 @@ void after_enemy_turn(CombatView state, Scratch& scratch) {
     }
 }
 
-void after_shuffle(CombatView state) {
+RangeProgress capture_shuffle_listeners(CombatView state) {
     const auto begin = static_cast<std::uint32_t>(state.captured_hook_listeners.size());
     capture_powers(state, PowerId::stratagem, HookHandler::stratagem);
-    const auto count = static_cast<std::uint32_t>(state.captured_hook_listeners.size()) - begin;
-    if (count == 0) return;
-    state.execution.push_back(ShuffleFrame{begin, count, 0});
+    return {begin, static_cast<std::uint32_t>(state.captured_hook_listeners.size()) - begin, 0};
 }
-
-StepResult resume_shuffle(CombatView state, Scratch& scratch, const Ruleset& rules) {
-    const auto depth = state.execution.size();
-    while (true) {
-        if (!consume(scratch)) return fail(state, Restriction::execution_budget);
-        auto& continuation = std::get<ShuffleFrame>(state.execution.back());
-        if (continuation.cursor == continuation.count) {
-            release_candidates(state, continuation.begin);
-            state.execution.pop_back(); return result(state);
-        }
-        // Copy the identity and advance before a handler can relocate the execution stack.
-        const auto listener = state.captured_hook_listeners[continuation.begin + continuation.cursor++];
-        call_handler(state, scratch, listener, rules);
-        if (state.phase == CombatPhase::card_choice)
-            std::get<ShuffleFrame>(state.execution.back()).selection_count = state.selection.minimum;
-        if (state.phase != CombatPhase::play || state.execution.size() != depth) return result(state);
-    }
+RangeProgress capture_draw_listeners(CombatView, bool) {
+    // No draw listeners are supported yet. Each phase has its own capture point.
+    return {};
 }
-
-StepResult resume_exhaust(CombatView state, Scratch& scratch, const Ruleset& rules) {
-    const auto depth = state.execution.size();
-    while (true) {
-        if (!consume(scratch)) return fail(state, Restriction::execution_budget);
-        auto& continuation = std::get<ExhaustFrame>(state.execution.back());
-        if (continuation.cursor == continuation.count) {
-            release_candidates(state, continuation.begin);
-            state.execution.pop_back(); return result(state);
-        }
-        const auto listener = state.captured_hook_listeners[continuation.begin + continuation.cursor++];
-        call_handler(state, scratch, listener, rules);
-        if (state.phase != CombatPhase::play || state.execution.size() != depth) return result(state);
+HandlerResult resume_listeners(CombatView state, Scratch& scratch, RangeProgress& listeners,
+    HandlerProgress& progress, const Ruleset&, std::uint32_t* expected_selection_count) {
+    if (listeners.count == 0) return HandlerResult::complete;
+    while (listeners.cursor < listeners.count) {
+        if (progress.stage == 0 && !consume(scratch)) return HandlerResult::execution_budget;
+        const auto listener = state.captured_hook_listeners[listeners.begin + listeners.cursor];
+        if (listener.handler == HookHandler::stratagem && !expected_selection_count)
+            throw std::logic_error("Shuffle handler without prompt progress");
+        const auto outcome = resume_listener(state, scratch, listener, progress, expected_selection_count);
+        // Scheduling can relocate the owning operation. Do not touch references
+        // after a yielding handler; the interpreter runs its child next.
+        if (outcome != HandlerResult::complete) return outcome;
+        ++listeners.cursor;
+        progress = {};
     }
+    if (!consume(scratch)) return HandlerResult::execution_budget;
+    release_candidates(state, listeners.begin);
+    listeners = {};
+    return HandlerResult::complete;
 }
 }

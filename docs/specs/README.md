@@ -16,6 +16,7 @@ These sheets retain detailed requirements, schemas and source evidence.
 | Architectural decisions | [docs/adr/](../adr/); decisions with rationale and source links |
 | Accepted engine architecture | [ADR 0006](../adr/0006-use-a-data-oriented-engine-with-selective-continuations.md) and [architecture specification](../planning/engine-architecture-spec.md); authoritative conversation synthesis, canonical creatures, typed hooks and selective continuations; dense/sparse powers deferred |
 | Engine module ownership | [Combat hooks](engine/hooks.md#module-ownership); placement rules for content, hooks, mechanics, execution, and state, with naming examples and review checks |
+| Native frame semantics audit | [Operation and hook continuation audit](engine/frame-semantics-audit.md); draw/exhaust capture timing, Fiend Fire, post-child work, and queued death-hook choices; static evidence and frame-layout constraints |
 | Complete-state storage refactor | [Specification #54](https://github.com/TonyinBio/sts2-cpp/issues/54) and [ADR 0003](../adr/0003-inline-state-with-correct-overflow.md); common-case memcpy, independent overflow and revised history/export retention |
 | Intended system | [Full-game design](engine/full-game-simulator-design.md) and [architecture](engine/full-game-simulator-architecture.md); targets and proposed structure, not proof of implementation |
 | Normative contracts | [Matching target](engine/matching-contract.md), [decision contract](engine/decision-contract.md), [state inventory](engine/state-inventory.md), and format sheets below |

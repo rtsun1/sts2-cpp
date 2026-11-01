@@ -1,0 +1,145 @@
+#include "card_program.hpp"
+#include "selection.hpp"
+#include "../mechanics/cards.hpp"
+#include "../mechanics/damage.hpp"
+#include "../mechanics/block.hpp"
+#include "../mechanics/powers.hpp"
+#include "../combat/lifecycle.hpp"
+#include "../combat/trace.hpp"
+#include "../mechanics/exhaust.hpp"
+#include <algorithm>
+#include <limits>
+
+namespace sts2::engine::gameplay {
+StepResult resume_card_program(CombatView state, Scratch& scratch, const Ruleset& rules) {
+    const auto depth = state.execution.size();
+    while (true) {
+        if (!consume(scratch)) return fail(state, Restriction::execution_budget);
+        auto& frame = std::get<CardProgramFrame>(state.execution.back()); const auto* source = state.cards.get(frame.source);
+        if (!source) return fail(state, Restriction::invalid_state);
+        const auto* definition = rules.card(source->definition);
+        if (!definition || frame.instruction >= definition->program(source->upgraded).size()) return fail(state, Restriction::invalid_state);
+        auto* target = state.creature(frame.target);
+        if (!target) return fail(state, Restriction::invalid_state);
+        const auto instruction = definition->program(source->upgraded)[frame.instruction++];
+        const int amount = instruction.base;
+        switch (instruction.opcode) {
+        case Opcode::draw:
+            if (amount > 0 && state.enemy.hp != 0 && state.player.hp != 0) {
+                state.execution.push_back(DrawFrame{.remaining = amount, .from_hand_draw = false});
+                return result(state);
+            }
+            break;
+        case Opcode::exhaust_random: {
+            const auto& hand = state.zone(Zone::hand);
+            if (!hand.empty()) {
+                std::int32_t index;
+                if (!state.rng.get(RunStream::combat_card_selection).next_int(0, static_cast<std::int32_t>(hand.size()), index)) return fail(state, Restriction::invalid_state);
+                const auto card = hand[index];
+                const auto cards = capture_exhaust_cards(state, std::span(&card, 1));
+                state.execution.push_back(ExhaustCardsFrame{.cards = cards, .source_zone = Zone::hand, .charge_card_step = false});
+                return result(state);
+            }
+            break;
+        }
+        case Opcode::exhaust_one:
+            if (state.zone(Zone::hand).size() == 1) {
+                const auto card = state.zone(Zone::hand).front();
+                const auto cards = capture_exhaust_cards(state, std::span(&card, 1));
+                state.execution.push_back(ExhaustCardsFrame{.cards = cards, .source_zone = Zone::hand, .charge_card_step = false});
+                return result(state);
+            } else if (!state.zone(Zone::hand).empty()) {
+                if (state.next_prompt.value == UINT32_MAX) return fail(state, Restriction::capacity);
+                begin_selection(state, SelectionEffect::exhaust, Zone::hand, 1, 1, false); return result(state);
+            }
+            break;
+        case Opcode::topdeck_choice: {
+            const auto& candidates = state.zone(Zone::discard);
+            if (state.enemy.hp == 0 || candidates.empty()) break;
+            if (candidates.size() == 1) {
+                const auto card = candidates.front(); move_card(state, Zone::discard, Zone::draw, card);
+                auto pile = state.zone(Zone::draw); std::rotate(pile.begin(), pile.end() - 1, pile.end());
+            } else {
+                if (state.next_prompt.value == UINT32_MAX) return fail(state, Restriction::capacity);
+                begin_selection(state, SelectionEffect::topdeck, Zone::discard, 1, 1, true); return result(state);
+            }
+            break;
+        }
+        case Opcode::upgrade_all:
+            for (auto card : state.zone(Zone::hand)) state.cards.get(card)->upgraded = true;
+            break;
+        case Opcode::upgrade_choice: {
+            std::size_t count = 0;
+            for (auto card : state.zone(Zone::hand)) count += !state.cards.get(card)->upgraded;
+            if (count <= 1) {
+                for (auto card : state.zone(Zone::hand)) state.cards.get(card)->upgraded = true;
+            } else {
+                if (state.next_prompt.value == UINT32_MAX) return fail(state, Restriction::capacity);
+                begin_selection(state, SelectionEffect::upgrade, Zone::hand, 1, 1, false); return result(state);
+            }
+            break;
+        }
+        case Opcode::exhaust_choice:
+            if (!state.zone(Zone::hand).empty()) {
+                if (state.next_prompt.value == UINT32_MAX) return fail(state, Restriction::capacity);
+                begin_selection(state, SelectionEffect::exhaust, Zone::hand, 0, static_cast<std::uint32_t>(amount), false);
+                return result(state);
+            }
+            break;
+        case Opcode::damage: {
+            const auto hit = damage(*target, amount, state.player, state.creature_overflow);
+            emit(state, scratch, CombatEventKind::damaged, false, true, frame.source, 0, 0, hit);
+            emit(state, scratch, CombatEventKind::attacked, false, false, frame.source, 0, 0, hit);
+            break;
+        }
+        case Opcode::block: {
+            if (!gain_block(state, scratch, amount, frame.source, frame.play)) return fail(state, Restriction::capacity);
+            break;
+        }
+        case Opcode::strength:
+            (void)apply_power(state, scratch, PowerId::strength, amount, false, false, frame.source); break;
+        case Opcode::weak:
+            (void)apply_power(state, scratch, PowerId::weak, amount, true, false, frame.source, true, false, PowerInstance::Stacking::by_type, {}, frame.target); break;
+        case Opcode::vulnerable:
+            if (amount > std::numeric_limits<int>::max() - target->power_amount(PowerId::vulnerable, state.creature_overflow)) return fail(state, Restriction::capacity);
+            (void)apply_power(state, scratch, PowerId::vulnerable, amount, true, false, frame.source, true, false, PowerInstance::Stacking::by_type, {}, frame.target); break;
+        case Opcode::discard_choice:
+            if (state.zone(Zone::hand).size() == 1) {
+                const auto discarded = state.zone(Zone::hand).front();
+                discard_card(state, scratch, discarded);
+            } else if (!state.zone(Zone::hand).empty()) { state.phase = CombatPhase::discard_choice; return result(state); }
+            break;
+        case Opcode::finish: {
+            const auto card = frame.source; const auto play = frame.play; state.execution.pop_back();
+            for (auto it = state.cost_modifiers.begin(); it != state.cost_modifiers.end();) {
+                if (it->card == card && (static_cast<unsigned>(it->expiry) & 4U) != 0) it = state.cost_modifiers.erase(it);
+                else ++it;
+            }
+            const bool exhaust_after_play = source->exhaust_on_next_play ||
+                has_keyword(source->keyword_mask, CardKeyword::exhaust);
+            state.cards.get(card)->exhaust_on_next_play = false;
+            if (source->removed) {
+                // A captured source can outlive its active zone membership.
+            } else if (definition->kind == CardKind::power) {
+                auto pile = state.zone(Zone::play); pile.erase(std::find(pile.begin(), pile.end(), card));
+                state.cards.get(card)->removed = true;
+            } else if (!exhaust_after_play)
+                move_card(state, Zone::play, Zone::discard, card);
+            if (state.enemy.hp == 0) { end_combat(state, scratch, true); return result(state); }
+            ++state.counters.finished_plays;
+            state.cards.get(card)->last_finished_player_turn = state.turn;
+            emit(state, scratch, CombatEventKind::play_finished, false, false, card, play);
+            if (!source->removed && exhaust_after_play) {
+                const auto cards = capture_exhaust_cards(state, std::span(&card, 1));
+                state.execution.push_back(ExhaustCardsFrame{.cards = cards, .source_zone = Zone::play, .charge_card_step = false});
+                return result(state);
+            }
+            if (state.enemy.hp == 0) { end_combat(state, scratch, true); return result(state); }
+            return result(state);
+        }
+        }
+        // Reacquire the frame on the next iteration: child work can relocate storage.
+        if (state.phase != CombatPhase::play || state.execution.size() != depth) return result(state);
+    }
+}
+}

@@ -8,28 +8,45 @@ namespace sts2::engine {
 // Every suspended operand is owned here, never on the C++ call stack or in Scratch.
 enum class SelectionEffect : std::uint8_t { none, exhaust, upgrade, topdeck, add_to_hand };
 enum class ExhaustRelic : std::uint8_t { charons_ashes, joss_paper };
+struct RangeProgress {
+    std::uint32_t begin = 0, count = 0, cursor = 0;
+    friend bool operator==(const RangeProgress&, const RangeProgress&) = default;
+};
+struct HandlerProgress {
+    // Zero starts a handler. Other stages are interpreted by its content code.
+    std::uint8_t stage = 0;
+    friend bool operator==(const HandlerProgress&, const HandlerProgress&) = default;
+};
+enum class DrawPhase : std::uint8_t { draw, after_shuffle, early_hooks, normal_hooks };
+enum class ExhaustPhase : std::uint8_t { start_card, hooks, finish_card };
+enum class ShufflePhase : std::uint8_t { reorder, hooks };
 struct DrawFrame {
+    RangeProgress listeners {};
+    CardHandle current_card {};
     std::int32_t remaining = 0;
+    HandlerProgress handler {};
+    DrawPhase phase = DrawPhase::draw;
     bool from_hand_draw = true;
     friend bool operator==(const DrawFrame&, const DrawFrame&) = default;
 };
+struct ExhaustCardsFrame {
+    RangeProgress cards {}, listeners {};
+    HandlerProgress handler {};
+    ExhaustPhase phase = ExhaustPhase::start_card;
+    Zone source_zone = Zone::hand;
+    // Direct card instructions already pay for their single exhaust mutation.
+    bool charge_card_step = true;
+    friend bool operator==(const ExhaustCardsFrame&, const ExhaustCardsFrame&) = default;
+};
 struct ShuffleFrame {
-    std::uint32_t begin = 0, count = 0, cursor = 0;
-    // Nonzero while a handler is waiting for this many selected cards.
-    std::uint32_t selection_count = 0;
+    RangeProgress listeners {};
+    std::uint32_t expected_selection_count = 0;
+    HandlerProgress handler {};
+    ShufflePhase phase = ShufflePhase::reorder;
+    // Preserve the former interrupted-draw charge when shuffle listeners exist.
+    bool charge_draw_step_if_hooks = false;
     friend bool operator==(const ShuffleFrame&, const ShuffleFrame&) = default;
 };
-struct SelectionFrame {
-    SelectionEffect effect = SelectionEffect::none;
-    Zone zone = Zone::hand;
-    std::uint32_t begin = 0, count = 0, cursor = 0;
-    friend bool operator==(const SelectionFrame&, const SelectionFrame&) = default;
-};
-struct ExhaustFrame {
-    std::uint32_t begin = 0, count = 0, cursor = 0;
-    friend bool operator==(const ExhaustFrame&, const ExhaustFrame&) = default;
-};
-struct RelicDrawCompletionFrame { friend bool operator==(const RelicDrawCompletionFrame&, const RelicDrawCompletionFrame&) = default; };
 struct CardProgramFrame {
     CardHandle source;
     std::uint32_t instruction = 0;
@@ -39,8 +56,7 @@ struct CardProgramFrame {
     CreatureHandle target {};
     friend bool operator==(const CardProgramFrame&, const CardProgramFrame&) = default;
 };
-using ExecutionFrame = std::variant<CardProgramFrame, DrawFrame, ShuffleFrame,
-    SelectionFrame, ExhaustFrame, RelicDrawCompletionFrame>;
+using ExecutionFrame = std::variant<CardProgramFrame, DrawFrame, ExhaustCardsFrame, ShuffleFrame>;
 static_assert(std::is_trivially_copyable_v<ExecutionFrame>);
 struct CardSelection {
     PromptId id {};

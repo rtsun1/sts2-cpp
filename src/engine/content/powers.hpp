@@ -2,8 +2,9 @@
 #include "../hooks/dispatch.hpp"
 
 namespace sts2::engine::gameplay {
-void dark_embrace_after_card_exhausted(CombatView, Scratch&, int amount, const Ruleset&);
-void stratagem_after_shuffle(CombatView, int amount);
+enum class HandlerResult : std::uint8_t;
+HandlerResult dark_embrace_after_card_exhausted(CombatView, HandlerProgress&, int amount);
+HandlerResult stratagem_after_shuffle(CombatView, HandlerProgress&, std::uint32_t& expected_selection_count, int amount);
 PowerModifier artifact_before_power_application(const CreatureState&, const OverflowStorage&, PowerId, int amount) noexcept;
 void artifact_after_power_application(CombatView, Scratch&, CreatureState&, PowerModifier, bool enemy, bool enemy_side, CreatureHandle target);
 // Combine the supported damage modifiers before one final rounding operation.

@@ -15,13 +15,17 @@ struct Writer {
     void i32(std::int32_t v) { u32(std::bit_cast<std::uint32_t>(v)); }
     void text(std::string_view s) { for (auto c : s) u8(static_cast<std::uint8_t>(c)); }
     void handle(CardHandle h) { u32(h.slot); u32(h.generation); }
+    void range(const RangeProgress& r) { u32(r.begin); u32(r.count); u32(r.cursor); }
     void frame(const ExecutionFrame& f) {
         u8(static_cast<std::uint8_t>(f.index()));
         if (const auto* value = std::get_if<CardProgramFrame>(&f)) { handle(value->source); u32(value->instruction); u32(value->play); i32(value->energy); u32(value->target.slot); u32(value->target.generation); }
-        else if (const auto* value = std::get_if<DrawFrame>(&f)) { i32(value->remaining); u8(value->from_hand_draw); }
-        else if (const auto* value = std::get_if<ShuffleFrame>(&f)) { u32(value->begin); u32(value->count); u32(value->cursor); u32(value->selection_count); }
-        else if (const auto* value = std::get_if<SelectionFrame>(&f)) { u8(static_cast<std::uint8_t>(value->effect)); u8(static_cast<std::uint8_t>(value->zone)); u32(value->begin); u32(value->count); u32(value->cursor); }
-        else if (const auto* value = std::get_if<ExhaustFrame>(&f)) { u32(value->begin); u32(value->count); u32(value->cursor); }
+        else if (const auto* value = std::get_if<DrawFrame>(&f)) {
+            range(value->listeners); handle(value->current_card); i32(value->remaining); u8(value->handler.stage); u8(static_cast<std::uint8_t>(value->phase)); u8(value->from_hand_draw);
+        } else if (const auto* value = std::get_if<ExhaustCardsFrame>(&f)) {
+            range(value->cards); range(value->listeners); u8(value->handler.stage); u8(static_cast<std::uint8_t>(value->phase)); u8(static_cast<std::uint8_t>(value->source_zone)); u8(value->charge_card_step);
+        } else if (const auto* value = std::get_if<ShuffleFrame>(&f)) {
+            range(value->listeners); u32(value->expected_selection_count); u8(value->handler.stage); u8(static_cast<std::uint8_t>(value->phase)); u8(value->charge_draw_step_if_hooks);
+        }
     }
     void card_extra(const CardExtraData& data) {
         u8(static_cast<std::uint8_t>(data.index()));
@@ -59,18 +63,25 @@ struct Reader {
         if (n > (bytes.size() - at) / width) throw std::invalid_argument("Truncated continuation data");
         return n;
     }
+    RangeProgress range() { return {u32(), u32(), u32()}; }
     ExecutionFrame frame() {
         switch (u8()) {
         case 0: return CardProgramFrame{handle(), u32(), u32(), i32(), {u32(), u32()}};
-        case 1: return DrawFrame{i32(), boolean()};
-        case 2: return ShuffleFrame{u32(), u32(), u32(), u32()};
-        case 3: return SelectionFrame{static_cast<SelectionEffect>(u8()), static_cast<Zone>(u8()), u32(), u32(), u32()};
-        case 4: return ExhaustFrame{u32(), u32(), u32()};
-        case 5: return RelicDrawCompletionFrame{};
+        case 1: {
+            DrawFrame f; f.listeners = range(); f.current_card = handle(); f.remaining = i32();
+            f.handler.stage = u8(); f.phase = static_cast<DrawPhase>(u8()); f.from_hand_draw = boolean(); return f;
+        }
+        case 2: {
+            ExhaustCardsFrame f; f.cards = range(); f.listeners = range(); f.handler.stage = u8();
+            f.phase = static_cast<ExhaustPhase>(u8()); f.source_zone = static_cast<Zone>(u8()); f.charge_card_step = boolean(); return f;
+        }
+        case 3: {
+            ShuffleFrame f; f.listeners = range(); f.expected_selection_count = u32(); f.handler.stage = u8();
+            f.phase = static_cast<ShufflePhase>(u8()); f.charge_draw_step_if_hooks = boolean(); return f;
+        }
         default: throw std::invalid_argument("Unknown execution frame");
         }
     }
-
     CreatureState creature(OverflowStorage& owner) {
         CreatureState c; c.hp = i32(); c.max_hp = i32(); c.block = i32(); c.positive_unblocked_hits = u64();
         const auto count = u32();
@@ -109,7 +120,7 @@ std::uint64_t content_fingerprint() {
 Checkpoint checkpoint(ConstCombatView s) {
     if (!valid_combat(s)) throw std::invalid_argument("Cannot checkpoint invalid simulation");
     Writer w;
-    w.text("STS2CP19"); w.u32(19); w.u32(s.rules); w.text(game_digest); w.u64(content_fingerprint());
+    w.text("STS2CP20"); w.u32(20); w.u32(s.rules); w.text(game_digest); w.u64(content_fingerprint());
     w.u32(static_cast<std::uint32_t>(s.seed.size())); w.text(s.seed); w.u64(s.numeric_seed);
     w.u32(s.boundary.value); w.u8(static_cast<std::uint8_t>(s.phase));
     const auto config = s.clock.config();
@@ -174,8 +185,8 @@ RestoreStatus restore(CombatView destination, std::span<const std::byte> bytes, 
         Reader trailer{bytes.last(8)};
         if (trailer.u64() != digest(bytes.first(bytes.size() - 8))) return RestoreStatus::malformed;
         Reader r{bytes.first(bytes.size() - 8)};
-        for (char c : std::string_view("STS2CP19")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
-        if (r.u32() != 19 || r.u32() != rules_revision) return RestoreStatus::incompatible;
+        for (char c : std::string_view("STS2CP20")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
+        if (r.u32() != 20 || r.u32() != rules_revision) return RestoreStatus::incompatible;
         for (char c : game_digest) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
         if (r.u64() != content_fingerprint()) return RestoreStatus::incompatible;
         CombatState s(destination.overflow.allocator()); auto s_view = s.view();
@@ -245,7 +256,7 @@ RestoreStatus restore(CombatView destination, std::span<const std::byte> bytes, 
             s_view.captured_hook_listeners.push_back(listener);
         }
         const auto operand_count = r.count(8, std::uint64_t(limits.continuations) * 16); for (std::uint32_t i = 0; i < operand_count; ++i) s_view.continuation_cards.push_back(r.handle());
-        const auto frames = r.count(1, limits.continuations);
+        const auto frames = r.count(20, limits.continuations);
         for (std::uint32_t i = 0; i < frames; ++i) s_view.execution.push_back(r.frame());
         s_view.next_prompt.value = r.u32(); s_view.selection.id.value = r.u32();
         s_view.selection.effect = static_cast<SelectionEffect>(r.u8()); s_view.selection.zone = static_cast<Zone>(r.u8());

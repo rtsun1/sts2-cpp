@@ -1,6 +1,8 @@
 #include "selection.hpp"
 #include "../combat/lifecycle.hpp"
 #include "../mechanics/cards.hpp"
+#include "../mechanics/exhaust.hpp"
+#include "../combat/lifecycle.hpp"
 #include "sts2/core/sort.hpp"
 #include <algorithm>
 #include <stdexcept>
@@ -38,17 +40,29 @@ StepResult apply_card_selection(CombatView state, const CombatInput& input, Scra
         selected.erase(std::find(selected.begin(), selected.end(), input.card));
     }
     if (input.kind == CombatInputKind::confirm_selection || (state.selection.automatic_at_maximum && selected.size() == state.selection.maximum)) {
-        if (auto* continuation = std::get_if<ShuffleFrame>(&state.execution.back())) continuation->selection_count = 0;
-        if (state.selection.effect == SelectionEffect::add_to_hand) {
-            // Pile-to-hand movement cannot suspend: resolve directly without another frame.
-            for (auto card : selected) add_to_hand(state, state.selection.zone, card);
+        if (state.selection.effect == SelectionEffect::exhaust) {
+            const auto cards = capture_exhaust_cards(state, std::span<const CardHandle>(selected.begin(), selected.size()));
+            const auto zone = state.selection.zone;
             clear_selection(state); state.phase = CombatPhase::play;
+            if (cards.count != 0)
+                state.execution.push_back(ExhaustCardsFrame{.cards = cards, .source_zone = zone});
+            else if (!consume(scratch))
+                return fail(state, Restriction::execution_budget);
         } else {
-            const auto begin = static_cast<std::uint32_t>(state.continuation_cards.size());
-            for (auto card : selected) state.continuation_cards.push_back(card);
-            const ExecutionFrame resolution = SelectionFrame{state.selection.effect, state.selection.zone, begin, static_cast<std::uint32_t>(selected.size()), 0};
+            // These operations have no suspendable listeners in supported content.
+            const auto effect = state.selection.effect;
+            const auto zone = state.selection.zone;
+            for (auto card : selected) {
+                if (effect != SelectionEffect::add_to_hand && !consume(scratch)) return fail(state, Restriction::execution_budget);
+                if (!state.cards.get(card)) return fail(state, Restriction::invalid_state);
+                if (effect == SelectionEffect::upgrade) state.cards.get(card)->upgraded = true;
+                else if (effect == SelectionEffect::add_to_hand) add_to_hand(state, zone, card);
+                else if (effect == SelectionEffect::topdeck) {
+                    move_card(state, zone, Zone::draw, card);
+                    auto pile = state.zone(Zone::draw); std::rotate(pile.begin(), pile.end() - 1, pile.end());
+                } else return fail(state, Restriction::invalid_state);
+            }
             clear_selection(state); state.phase = CombatPhase::play;
-            state.execution.push_back(resolution);
         }
         const auto advanced = advance_combat(state, scratch, rules);
         if (advanced.status == StepStatus::engine_error || advanced.status == StepStatus::resource_limit) return advanced;
@@ -80,9 +94,9 @@ bool valid_selection(ConstCombatView state, const Ruleset& rules) noexcept {
         Zone zone = Zone::hand; std::uint32_t minimum = 1, maximum = 1;
         bool automatic = false;
         if (const auto* hook = std::get_if<ShuffleFrame>(&frame)) {
-            if (hook->selection_count == 0) return false;
+            if (hook->expected_selection_count == 0) return false;
             effect = SelectionEffect::add_to_hand; zone = Zone::draw; automatic = true;
-            minimum = hook->selection_count; maximum = hook->selection_count;
+            minimum = hook->expected_selection_count; maximum = hook->expected_selection_count;
             if (minimum == 0 || minimum >= state.zone(zone).size()) return false;
         } else if (const auto* program = std::get_if<CardProgramFrame>(&frame)) {
             const auto* source = state.cards.get(program->source);

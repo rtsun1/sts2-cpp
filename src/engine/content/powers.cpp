@@ -2,21 +2,33 @@
 #include "../mechanics/powers.hpp"
 #include "../mechanics/cards.hpp"
 #include "../execution/selection.hpp"
+#include "../hooks/dispatch.hpp"
 #include <algorithm>
 
 namespace sts2::engine::gameplay {
-void dark_embrace_after_card_exhausted(CombatView state, Scratch& scratch, int amount, const Ruleset& rules) {
-    draw(state, scratch, amount, rules, false);
+HandlerResult dark_embrace_after_card_exhausted(CombatView state, HandlerProgress& progress, int amount) {
+    if (progress.stage != 0) return HandlerResult::complete;
+    if (amount <= 0 || state.enemy.hp == 0 || state.player.hp == 0) return HandlerResult::complete;
+    progress.stage = 1;
+    state.execution.push_back(DrawFrame{.remaining = amount, .from_hand_draw = false});
+    return HandlerResult::yield;
 }
-void stratagem_after_shuffle(CombatView state, int amount) {
-    if (amount <= 0 || state.zone(Zone::draw).empty()) return;
+HandlerResult stratagem_after_shuffle(CombatView state, HandlerProgress& progress,
+    std::uint32_t& expected_selection_count, int amount) {
+    if (progress.stage != 0) {
+        expected_selection_count = 0;
+        return HandlerResult::complete;
+    }
+    if (amount <= 0 || state.zone(Zone::draw).empty()) return HandlerResult::complete;
     const auto count = std::min(static_cast<std::uint32_t>(amount), static_cast<std::uint32_t>(state.zone(Zone::draw).size()));
     if (state.zone(Zone::draw).size() <= count) {
-        // Native selection automatically returns the entire pile when all are required.
         while (!state.zone(Zone::draw).empty()) add_to_hand(state, Zone::draw, state.zone(Zone::draw).front());
-    } else {
-        begin_selection(state, SelectionEffect::add_to_hand, Zone::draw, static_cast<std::uint32_t>(amount), count, true);
+        return HandlerResult::complete;
     }
+    progress.stage = 1;
+    expected_selection_count = count;
+    begin_selection(state, SelectionEffect::add_to_hand, Zone::draw, count, count, true);
+    return HandlerResult::yield;
 }
 PowerModifier artifact_before_power_application(const CreatureState& creature, const OverflowStorage& owner, PowerId id, int amount) noexcept {
     const bool debuff = (id == PowerId::strength || id == PowerId::dexterity) ? amount < 0 :

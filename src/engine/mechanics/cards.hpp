@@ -23,11 +23,9 @@ void add_to_hand(CombatView, Zone from, CardHandle);
 void move_card(CombatView, Zone from, Zone to, CardHandle);
 void discard_card(CombatView, Scratch&, CardHandle);
 void discard_hand_at_turn_end(CombatView, const Ruleset&);
-void exhaust(CombatView, Scratch&, Zone, CardHandle);
+bool exhaust_one(CombatView, Scratch&, Zone, CardHandle);
 void reshuffle(CombatView, const Ruleset&);
 void draw_one(CombatView, Scratch&, bool from_hand_draw);
-// Schedule drawing; the execution driver drains its frame before the next boundary.
-void draw(CombatView, Scratch&, int count, const Ruleset&, bool from_hand_draw = true);
 }
 
 namespace sts2::engine {

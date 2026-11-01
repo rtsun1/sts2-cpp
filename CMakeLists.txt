@@ -18,9 +18,14 @@ add_library(sts2_engine
   src/engine/hooks/dispatch.cpp
   src/engine/content/relics.cpp
   src/engine/execution/interpreter.cpp
+  src/engine/execution/card_program.cpp
+  src/engine/execution/validation.cpp
   src/engine/execution/selection.cpp
   src/engine/mechanics/block.cpp
   src/engine/mechanics/cards.cpp
+  src/engine/mechanics/draw.cpp
+  src/engine/mechanics/exhaust.cpp
+  src/engine/mechanics/shuffle.cpp
   src/engine/mechanics/damage.cpp
   src/engine/mechanics/energy.cpp
   src/engine/mechanics/powers.cpp
