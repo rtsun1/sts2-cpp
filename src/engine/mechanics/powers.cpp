@@ -1,5 +1,6 @@
 #include "powers.hpp"
 #include "../content/powers.hpp"
+#include "../hooks/dispatch.hpp"
 #include "../combat/trace.hpp"
 #include <algorithm>
 #include <stdexcept>
@@ -37,6 +38,7 @@ std::uint32_t apply_power(CombatView s, Scratch& scratch, PowerId id, int amount
     if (power && power_is_depleted(id, power->amount)) {
         power->active = false;
         emit(s, scratch, CombatEventKind::power_changed, enemy_side, enemy, {}, identity);
+        retain_removed_power(s, target.present() ? target : (enemy ? s.enemy_handle : s.player_handle), *power);
         powers.erase(std::find_if(powers.begin(), powers.end(), [&](const auto& p) { return p.instance == identity; }));
     }
     return identity;
@@ -48,6 +50,7 @@ void expire_power(CombatView state, Scratch& scratch, CreatureState& creature, s
     --power->amount; power->active = power->amount != 0;
     emit(state, scratch, CombatEventKind::power_received, true, power->enemy_owner, {}, power->instance, -1, {}, false);
     if (power->amount == 0) {
+        retain_removed_power(state, &creature == &state.player ? state.player_handle : state.enemy_handle, *power);
         auto powers = creature.power_instances(state.creature_overflow);
         powers.erase(std::find_if(powers.begin(), powers.end(), [&](const auto& p) { return p.instance == identity; }));
     }

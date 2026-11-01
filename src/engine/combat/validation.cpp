@@ -81,7 +81,7 @@ bool valid_combat(ConstCombatView state, const Ruleset& rules) noexcept {
     if (!state.player_handle.present() || !state.enemy_handle.present() || state.player_handle == state.enemy_handle) return false;
     if (!state.valid_storage() || !state.cards.valid()) return false;
     if (state.exhaust_relic_count > state.exhaust_relics.size() ||
-        (state.joss_paper_counter >= 5 && std::none_of(state.execution.begin(), state.execution.end(), [](const auto& frame) { return std::holds_alternative<RelicDrawCompletion>(frame.pending); }))) return false;
+        (state.joss_paper_counter >= 5 && std::none_of(state.execution.begin(), state.execution.end(), [](const auto& frame) { return std::holds_alternative<RelicDrawCompletionFrame>(frame); }))) return false;
     bool joss = false;
     for (std::size_t i = 0; i < state.exhaust_relics.size(); ++i) {
         if (i >= state.exhaust_relic_count) { if (state.exhaust_relics[i] != ExhaustRelic{}) return false; continue; }
@@ -144,7 +144,7 @@ bool valid_combat(ConstCombatView state, const Ruleset& rules) noexcept {
         const CardHandle card{static_cast<std::uint32_t>(i), slot.generation};
         bool referenced = false;
         for (const auto& zone : zones) if (std::find(zone.begin(), zone.end(), card) != zone.end()) referenced = true;
-        for (const auto& frame : state.execution) if (frame.source == card) referenced = true;
+        for (const auto& frame : state.execution) if (const auto* program = std::get_if<CardProgramFrame>(&frame); program && program->source == card) referenced = true;
         if (!referenced && !slot.value.removed) return false;
     }
     return true;

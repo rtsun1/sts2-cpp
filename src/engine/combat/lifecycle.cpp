@@ -24,7 +24,7 @@ bool consume(Scratch& scratch) noexcept { return ++scratch.steps <= scratch.step
 void end_combat(CombatView state, Scratch& scratch, bool won) {
     state.phase = won ? CombatPhase::combat_won : CombatPhase::player_died;
     state.execution.clear(); state.cost_modifiers.clear();
-    state.continuation_cards.clear(); state.captured_shuffle_reactions.clear(); clear_selection(state);
+    state.continuation_cards.clear(); state.captured_hook_listeners.clear(); clear_selection(state);
     if (won) {
         state.player.clear_powers(); state.enemy.clear_powers();
         for (auto& zone : state.zone_views()) zone.clear();

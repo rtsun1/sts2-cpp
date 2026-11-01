@@ -114,7 +114,7 @@ std::string describe(const RunObservation& view) {
     if (view.prompt == PublicPrompt::discard) return "Choose one card to discard.";
     if (view.combat && view.combat->selection) {
         const auto& choice = *view.combat->selection;
-        const char* effect = choice.effect == SelectionEffect::upgrade ? "upgrade" : choice.effect == SelectionEffect::topdeck ? "put on top of your draw pile" : "exhaust";
+        const char* effect = choice.effect == SelectionEffect::upgrade ? "upgrade" : choice.effect == SelectionEffect::topdeck ? "put on top of your draw pile" : choice.effect == SelectionEffect::add_to_hand ? "put into your hand" : "exhaust";
         if (choice.submits_immediately) return std::string("Choose a card to ") + effect + ".";
         if (choice.minimum == 0) return "Select up to " + std::to_string(choice.maximum) + " cards to " + effect + ", then confirm.";
         return std::string("Select a card to ") + effect + ", then confirm.";

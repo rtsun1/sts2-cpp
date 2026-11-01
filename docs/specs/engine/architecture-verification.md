@@ -6,7 +6,8 @@ benchmark commit `72886eb` at measured/tested source revision
 `04c79645029b570e00bc0878093fdd35ec9307da`. It covers supported gameplay only. No production
 content, old content-ticket completion requirement, native fixture replacement or
 binary-to-JSON checkpoint migration is introduced. The current binary revisions
-are combat 15 and run 13 after adding typed persistent/combat card side stores.
+are combat 18 and run 16 after card-store changes and the
+[real-content hook refactor](hooks.md).
 Earlier revisions are rejected; the measurements below describe the recorded
 source revision before these storage changes.
 
@@ -24,19 +25,20 @@ surfaces and original fixture bytes.
 | Canonical creatures, retained operands and generation-safe reuse | `CreatureOverflowCloneAndRestoreKeepIndependentBranches`, `DeadCreatureRemainsUntilCombatResolutionReleasesItsOperands`, `RecycledGenerationsAndExhaustionRemainSafeAcrossCombats` |
 | Permanent/combat card isolation and layered costs | `PermanentUpgradeTargetsOriginAcrossDeckReorderingAndBranches`, `CombatUpgradeDoesNotChangePersistentDeck`, `CostLayerOverflowClonesIndependently` |
 | Ordered separate/per-applier powers and retained creature targets | `DistinctAndPerApplierPowersSurviveOverflowCloneAndRestore`, `PerApplierIdentityAndArtifactRemainOnRetainedCreature`, `CapturedCreatureTargetSurvivesMembershipReplacementAcrossNestedPrompt` |
-| Captured listeners and nested return order | `NestedShuffleChoiceResumesDrawAndParentExactlyOnceAfterRestore`, `NestedContinuationOverflowKeepsIndependentSameAndAlternativeFutures`, `NestedRelicDrawDefersItsCounterResetUntilTheChildChoiceFinishes` |
+| Captured listeners and nested return order | `NestedShuffleChoiceResumesDrawAndParentExactlyOnceAfterRestore`, `LargeStratagemPileChoiceKeepsIndependentSameAndAlternativeFutures`, `NestedRelicDrawDefersItsCounterResetUntilTheChildChoiceFinishes` |
 | Parent combat/reward return and cleanup | `ParentInteractionReturnsAfterChildCombatAndRewardsExactlyOnce` |
 | Transactional restore and resource failure | `OverflowingNestedCloneAndRestoreFailuresKeepDestinationTransactional`, `CorruptionCompatibilityAndMalformedPayloadsAreTransactional`, `CombinedCreatureAndPowerOverflowRestoreReacquiresCanonicalRecords` |
 | Pure borrowed traversal/direct validation, including overflow | `DirectActionValidationDoesNotCloneOverflowState`, `BorrowedRunActionsTraverseOverflowWithoutAllocationAndExpireAfterMutation` |
 | Hidden information, invalid/restricted/stale actions and operational failure | `HiddenQueuesAndDrawOrderDoNotAffectVisibleChoicesOrIds`, `HiddenEncounterSupportIsNotDisclosedByTravelQueries`, `MalformedUnsupportedAndStaleActionsArePureAndFailuresInvalidate` |
 | Worker-local complete state/scratch with shared immutable rules | `WorkersShareOnlyImmutableRulesAndProduceIdenticalCompleteStates`, `ConcurrentOverflowBranchesOwnStateAndScratchIndependently` |
 
-Controlled shuffle listeners, parent interactions and
-extra retained creatures are architecture fixtures. They do not establish native
-content parity. The native diagnostic adapter rejects unmapped controlled states;
-`ControlledShuffleStateCannotBeExportedAsNativeDiagnosticEvidence` checks that
-boundary. Native evidence remains the pinned supported recordings and their exact
-revision-2 comparison contract. No live oracle capture was performed.
+The historical controlled shuffle handlers described below have been replaced by
+real power handlers; see [combat hooks](hooks.md). Parent interactions and extra
+retained creatures remain architecture fixtures. Native diagnostic export still
+rejects unmapped Stratagem pile prompts (`StratagemPilePromptRejectsUnimplementedNativeDiagnosticMapping`).
+The benchmark results below describe the historical source and synthetic workload,
+not the replacement. No benchmark or live oracle capture was performed for the
+hook refactor.
 
 ## Reproducible release measurement
 
@@ -154,3 +156,77 @@ review identified the combined creature/power overflow restore lifetime bug, fix
 in `3b422bb` with a deterministic poisoned-retired-buffer regression demonstrated
 failing before the fix and passing afterward. Reviewers confirmed no remaining
 blockers in their focused rechecks.
+
+
+## Explicit execution frames and batching (2026-10-31)
+
+These measurements precede the subsequent always-scheduled draw/exhaust policy.
+They establish results for batching with the former synchronous fast paths, not
+the performance of the current scheduling policy.
+
+The baseline for this change is the working tree with the real hook implementation
+already present, before the frame refactor. The structural-only stage replaces
+`EffectFrame` and its nested payload with a direct `ExecutionFrame` variant and
+separate resume handlers. The batched stage loops inside each handler while
+preserving per-work-unit budget charges and yielding to child work or input.
+No new frame nesting is introduced.
+
+On GCC 11.4.0/x86-64, frame size changed from 48 to 32 bytes, `CombatData` from
+4,712 to 4,648 bytes, `RunData` from 34,576 to 34,512 bytes, and standalone
+`CombatState` from 5,872 to 5,808 bytes. These are ABI-specific measurements.
+Combat checkpoint revision 19 stores only the active frame alternative and
+rejects revision 18; the enclosing run format remains revision 16.
+
+Both release and debug builds succeeded. `ctest --preset release` and
+`ctest --preset debug` each passed all 272 tests. Five new `ExecutionFrames`
+checks cover batched card completion, draw/completion budget charges, budget
+exhaustion, yielding to a shuffle prompt, and a final selection replacing its
+own frame with a child at the same depth. Existing tests cover nested effects,
+clone/restore, retained identities, allocation failures, and recorded parity.
+`git diff --check` passed. These checks do not establish correctness for content
+outside the supported scope.
+
+Performance runs used GCC 11.4.0, `-O3 -DNDEBUG -ffp-contract=off`, with separate
+`-flto -fno-fat-lto-objects` builds for the structural and batched stages. No
+builds or tests ran alongside the final timing samples. Kernel results use five
+samples of 100,000 battles each, alternating variant order. Every kernel sample
+had 1,300,000 transitions, checksum 9,500,000, and zero warmed allocations.
+The original baseline was not rebuilt with LTO; the LTO comparison isolates
+batching after the structural refactor.
+
+| Version | Median kernel transitions/s | Sample range |
+| --- | ---: | ---: |
+| before | 562,540 | 529,974–589,231 |
+| structural | 547,765 | 517,963–570,737 |
+| batched | 559,146 | 543,802–580,325 |
+| structural-lto | 646,961 | 637,046–656,981 |
+| batched-lto | 686,475 | 666,245–689,932 |
+
+Architecture benchmark median step times (ns); 30 iterations per sample, three samples:
+
+| Workload | Before | Structural | Batched | Structural LTO | Batched LTO |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| supported_seeded_combat | 1,347 | 1,288 | 1,569 | 1,084 | 1,125 |
+| controlled_creature_overflow | 1,981 | 1,842 | 1,952 | 1,778 | 1,782 |
+| supported_cards_200_overflow | 2,484 | 2,440 | 2,515 | 2,057 | 2,167 |
+| stratagem_pile_choice_overflow | 27,064 | 29,321 | 27,897 | 30,529 | 23,375 |
+| controlled_power_instances_12_overflow | 1,846 | 1,824 | 1,767 | 1,661 | 1,596 |
+
+The final non-LTO kernel median is 0.6% below the original, with overlapping
+sample ranges; this does not establish a regression or improvement. Batching
+increased the LTO kernel median throughput by 6.1% relative to the structural-only
+stage, with nonoverlapping observed sample ranges. Short architecture samples
+are noisier (including cold samples), although the nested Stratagem step was
+consistently faster with LTO batching in these runs. The other architecture end-turn
+workloads do not enter suspendable frame processing; their timing differences
+should not be attributed to batching without further investigation. These results
+support retaining batching, not a universal performance claim or a guarantee
+against regressions on other workloads or compilers.
+
+Raw logs, stage source snapshots, saved benchmark executables, scripts, and JSON
+samples are under `/tmp/frame-refactor/`. The final samples are
+`final-kernel-samples.json` and `final-architecture-samples.json`; test logs are
+`release-tests.log` and `debug-tests.log`. Reproduce the normal workloads with
+`kernel_benchmark 100000` and `architecture_benchmark 30` from a release build.
+The isolated LTO build used `CMAKE_INTERPROCEDURAL_OPTIMIZATION=ON`; no repository
+build preset was changed.

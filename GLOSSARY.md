@@ -40,8 +40,21 @@ A request for player input with offered options, selection constraints and any a
 **Action**:
 One submitted player input at the current boundary.
 
+**Gameplay hook**:
+A named point in gameplay processing at which game objects, such as powers and relics, can respond.
+
+**Hook listener**:
+A particular game-object instance considered for notification at a gameplay hook.
+
+**Hook handler**:
+The behavior belonging to a kind of game object when it receives a hook notification.
+_Avoid_: Reaction as an interchangeable name for handler.
+
+**Hook dispatch**:
+The process of selecting listeners for a gameplay hook and invoking their handlers in the required order.
+
 **Continuation**:
-The unfinished part of an effect that must resume after a required choice, together with the information needed to resume it.
+Unfinished effect work, together with the information needed to resume after child effects or a player choice.
 
 **Snapshot**:
 A record of game state at a particular point in play; its format determines which state it contains.

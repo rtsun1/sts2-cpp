@@ -33,11 +33,7 @@ using namespace sts2::engine;
 void require(bool ok) { if (!ok) throw std::runtime_error("benchmark scenario failed"); }
 void nested(RunState& state) {
     Scratch scratch;
-    const std::array deck{CardSpec{CardId::burning_pact}, CardSpec{CardId::defend}, CardSpec{CardId::strike}, CardSpec{CardId::strike}, CardSpec{CardId::defend}};
-    require(initialize_combat_scenario(state, {}, deck).status == StepStatus::awaiting_input);
-    std::array<scenario::ShuffleReactionKind, 7> hooks;
-    hooks.fill(scenario::ShuffleReactionKind::nested_draw); hooks.back() = scenario::ShuffleReactionKind::choose_card;
-    scenario::configure_shuffle_reactions(state, hooks);
+    scenario::prepare_exhaust_shuffle(state, true);
     for (auto definition : {CardId::defend, CardId::burning_pact}) {
         CardHandle selected{};
         for (auto card : state.view().combat->zone(Zone::hand))
@@ -47,7 +43,7 @@ void nested(RunState& state) {
     const auto combat = *state.view().combat;
     require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, combat.selection_candidates.front(), false, combat.selection.id}, scratch).status == StepStatus::awaiting_input);
     require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, false, combat.selection.id}, scratch).status == StepStatus::awaiting_input);
-    require(state.view().combat->data.execution.overflowed());
+    require(!state.combat_overflow.empty());
 }
 
 template<class Function> void measure(const char* operation, std::uint64_t iterations, Function function) {
@@ -64,7 +60,7 @@ int main(int argc, char** argv) try {
     if (argc == 2) { char* end = nullptr; iterations = std::strtoull(argv[1], &end, 10); if (!end || *end || !iterations || iterations > 100000000) return 1; }
     else if (argc > 2) return 1;
     std::cout << "run_data_bytes=" << sizeof(RunData) << " combat_data_bytes=" << sizeof(CombatData)
-              << " card_instance_bytes=" << sizeof(CombatCard) << " effect_frame_bytes=" << sizeof(EffectFrame)
+              << " card_instance_bytes=" << sizeof(CombatCard) << " execution_frame_bytes=" << sizeof(ExecutionFrame)
               << " creature_state_bytes=" << sizeof(CreatureState) << " power_instance_bytes=" << sizeof(PowerInstance) << '\n';
     for (int workload = 0; workload < 5; ++workload) {
         RunState baseline, branch; Scratch scratch;
@@ -92,7 +88,7 @@ int main(int argc, char** argv) try {
         }
         require(valid_run(baseline));
         require(clone_into(branch, baseline) == CloneStatus::cloned);
-        std::cout << "workload=" << (workload == 0 ? "supported_seeded_combat" : workload == 1 ? "controlled_creature_overflow" : workload == 2 ? "supported_cards_200_overflow" : workload == 3 ? "controlled_nested_overflow" : "controlled_power_instances_12_overflow")
+        std::cout << "workload=" << (workload == 0 ? "supported_seeded_combat" : workload == 1 ? "controlled_creature_overflow" : workload == 2 ? "supported_cards_200_overflow" : workload == 3 ? "stratagem_pile_choice_overflow" : "controlled_power_instances_12_overflow")
                   << " player_power_instances=" << baseline.view().combat->player.power_instances(baseline.overflow).size()
                   << " root_bytes=" << sizeof(RunState) << " retained_bytes=" << sizeof(RunState) + baseline.overflow.retained_bytes() + baseline.combat_overflow.retained_bytes() << '\n';
         measure("query_validate", iterations, [&] {

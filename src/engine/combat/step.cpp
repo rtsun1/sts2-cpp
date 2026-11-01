@@ -8,7 +8,7 @@
 #include "../mechanics/energy.hpp"
 #include "../mechanics/powers.hpp"
 #include "../content/monsters.hpp"
-#include "../content/powers.hpp"
+#include "../hooks/dispatch.hpp"
 #include <algorithm>
 #include <limits>
 #include <new>
@@ -17,21 +17,6 @@
 namespace sts2::engine {
 using namespace gameplay;
 namespace {
-void after_enemy_turn(CombatView state, Scratch& scratch) {
-    // Capture native application order before callbacks can change membership.
-    for (auto* owner : {&state.player, &state.enemy}) {
-        // These duration callbacks are synchronous and only erase the current
-        // instance; preserve application order without allocating a snapshot.
-        std::size_t i = 0;
-        auto powers = owner->power_instances(state.creature_overflow);
-        while (i < powers.size()) {
-            const auto identity = powers[i].instance; const auto id = powers[i].definition;
-            if (power_ticks_after_enemy_turn(id)) expire_power(state, scratch, *owner, identity);
-            if (i < powers.size() && powers[i].instance == identity) ++i;
-        }
-    }
-}
-
 StepResult end_player_turn(CombatView state, Scratch& scratch, const Ruleset& rules) {
     if (!consume(scratch)) return fail(state, Restriction::execution_budget);
     discard_hand_at_turn_end(state, rules);
@@ -62,9 +47,7 @@ StepResult advance_combat(CombatView state, Scratch& scratch, const Ruleset& rul
         if (slot.live && !supported_card_modifiers(slot.value)) return {StepStatus::unsupported_content, state.boundary, Restriction::unsupported_setup};
     if (state.phase != CombatPhase::play || state.execution.empty()) return result(state);
     while (!state.execution.empty()) {
-        if (!consume(scratch)) return fail(state, Restriction::execution_budget);
-        const auto step = std::holds_alternative<std::monostate>(state.execution.back().pending) ?
-            execute_instruction(state, scratch, rules) : resume_continuation(state, scratch, rules);
+        const auto step = resume_frame(state, scratch, rules);
         if (step.status == StepStatus::engine_error || step.status == StepStatus::resource_limit || state.phase != CombatPhase::play) return step;
     }
     if (state.enemy.hp == 0 && state.phase == CombatPhase::play) end_combat(state, scratch, true);
@@ -90,7 +73,7 @@ StepResult apply_combat(CombatView state, const CombatInput& input, Scratch& scr
         move_card(state, Zone::hand, Zone::play, input.card);
         if (state.counters.started_plays == UINT32_MAX) return fail(state, Restriction::capacity);
         const auto play_id = state.counters.started_plays;
-        state.execution.push_back({input.card, 0, play_id, cost, state.enemy_handle});
+        state.execution.push_back(CardProgramFrame{input.card, 0, play_id, cost, state.enemy_handle});
         if (cost > 0) emit(state, scratch, CombatEventKind::energy_spent, false, false, {}, 0, cost);
         ++state.counters.started_plays; ++state.counters.started_this_turn;
         if (rules.card(card->definition)->kind == CardKind::attack) {

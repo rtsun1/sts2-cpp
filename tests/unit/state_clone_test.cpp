@@ -312,8 +312,8 @@ TEST(CompleteStateClone, SuspendedCountersAndCapturedOperandsSurviveIndependentF
     EXPECT_EQ(source.view().counters.started_plays, 1u);
     EXPECT_EQ(source.view().counters.finished_plays, 0u);
     ASSERT_EQ(source.view().execution.size(), 1u);
-    EXPECT_EQ(source.view().execution.back().energy, 1);
-    EXPECT_EQ(source.view().execution.back().target, source.view().enemy_handle);
+    EXPECT_EQ(std::get<CardProgramFrame>(source.view().execution.back()).energy, 1);
+    EXPECT_EQ(std::get<CardProgramFrame>(source.view().execution.back()).target, source.view().enemy_handle);
     const auto saved = checkpoint(source).bytes;
     auto branch = source; CombatState restored;
     ASSERT_EQ(restore(restored, saved, scratch), RestoreStatus::restored);

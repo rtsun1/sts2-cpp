@@ -1,27 +1,22 @@
 #include "relics.hpp"
 #include "../mechanics/damage.hpp"
 #include "../mechanics/cards.hpp"
+#include "../execution/interpreter.hpp"
 #include "../combat/trace.hpp"
 
 namespace sts2::engine::gameplay {
-void react_to_exhaust(ExhaustRelic listener, CombatView state, Scratch& scratch) {
-    if (listener == ExhaustRelic::charons_ashes && state.enemy.hp > 0) {
-        const auto hit = receive_damage(state.enemy, 3);
-        emit(state, scratch, CombatEventKind::damaged, false, true, {}, 4, 0, hit);
-    } else if (listener == ExhaustRelic::joss_paper) {
-        ++state.joss_paper_counter;
-        if (state.joss_paper_counter >= 5) {
-            if (!state.shuffle_order.empty()) {
-                EffectFrame completion;
-                if (!state.execution.empty()) completion = state.execution.back();
-                completion.pending = RelicDrawCompletion{};
-                state.execution.push_back(completion);
-                draw(state, scratch, static_cast<int>(state.joss_paper_counter / 5), Ruleset::pinned(), false);
-                return;
-            }
-            draw(state, scratch, static_cast<int>(state.joss_paper_counter / 5), Ruleset::pinned(), false);
-            state.joss_paper_counter %= 5;
-        }
-    }
+void joss_paper_after_draw(CombatView state) {
+    state.joss_paper_counter %= 5;
+}
+void charons_ashes_after_card_exhausted(CombatView state, Scratch& scratch) {
+    if (state.enemy.hp <= 0) return;
+    const auto hit = receive_damage(state.enemy, 3);
+    emit(state, scratch, CombatEventKind::damaged, false, true, {}, 4, 0, hit);
+}
+void joss_paper_after_card_exhausted(CombatView state, Scratch& scratch, const Ruleset& rules) {
+    ++state.joss_paper_counter;
+    if (state.joss_paper_counter < 5) return;
+    defer_joss_paper_draw_completion(state);
+    draw(state, scratch, static_cast<int>(state.joss_paper_counter / 5), rules, false);
 }
 }

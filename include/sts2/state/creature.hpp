@@ -25,6 +25,10 @@ struct CreatureState {
         for (auto& p : powers.values(owner)) if (p.instance == id && p.active) return &p;
         return nullptr;
     }
+    const PowerInstance* find_power_instance(std::uint32_t id, const OverflowStorage& owner) const noexcept {
+        for (const auto& p : powers.values(owner)) if (p.instance == id && p.active) return &p;
+        return nullptr;
+    }
     bool has_power(PowerId id, const OverflowStorage& owner) const noexcept { return find_power(id, owner) != nullptr; }
     std::int32_t power_amount(PowerId id, const OverflowStorage& owner) const noexcept {
         std::int64_t total = 0;

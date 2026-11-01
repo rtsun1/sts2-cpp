@@ -42,13 +42,11 @@ struct CombatData {
     InlineSequence<EnchantmentRuntime, 2> enchantment_runtime {};
     InlineSequence<CostModifier, 8> cost_modifiers {};
     std::array<InlineSequence<CardHandle, 32>, static_cast<std::size_t>(Zone::count)> zones {};
-    InlineSequence<EffectFrame, 4> execution {};
+    InlineSequence<ExecutionFrame, 4> execution {};
     CombatCounters counters {};
     std::array<ExhaustRelic, 2> exhaust_relics {};
     std::uint8_t exhaust_relic_count = 0;
-    ShuffleReactionPool shuffle_reactions {};
-    InlineSequence<ShuffleReactionHandle, 4> shuffle_order {};
-    InlineSequence<ShuffleReactionHandle, 16> captured_shuffle_reactions {};
+    InlineSequence<HookListener, 8> captured_hook_listeners {};
     InlineSequence<CardHandle, 16> continuation_cards {};
     CardSelection selection {};
     InlineSequence<CardHandle, 10> selection_candidates {}, selection_order {};
@@ -59,8 +57,7 @@ struct CombatData {
         visit(r.seed); visit(r.cards.slots); visit(r.cards.free); visit(r.card_extra); visit(r.enchantment_runtime); visit(r.cost_modifiers);
         for (auto& zone : r.zones) visit(zone);
         visit(r.execution); visit(r.selection_candidates); visit(r.selection_order);
-        visit(r.shuffle_reactions.slots); visit(r.shuffle_reactions.free); visit(r.shuffle_order);
-        visit(r.captured_shuffle_reactions); visit(r.continuation_cards);
+        visit(r.captured_hook_listeners); visit(r.continuation_cards);
     }
     template<class Visit> void for_each_sequence(Visit visit) const noexcept { visit_sequences(*this, visit); }
     template<class Visit> void for_each_sequence(Visit visit) noexcept { visit_sequences(*this, visit); }
@@ -96,14 +93,12 @@ template<bool Const> struct BasicCombatView {
     SequenceView<CombatCardExtra, 20, Const> card_extra{data.card_extra, overflow};
     SequenceView<EnchantmentRuntime, 2, Const> enchantment_runtime{data.enchantment_runtime, overflow};
     SequenceView<CostModifier, 8, Const> cost_modifiers{data.cost_modifiers, overflow};
-    SequenceView<EffectFrame, 4, Const> execution{data.execution, overflow};
+    SequenceView<ExecutionFrame, 4, Const> execution{data.execution, overflow};
     Ref<CombatCounters> counters = data.counters;
     Ref<std::array<ExhaustRelic, 2>> exhaust_relics = data.exhaust_relics;
     Ref<std::uint8_t> exhaust_relic_count = data.exhaust_relic_count;
     Ref<std::uint32_t> joss_paper_counter;
-    PoolView<ShuffleReaction, ShuffleReactionTag, 4, Const> shuffle_reactions{data.shuffle_reactions, overflow};
-    SequenceView<ShuffleReactionHandle, 4, Const> shuffle_order{data.shuffle_order, overflow};
-    SequenceView<ShuffleReactionHandle, 16, Const> captured_shuffle_reactions{data.captured_shuffle_reactions, overflow};
+    SequenceView<HookListener, 8, Const> captured_hook_listeners{data.captured_hook_listeners, overflow};
     SequenceView<CardHandle, 16, Const> continuation_cards{data.continuation_cards, overflow};
     Ref<CardSelection> selection = data.selection;
     SequenceView<CardHandle, 10, Const> selection_candidates{data.selection_candidates, overflow};
@@ -161,8 +156,7 @@ template<bool Const> struct BasicCombatView {
             execution == other.execution &&
             counters == other.counters && exhaust_relics == other.exhaust_relics &&
             exhaust_relic_count == other.exhaust_relic_count && joss_paper_counter == other.joss_paper_counter &&
-            shuffle_reactions == other.shuffle_reactions && shuffle_order == other.shuffle_order &&
-            captured_shuffle_reactions == other.captured_shuffle_reactions && continuation_cards == other.continuation_cards &&
+            captured_hook_listeners == other.captured_hook_listeners && continuation_cards == other.continuation_cards &&
             selection == other.selection && selection_candidates == other.selection_candidates &&
             selection_order == other.selection_order && next_prompt == other.next_prompt &&
             next_power_instance == other.next_power_instance &&
@@ -183,7 +177,7 @@ struct CombatState {
     CombatState(const CombatState& other) : CombatState(other.overflow.allocator()) { if (clone_into(*this, other) != CloneStatus::cloned) throw std::bad_alloc{}; }
     explicit CombatState(ConstCombatView other) : CombatState(other.overflow.allocator()) {
         for (const auto& frame : other.execution)
-            if (std::holds_alternative<std::monostate>(frame.pending) && frame.target != other.player_handle && frame.target != other.enemy_handle)
+            if (const auto* program = std::get_if<CardProgramFrame>(&frame); program && program->target != other.player_handle && program->target != other.enemy_handle)
                 throw std::invalid_argument("Standalone combat cannot retain targets outside active membership");
         for (const auto* creature : {&other.player, &other.enemy})
             for (const auto& power : creature->power_instances(other.creature_overflow))

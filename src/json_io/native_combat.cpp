@@ -80,11 +80,15 @@ void export_rewards(Json& out, ConstRunView run_view) {
 }
 }
 void export_native_combat(Json& out, const RunState& run, const RecordedCombat& recorded) {
-    if (run.view().combat && run.view().combat->shuffle_reactions.data.highest_generation != 0)
-        throw std::invalid_argument("Controlled shuffle reactions have no native diagnostic mapping");
-    for (const auto& power : recorded.powers)
+    if (run.view().combat && run.view().combat->phase == CombatPhase::card_choice &&
+        run.view().combat->selection.effect == SelectionEffect::add_to_hand)
+        throw std::invalid_argument("Stratagem pile selection has no native diagnostic mapping yet");
+    for (const auto& power : recorded.powers) {
+        if (power.definition == PowerId::dark_embrace || power.definition == PowerId::stratagem)
+            throw std::invalid_argument("Dark Embrace/Stratagem have no complete native diagnostic mapping yet");
         if (power.stacking != PowerInstance::Stacking::by_type)
             throw std::invalid_argument("Distinct/per-applier controlled powers have no native diagnostic mapping");
+    }
     auto run_view = run.view();
     if (run_view.combat) {
         const auto slots = run_view.creatures.slots();
@@ -206,7 +210,7 @@ void export_native_combat(Json& out, const RunState& run, const RecordedCombat& 
     }
     for (std::size_t i = 0; i < recorded.powers.size(); ++i) {
         const auto& p = recorded.powers[i]; const bool shrink = p.definition == PowerId::shrink;
-        constexpr std::array names{"POWER.SHRINK_POWER", "POWER.VULNERABLE_POWER", "POWER.STRENGTH_POWER", "POWER.DEXTERITY_POWER", "POWER.WEAK_POWER", "POWER.ARTIFACT_POWER"};
+        constexpr std::array names{"POWER.SHRINK_POWER", "POWER.VULNERABLE_POWER", "POWER.STRENGTH_POWER", "POWER.DEXTERITY_POWER", "POWER.WEAK_POWER", "POWER.ARTIFACT_POWER", "POWER.DARK_EMBRACE_POWER", "POWER.STRATAGEM_POWER"};
         Json value = {{"id", names[static_cast<std::size_t>(p.definition)]}, {"amount", p.amount},
             {"amount_on_turn_start", p.amount_on_turn_start}, {"skip_next_duration_tick", p.skip_next_tick},
             {"applier", p.has_applier ? Json(creature(p.applier_enemy)) : Json(nullptr)}, {"target", nullptr}, {"dynamic_vars", shrink ? Json{{"DamageDecrease", 30}} : p.definition == PowerId::vulnerable ? Json{{"DamageIncrease", 1.5}} : p.definition == PowerId::weak ? Json{{"DamageDecrease", 0.75}} : Json::object()}, {"model_fields", Json::object()}};
@@ -242,7 +246,7 @@ void export_native_combat(Json& out, const RunState& run, const RecordedCombat& 
         combat["history"].push_back(std::move(entry));
     }
     if (choosing) {
-        const auto& frame = s.execution.back();
+        const auto& frame = std::get<CardProgramFrame>(s.execution.back());
         combat["active_card_plays"].push_back({{"card_play", play_ref(frame.play)},
             {"result_location", {{"player", "/players/0"}, {"pile_type", s.cards.get(frame.source)->definition == CardId::purity ? "Exhaust" : "Discard"}, {"position", "Bottom"}}}});
         Json candidates = Json::array();

@@ -1,6 +1,7 @@
 #include "cards.hpp"
 #include "../combat/trace.hpp"
-#include "../content/relics.hpp"
+#include "../hooks/dispatch.hpp"
+#include "../execution/interpreter.hpp"
 #include "sts2/core/sort.hpp"
 #include "sts2/engine/run.hpp"
 #include <algorithm>
@@ -24,20 +25,6 @@ template<class View, class Pool> bool valid_extra(View entries, Pool pool) noexc
         for (std::size_t j = 0; j < i; ++j) if (entries[i].card == entries[j].card) return false;
     }
     return true;
-}
-void after_card_exhausted(CombatView state, Scratch& scratch, CardHandle card) {
-    if (!state.shuffle_order.empty() && state.exhaust_relic_count != 0) {
-        EffectFrame frame;
-        frame.source = card;
-        if (!state.execution.empty()) { frame.play = state.execution.back().play; frame.energy = state.execution.back().energy; }
-        frame.pending = ExhaustContinuation{state.exhaust_relics, state.exhaust_relic_count, 0};
-        state.execution.push_back(frame);
-        return;
-    }
-    // Guaranteed synchronous callers need no continuation frame.
-    const auto candidates = state.exhaust_relics;
-    const auto count = state.exhaust_relic_count;
-    for (std::uint8_t i = 0; i < count; ++i) react_to_exhaust(candidates[i], state, scratch);
 }
 }
 
@@ -106,6 +93,10 @@ void move_card(CombatView state, Zone from, Zone to, CardHandle card) {
     source.erase(std::find(source.begin(), source.end(), card));
     state.zone(to).push_back(card);
 }
+void add_to_hand(CombatView state, Zone from, CardHandle card) {
+    // Native CardPileCmd.Add redirects hand overflow into discard; this is not a draw.
+    move_card(state, from, state.zone(Zone::hand).size() < 10 ? Zone::hand : Zone::discard, card);
+}
 void discard_card(CombatView state, Scratch& scratch, CardHandle card) {
     move_card(state, Zone::hand, Zone::discard, card);
     emit(state, scratch, CombatEventKind::discarded, false, false, card);
@@ -148,20 +139,9 @@ void draw_one(CombatView state, Scratch& scratch, bool from_hand_draw) {
         event.from_hand_draw = from_hand_draw; scratch.trace.emit(state, event);
     }
 }
-void draw(CombatView state, Scratch& scratch, int count, const Ruleset& rules, bool from_hand_draw) {
+void draw(CombatView state, Scratch&, int count, const Ruleset&, bool from_hand_draw) {
     if (state.enemy.hp == 0 || state.player.hp == 0 || count <= 0) return;
-    if (!state.shuffle_order.empty()) {
-        EffectFrame frame;
-        if (!state.execution.empty()) frame = state.execution.back();
-        frame.pending = DrawContinuation{count, from_hand_draw};
-        state.execution.push_back(frame);
-        return;
-    }
-    while (count-- > 0 && state.zone(Zone::hand).size() < 10) {
-        if (state.zone(Zone::draw).empty() && !state.zone(Zone::discard).empty()) reshuffle(state, rules);
-        if (state.zone(Zone::draw).empty()) break;
-        draw_one(state, scratch, from_hand_draw);
-    }
+    defer_draw(state, count, from_hand_draw);
 }
 }
 

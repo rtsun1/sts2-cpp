@@ -19,12 +19,14 @@ void set_enchantment_runtime(CombatView, CardHandle, EnchantmentRuntimeData);
 bool valid_enchantment(CardEnchantment) noexcept;
 bool valid_card_modifiers(ConstCombatView) noexcept;
 bool supported_card_modifiers(const CombatCard&) noexcept;
+void add_to_hand(CombatView, Zone from, CardHandle);
 void move_card(CombatView, Zone from, Zone to, CardHandle);
 void discard_card(CombatView, Scratch&, CardHandle);
 void discard_hand_at_turn_end(CombatView, const Ruleset&);
 void exhaust(CombatView, Scratch&, Zone, CardHandle);
 void reshuffle(CombatView, const Ruleset&);
 void draw_one(CombatView, Scratch&, bool from_hand_draw);
+// Schedule drawing; the execution driver drains its frame before the next boundary.
 void draw(CombatView, Scratch&, int count, const Ruleset&, bool from_hand_draw = true);
 }
 

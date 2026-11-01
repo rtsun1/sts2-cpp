@@ -74,7 +74,7 @@ void NativeRunExporter::record(ConstCombatView state, const CombatEvent& event) 
         if (event.kind == CombatEventKind::power_changed) return;
     }
     if (event.kind == CombatEventKind::play_started) {
-        const auto& frame = state.execution.back();
+        const auto& frame = std::get<CardProgramFrame>(state.execution.back());
         if (frame.play != combat_.plays.size()) throw std::logic_error("Missing exported play identity");
         combat_.plays.push_back({frame.source, frame.energy, Ruleset::pinned().card(state.cards.get(frame.source)->definition)->enemy_target});
     }

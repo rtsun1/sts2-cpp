@@ -93,9 +93,11 @@ sparse placement of the remaining fields has not been established as optimal.
 
 Native diagnostics reject populated stores until their content mapping is
 implemented. Temporary selections still belong to prompt and continuation state.
-Controlled shuffle reactions remain architecture fixtures.
+Shuffle dispatch now derives captured candidates from real power/relic state; see
+[combat hooks](hooks.md) for the exact supported slice and evidence limits.
 
-Shared operations and reaction sequencing live in `src/engine/mechanics/`.
+Shared operations live in `src/engine/mechanics/`; hook capture and dispatch live
+in `src/engine/hooks/`.
 Individual power behavior, including typed modifiers, lives in
 `src/engine/content/powers.cpp`. Damage modifiers still combine before one final
 rounding step; power separation uses direct functions with no event bus.
@@ -116,17 +118,19 @@ controller. `src/engine/execution/interpreter.cpp` holds both instruction execut
 and selective continuation resumption for unfinished draw, selection, exhaust-hook
 and relic-draw completion work. `execution/selection.cpp` owns prompt construction,
 selection validation and transferring accepted choices into continuation frames.
-Guaranteed synchronous mechanics remain direct calls. Captured listener handles and
+Guaranteed synchronous mechanics remain direct calls. Captured content identities and
 ordered operands belong to complete state, including their overflow; prompts name
 the frame that receives their result. Joss Paper's persistent counter is run-owned
 and its reset waits for any child draw to complete. Standalone combat retains its
 own counter adapter.
 
-Controlled shuffle reactions exercise nested suspension, listener replacement,
+Real Dark Embrace/Stratagem and Joss Paper handlers exercise nested suspension,
 retained sources, same/alternative restored futures and allocation/budget failures.
-These fixtures establish architecture behavior, not native parity for a named new
-card or power. Existing supported native recording comparisons remain in the engine
-checks.
+The separate synthetic listener pool, registration order and shuffle handlers are
+removed. Power handler behavior is backed by retained static native evidence;
+this change adds no live oracle recording and does not add the powers' playable
+card definitions. The new powers and Stratagem's draw-pile prompt remain unsupported
+by native JSON export. Existing supported native recording comparisons remain in engine checks.
 
 `RunActionSpaceView` provides borrowed indexed traversal across current run and
 combat choices. `get_actions` remains an allocating compatibility wrapper. Validation

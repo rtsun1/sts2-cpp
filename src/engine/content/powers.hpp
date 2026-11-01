@@ -1,10 +1,11 @@
 #pragma once
-#include "sts2/state/combat.hpp"
+#include "../hooks/dispatch.hpp"
 
 namespace sts2::engine::gameplay {
-struct PowerModifier { int amount; std::uint32_t artifact; };
-PowerModifier before_power_application(const CreatureState&, const OverflowStorage&, PowerId, int amount) noexcept;
-void after_power_application(CombatView, Scratch&, CreatureState&, PowerModifier, bool enemy, bool enemy_side, CreatureHandle target);
+void dark_embrace_after_card_exhausted(CombatView, Scratch&, int amount, const Ruleset&);
+void stratagem_after_shuffle(CombatView, int amount);
+PowerModifier artifact_before_power_application(const CreatureState&, const OverflowStorage&, PowerId, int amount) noexcept;
+void artifact_after_power_application(CombatView, Scratch&, CreatureState&, PowerModifier, bool enemy, bool enemy_side, CreatureHandle target);
 // Combine the supported damage modifiers before one final rounding operation.
 int modify_attack_damage(const CreatureState& target, int base, const CreatureState& source, const OverflowStorage&) noexcept;
 std::int64_t modify_block(const CreatureState&, const OverflowStorage&, int amount) noexcept;

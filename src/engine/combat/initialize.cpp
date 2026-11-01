@@ -54,7 +54,13 @@ StepResult initialize_combat(CombatView state, const CombatConfig& config, Scrat
         }
         next_view.rng.get(RunStream::shuffle).shuffle<CardHandle>(next_view.zone(Zone::draw));
         emit(next, scratch, CombatEventKind::combat_started);
-        draw(next, scratch, 5, rules); next_view.phase = CombatPhase::play; next_view.boundary.value = 1;
+        next_view.phase = CombatPhase::play;
+        scratch.steps = 0;
+        draw(next, scratch, 5, rules);
+        const auto drawn = advance_combat(next, scratch, rules);
+        if (drawn.status == StepStatus::engine_error || drawn.status == StepStatus::resource_limit)
+            return {drawn.status, state.boundary, drawn.reason};
+        next_view.boundary.value = 1;
         emit(next, scratch, CombatEventKind::combat_updated);
     } catch (const std::bad_alloc&) { return {StepStatus::resource_limit, state.boundary, Restriction::capacity}; } catch (const std::length_error&) { return {StepStatus::resource_limit, state.boundary, Restriction::capacity}; }
     state.replace(std::move(next)); scratch.steps = 0;

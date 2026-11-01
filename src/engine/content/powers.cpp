@@ -1,15 +1,30 @@
 #include "powers.hpp"
 #include "../mechanics/powers.hpp"
+#include "../mechanics/cards.hpp"
+#include "../execution/selection.hpp"
 #include <algorithm>
 
 namespace sts2::engine::gameplay {
-PowerModifier before_power_application(const CreatureState& creature, const OverflowStorage& owner, PowerId id, int amount) noexcept {
+void dark_embrace_after_card_exhausted(CombatView state, Scratch& scratch, int amount, const Ruleset& rules) {
+    draw(state, scratch, amount, rules, false);
+}
+void stratagem_after_shuffle(CombatView state, int amount) {
+    if (amount <= 0 || state.zone(Zone::draw).empty()) return;
+    const auto count = std::min(static_cast<std::uint32_t>(amount), static_cast<std::uint32_t>(state.zone(Zone::draw).size()));
+    if (state.zone(Zone::draw).size() <= count) {
+        // Native selection automatically returns the entire pile when all are required.
+        while (!state.zone(Zone::draw).empty()) add_to_hand(state, Zone::draw, state.zone(Zone::draw).front());
+    } else {
+        begin_selection(state, SelectionEffect::add_to_hand, Zone::draw, static_cast<std::uint32_t>(amount), count, true);
+    }
+}
+PowerModifier artifact_before_power_application(const CreatureState& creature, const OverflowStorage& owner, PowerId id, int amount) noexcept {
     const bool debuff = (id == PowerId::strength || id == PowerId::dexterity) ? amount < 0 :
         id == PowerId::shrink || ((id == PowerId::weak || id == PowerId::vulnerable) && amount >= 0);
     const auto artifact = creature.has_power(PowerId::artifact, owner) && debuff ? creature.find_power(PowerId::artifact, owner)->instance : UINT32_MAX;
     return {artifact == UINT32_MAX ? amount : 0, artifact};
 }
-void after_power_application(CombatView state, Scratch& scratch, CreatureState& creature, PowerModifier modifier, bool enemy, bool enemy_side, CreatureHandle target) {
+void artifact_after_power_application(CombatView state, Scratch& scratch, CreatureState& creature, PowerModifier modifier, bool enemy, bool enemy_side, CreatureHandle target) {
     if (modifier.artifact != UINT32_MAX && creature.has_power(PowerId::artifact, state.creature_overflow) && creature.find_power(PowerId::artifact, state.creature_overflow)->instance == modifier.artifact)
         (void)apply_power(state, scratch, PowerId::artifact, -1, enemy, enemy_side, {}, false, false, PowerInstance::Stacking::by_type, {}, target, modifier.artifact);
 }
@@ -36,7 +51,7 @@ bool power_is_depleted(PowerId id, int amount) noexcept {
     return (id == PowerId::strength || id == PowerId::dexterity || id == PowerId::shrink) ? amount == 0 : amount <= 0;
 }
 bool valid_power_amount(PowerId id, int amount) noexcept {
-    return !(((id == PowerId::vulnerable || id == PowerId::weak || id == PowerId::artifact) && amount <= 0) ||
+    return !(((id == PowerId::vulnerable || id == PowerId::weak || id == PowerId::artifact || id == PowerId::dark_embrace || id == PowerId::stratagem) && amount <= 0) ||
         (id == PowerId::shrink && amount >= 0) ||
         ((id == PowerId::strength || id == PowerId::dexterity) && amount == 0));
 }
