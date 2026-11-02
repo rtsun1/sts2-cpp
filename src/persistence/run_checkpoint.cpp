@@ -25,7 +25,7 @@ struct Writer {
         i32(scythe.current_damage); i32(scythe.increased_damage);
     }
     void creature(const CreatureState& c, const OverflowStorage& owner) {
-        i32(c.hp); i32(c.max_hp); i32(c.block); u64(c.positive_unblocked_hits);
+        i32(c.hp); i32(c.max_hp); i32(c.block); u64(c.positive_unblocked_hits); u8(static_cast<std::uint8_t>(c.enemy_ai.selected)); u8(c.enemy_member); u8(c.skip_current_enemy_turn);
         u32(static_cast<std::uint32_t>(c.powers.size()));
         for (const auto& p : c.power_instances(owner)) {
             const auto id = p.definition;
@@ -77,7 +77,7 @@ struct Reader {
     }
     CardHandle handle() { const auto slot = u32(); return {slot, u32()}; }
     CreatureState creature(OverflowStorage& owner) {
-        CreatureState c; c.hp = i32(); c.max_hp = i32(); c.block = i32(); c.positive_unblocked_hits = u64();
+        CreatureState c; c.hp = i32(); c.max_hp = i32(); c.block = i32(); c.positive_unblocked_hits = u64(); c.enemy_ai.selected = static_cast<BeetleMove>(u8()); c.enemy_member = boolean(); c.skip_current_enemy_turn = boolean();
         const auto count = u32();
         if (count > 65536) throw std::invalid_argument("Invalid power count");
         for (std::uint32_t i = 0; i < count; ++i) {
@@ -112,15 +112,11 @@ std::uint64_t checksum(std::span<const std::byte> bytes) { return game_hash({rei
 }
 Checkpoint checkpoint(const RunState& run) {
     if (!valid_run(run)) throw std::invalid_argument("Cannot checkpoint invalid run");
-    Writer w; w.text("STS2RUN1"); w.u32(17); w.u32(rules_revision); w.text(game_digest); w.text(SetupRules::fingerprint()); w.u64(content_fingerprint());
+    Writer w; w.text("STS2RUN1"); w.u32(19); w.u32(rules_revision); w.text(game_digest); w.text(SetupRules::fingerprint()); w.u64(content_fingerprint());
     w.u32(run.creatures().data.highest_generation);
     w.u32(static_cast<std::uint32_t>(run.creatures().slots().size()));
     for (const auto& slot : run.creatures().slots()) { w.u32(slot.generation); w.u8(slot.live); w.creature(slot.value, run.overflow); }
-    w.u32(static_cast<std::uint32_t>(run.creatures().free_slots().size()));
-    for (auto index : run.creatures().free_slots()) w.u32(index);
     w.u32(run.data.player.slot); w.u32(run.data.player.generation);
-    w.u32(static_cast<std::uint32_t>(run.enemies().size()));
-    for (auto enemy : run.enemies()) { w.u32(enemy.slot); w.u32(enemy.generation); }
     w.u32(static_cast<std::uint32_t>(run.seed().size())); w.text(run.seed()); w.u64(run.data.numeric_seed); w.u32(run.data.character); w.u8(run.data.ascension);
     w.i32(run.data.gold); w.i32(run.data.potion_slots); w.i32(run.data.orb_slots);
     for (const auto& rng : run.data.rng.streams) w.rng(rng.state());
@@ -166,27 +162,22 @@ RestoreStatus restore(RunState& destination, std::span<const std::byte> bytes, S
         Reader trailer{bytes.last(8)}; if (trailer.u64() != checksum(bytes.first(bytes.size() - 8))) return RestoreStatus::malformed;
         Reader r{bytes.first(bytes.size() - 8)};
         for (char c : std::string_view("STS2RUN1")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
-        if (r.u32() != 17 || r.u32() != rules_revision) return RestoreStatus::incompatible;
+        if (r.u32() != 19 || r.u32() != rules_revision) return RestoreStatus::incompatible;
         for (const auto identity : {game_digest, SetupRules::fingerprint()}) for (char c : identity)
             if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
         if (r.u64() != content_fingerprint()) return RestoreStatus::incompatible;
         RunState run(destination.overflow.allocator());
         const auto highest = r.u32();
-        const auto creature_slot_count = r.count(29, 4096);
+        const auto creature_slot_count = r.count(32, 4096);
         std::vector<CreaturePool::Slot> creature_slots; creature_slots.reserve(creature_slot_count);
         for (std::size_t i = 0; i < creature_slot_count; ++i) {
             CreaturePool::Slot slot; slot.generation = r.u32(); slot.live = r.boolean(); slot.value = r.creature(run.overflow); creature_slots.push_back(slot);
         }
-        const auto creature_free_count = r.count(4, 4096); std::vector<std::uint32_t> creature_free; creature_free.reserve(creature_free_count);
-        for (std::size_t i = 0; i < creature_free_count; ++i) creature_free.push_back(r.u32());
-        PoolView<CreatureState, CreatureTag, 8> creatures{run.data.creatures, run.overflow};
-        if (!creatures.restore(std::move(creature_slots), std::move(creature_free)) || highest < run.data.creatures.highest_generation) return RestoreStatus::malformed;
+        auto creatures = run.creatures();
+        if (!creatures.restore(std::move(creature_slots)) || highest < run.data.creatures.highest_generation) return RestoreStatus::malformed;
         run.data.creatures.highest_generation = highest;
         run.data.player = {r.u32(), r.u32()};
-        const auto enemy_count = r.count(8, 1);
-        for (std::size_t i = 0; i < enemy_count; ++i) run.data.enemies.push_back(run.overflow, {r.u32(), r.u32()});
         if (!creatures.get(run.data.player)) return RestoreStatus::malformed;
-        for (auto enemy : run.data.enemies.values(run.overflow)) if (enemy == run.data.player || !creatures.get(enemy)) return RestoreStatus::malformed;
         const auto seed_size = r.count(1, 4096); for (std::size_t i = 0; i < seed_size; ++i) run.seed().push_back(static_cast<char>(r.u8()));
         run.data.numeric_seed = r.u64(); run.data.character = r.id(); run.data.ascension = r.u8();
         run.data.gold = r.i32(); run.data.potion_slots = r.i32(); run.data.orb_slots = r.i32();

@@ -7,16 +7,18 @@
 
 namespace sts2::engine::gameplay {
 void charons_ashes_after_card_exhausted(RunState& state, Scratch& scratch) {
-    if (state.enemy().hp <= 0) return;
-    const auto hit = receive_damage(state.enemy(), 3);
-    emit(state, scratch, CombatEventKind::damaged, false, true, {}, 4, 0, hit);
+    for (auto handle : state.enemies()) {
+        if (state.creature(handle)->hp <= 0) continue;
+        const auto hit = receive_damage(*state.creature(handle), 3);
+        emit(state, scratch, CombatEventKind::damaged, false, true, {}, 4, 0, hit, true, false, state.data.player, handle);
+    }
 }
 HandlerResult joss_paper_after_card_exhausted(RunState& state, Scratch& scratch, HandlerProgress& progress) {
     if (progress.stage == 0) {
         ++state.data.joss_paper_counter;
         if (state.data.joss_paper_counter < 5) return HandlerResult::complete;
         progress.stage = 1;
-        if (state.enemy().hp != 0 && state.player().hp != 0)
+        if (state.has_living_enemies() && state.player().hp != 0)
             state.execution().push_back(DrawFrame{.remaining = static_cast<int>(state.data.joss_paper_counter / 5), .from_hand_draw = false});
         return HandlerResult::yield;
     }

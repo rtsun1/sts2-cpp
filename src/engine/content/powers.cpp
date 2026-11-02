@@ -8,7 +8,7 @@
 namespace sts2::engine::gameplay {
 HandlerResult dark_embrace_after_card_exhausted(RunState& state, HandlerProgress& progress, int amount) {
     if (progress.stage != 0) return HandlerResult::complete;
-    if (amount <= 0 || state.enemy().hp == 0 || state.player().hp == 0) return HandlerResult::complete;
+    if (amount <= 0 || !state.has_living_enemies() || state.player().hp == 0) return HandlerResult::complete;
     progress.stage = 1;
     state.execution().push_back(DrawFrame{.remaining = amount, .from_hand_draw = false});
     return HandlerResult::yield;
@@ -51,7 +51,7 @@ std::int64_t modify_block(const CreatureState& creature, const OverflowStorage& 
     return std::max<std::int64_t>(0, std::int64_t(amount) + creature.power_amount(PowerId::dexterity, owner));
 }
 int preview_attack_damage(const RunState& s, int value, bool active_preview) noexcept {
-    return static_cast<int>(std::max<std::int64_t>(0, std::int64_t(value) + (active_preview ? s.player().power_amount(PowerId::strength, s.overflow) : 0)) * (active_preview && s.player().has_power(PowerId::shrink, s.overflow) ? 70 : 100) * (active_preview && s.player().power_amount(PowerId::weak, s.overflow) > 0 ? 75 : 100) * (active_preview && s.enemy().power_amount(PowerId::vulnerable, s.overflow) ? 150 : 100) / 1000000);
+    return static_cast<int>(std::max<std::int64_t>(0, std::int64_t(value) + (active_preview ? s.player().power_amount(PowerId::strength, s.overflow) : 0)) * (active_preview && s.player().has_power(PowerId::shrink, s.overflow) ? 70 : 100) * (active_preview && s.player().power_amount(PowerId::weak, s.overflow) > 0 ? 75 : 100) * (active_preview && s.enemies().size() == 1 && s.enemy().power_amount(PowerId::vulnerable, s.overflow) ? 150 : 100) / 1000000);
 }
 int preview_block(const RunState& s, int value, bool active_preview) noexcept {
     return static_cast<int>(std::max<std::int64_t>(0, std::int64_t(value) + (active_preview ? s.player().power_amount(PowerId::dexterity, s.overflow) : 0)));

@@ -20,8 +20,7 @@ void initialize_one(RunState& state, CardId id = CardId::defend, CardEnchantment
     ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
 }
 StepResult play_card(RunState& state, CardHandle card, Scratch& scratch) {
-    return apply_combat(state, {state.data.boundary, CombatInputKind::play_card, card,
-        Ruleset::pinned().card(state.cards().get(card)->definition)->enemy_target}, scratch);
+    return apply_combat(state, {state.data.boundary, CombatInputKind::play_card, card, (Ruleset::pinned().card(state.cards().get(card)->definition)->enemy_target) ? state.enemy_handle() : CreatureHandle{}}, scratch);
 }
 TEST(CardModifiers, ExhaustMutationChangesExecutionAndObservation) {
     RunState state; initialize_one(state); Scratch scratch;

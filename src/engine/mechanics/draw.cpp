@@ -40,7 +40,7 @@ StepResult resume_draw(RunState& state, Scratch& scratch, const Ruleset& rules) 
         if (scratch.steps >= scratch.step_limit) {
             (void)consume(scratch); return fail(state, Restriction::execution_budget);
         }
-        if (frame.remaining <= 0 || state.zone(Zone::hand).size() >= 10 || state.enemy().hp == 0 || state.player().hp == 0) {
+        if (frame.remaining <= 0 || state.zone(Zone::hand).size() >= 10 || !state.has_living_enemies() || state.player().hp == 0) {
             (void)consume(scratch);
             state.execution().pop_back(); return result(state);
         }

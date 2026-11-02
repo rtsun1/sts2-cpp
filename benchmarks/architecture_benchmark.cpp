@@ -41,8 +41,8 @@ void nested(RunState& state) {
         require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, selected}, scratch).status == StepStatus::awaiting_input);
     }
     auto& combat = state;
-    require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, combat.selection_candidates().front(), false, combat.combat().selection.id}, scratch).status == StepStatus::awaiting_input);
-    require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, false, combat.combat().selection.id}, scratch).status == StepStatus::awaiting_input);
+    require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, combat.selection_candidates().front(), {}, combat.combat().selection.id}, scratch).status == StepStatus::awaiting_input);
+    require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, {}, combat.combat().selection.id}, scratch).status == StepStatus::awaiting_input);
     require(!state.combat_overflow.empty());
 }
 
@@ -84,7 +84,7 @@ int main(int argc, char** argv) try {
         }
         else {
             require(initialize_seeded_combat(baseline, {}).status == StepStatus::awaiting_input);
-            if (workload == 1) for (int i = 0; i < 12; ++i) require(baseline.creatures().create({3, 3}, 4096).present());
+            if (workload == 1) for (int i = 0; i < 12; ++i) require(baseline.creatures().create_at(2 + i, {3, 3}, 4096).present());
         }
         require(valid_run(baseline));
         require(clone_into(branch, baseline) == CloneStatus::cloned);
@@ -104,7 +104,7 @@ int main(int argc, char** argv) try {
         for (std::uint64_t i = 0; i < iterations; ++i) {
             require(clone_into(branch, baseline) == CloneStatus::cloned);
             auto input = workload == 3
-                ? CombatInput{branch.data.boundary, CombatInputKind::select_card, branch.selection_candidates().front(), false, branch.combat().selection.id}
+                ? CombatInput{branch.data.boundary, CombatInputKind::select_card, branch.selection_candidates().front(), {}, branch.combat().selection.id}
                 : CombatInput{branch.data.boundary, CombatInputKind::end_turn};
             allocations = 0; counting = true; const auto start = std::chrono::steady_clock::now();
             const auto result = apply_action(branch, input, scratch);

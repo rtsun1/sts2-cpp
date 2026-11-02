@@ -24,7 +24,7 @@ struct CombatPayloadRange {
     std::size_t end() const noexcept { return begin + size; }
 };
 inline CombatPayloadRange combat_payload_range(std::span<const std::byte> bytes) {
-    constexpr std::string_view magic = "STS2CB01";
+    constexpr std::string_view magic = "STS2CB02";
     const auto at = std::search(bytes.begin(), bytes.end(), magic.begin(), magic.end(),
         [](std::byte a, char b) { return std::to_integer<unsigned char>(a) == static_cast<unsigned char>(b); });
     const auto begin = static_cast<std::size_t>(at - bytes.begin());
@@ -43,11 +43,10 @@ inline std::size_t player_identity_offset(std::span<const std::byte> bytes) {
     at += 4; // Highest creature generation.
     const auto slots = checkpoint_u32(bytes, at); at += 4;
     for (std::uint32_t i = 0; i < slots; ++i) {
-        at += 4 + 1 + 12 + 8; // Generation, live, HP/max HP/block, hit count.
+        at += 4 + 1 + 12 + 8 + 3; // Generation, live, HP/max HP/block, hit count.
         const auto powers = checkpoint_u32(bytes, at); at += 4;
         at += std::size_t(powers) * 35;
     }
-    const auto free_count = checkpoint_u32(bytes, at); at += 4 + std::size_t(free_count) * 4;
     return at;
 }
 } // namespace sts2::engine::test

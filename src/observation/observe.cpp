@@ -5,22 +5,31 @@
 #include <algorithm>
 
 namespace sts2::engine {
+std::size_t EnemyObservationRange::size() const noexcept { return state_ ? state_->enemies().size() : 0; }
+std::optional<EnemyObservation> EnemyObservationRange::at(std::size_t index) const noexcept {
+    if (!state_ || index >= size()) return std::nullopt;
+    const auto handle = state_->enemies()[index];
+    const auto& enemy = *state_->creature(handle);
+    const auto intent = gameplay::visible_enemy_intent(*state_, handle);
+    return EnemyObservation{handle, enemy.hp, enemy.max_hp, enemy.block,
+        enemy.power_amount(PowerId::vulnerable, state_->overflow), enemy.power_amount(PowerId::weak, state_->overflow), intent.attack, intent.move};
+}
 CombatObservationView observe_combat(const RunState& s) noexcept {
     if (!s.valid_combat_storage()) { CombatObservationView invalid{}; invalid.phase = CombatPhase::invalid; return invalid; }
-    const auto intent = gameplay::visible_enemy_intent(s);
+    const auto intent = gameplay::visible_enemy_intent(s, s.enemy_handle());
     CombatObservationView view{game_build, s.data.boundary, s.combat().phase, s.player().hp, s.player().max_hp, s.player().block, s.combat().energy,
         s.combat().turn, s.enemy().hp, s.enemy().max_hp, s.enemy().power_amount(PowerId::vulnerable, s.overflow), intent.attack, s.player().has_power(PowerId::shrink, s.overflow), intent.move,
-        s.zone(Zone::hand), s.zone(Zone::draw).size(), s.zone(Zone::discard).size(), s.zone(Zone::exhaust).size(), std::nullopt, s.player().power_amount(PowerId::strength, s.overflow), s.player().power_amount(PowerId::dexterity, s.overflow), s.player().power_amount(PowerId::weak, s.overflow), s.enemy().power_amount(PowerId::weak, s.overflow)};
+        s.zone(Zone::hand), s.zone(Zone::draw).size(), s.zone(Zone::discard).size(), s.zone(Zone::exhaust).size(), std::nullopt, s.player().power_amount(PowerId::strength, s.overflow), s.player().power_amount(PowerId::dexterity, s.overflow), s.player().power_amount(PowerId::weak, s.overflow), s.enemy().power_amount(PowerId::weak, s.overflow), EnemyObservationRange(s)};
     if (s.combat().phase == CombatPhase::card_choice) view.selection = CardSelectionView{s.combat().selection.id, s.combat().selection.effect, s.selection_candidates(), s.selection_order(), s.combat().selection.minimum, s.combat().selection.maximum, s.combat().selection.automatic_at_maximum, !s.combat().selection.automatic_at_maximum && s.selection_order().size() >= s.combat().selection.minimum};
     return view;
 }
-std::optional<CardView> observe_card(const RunState& s, CardHandle h, const Ruleset& rules) noexcept {
+std::optional<CardView> observe_card(const RunState& s, CardHandle h, const Ruleset& rules, CreatureHandle target) noexcept {
     if (!s.valid_combat_storage()) return std::nullopt;
     const auto& hand = s.zone(Zone::hand);
     if (std::find(hand.begin(), hand.end(), h) == hand.end()) return std::nullopt;
-    return inspect_card(s, h, rules);
+    return inspect_card(s, h, rules, target);
 }
-std::optional<CardView> inspect_card(const RunState& s, CardHandle h, const Ruleset& rules) noexcept {
+std::optional<CardView> inspect_card(const RunState& s, CardHandle h, const Ruleset& rules, CreatureHandle target) noexcept {
     if (!s.valid_combat_storage()) return std::nullopt;
     bool visible = false;
     for (const auto zone : {Zone::hand, Zone::draw, Zone::discard, Zone::exhaust}) {
@@ -30,6 +39,7 @@ std::optional<CardView> inspect_card(const RunState& s, CardHandle h, const Rule
     if (!visible) return std::nullopt;
     const auto* instance = s.cards().get(h); if (!instance) return std::nullopt;
     const auto* def = rules.card(instance->definition); if (!def) return std::nullopt;
+    if (target.present() && (!def->enemy_target || !s.is_enemy(target) || s.creature(target)->hp <= 0)) return std::nullopt;
     CardView view{h, def->model_id, def->name, effective_card_cost(s, h, rules), 0, 0, 0, instance->upgraded, def->enemy_target, def->rarity};
     // Native CardModel.UpdateDynamicVarPreview runs global combat hooks only
     // for Hand/Play or explicit combat upgrade-preview copies. inspect_card
@@ -38,7 +48,7 @@ std::optional<CardView> inspect_card(const RunState& s, CardHandle h, const Rule
     const bool active_preview = std::find(hand.begin(), hand.end(), h) != hand.end();
     for (const auto& op : def->program(instance->upgraded)) {
         const auto value = op.base;
-        if (op.opcode == Opcode::damage) view.damage = gameplay::preview_attack_damage(s, value, active_preview);
+        if (op.opcode == Opcode::damage) view.damage = active_preview && target.present() ? gameplay::modify_attack_damage(*s.creature(target), value, s.player(), s.overflow) : gameplay::preview_attack_damage(s, value, active_preview);
         else if (op.opcode == Opcode::block) view.block = gameplay::preview_block(s, value, active_preview);
         else if (op.opcode == Opcode::vulnerable) view.vulnerable = value;
         else if (op.opcode == Opcode::strength) view.strength = value;

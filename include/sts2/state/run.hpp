@@ -1,4 +1,5 @@
 #pragma once
+#include <iterator>
 #include "sts2/content/catalog.hpp"
 #include "sts2/state/clock.hpp"
 #include "sts2/state/map.hpp"
@@ -82,7 +83,36 @@ struct RewardOffers {
     friend bool operator==(const RewardOffers&, const RewardOffers&) = default;
 };
 using CombatRewards = RewardOffers;
-using CreaturePool = PoolData<CreatureState, CreatureTag, 8>;
+using CreaturePool = PoolData<CreatureState, CreatureTag, 8, PoolAllocation::specified_slot>;
+template<bool Const = false>
+using CreaturePoolView = PoolView<CreatureState, CreatureTag, 8, Const, PoolAllocation::specified_slot>;
+// A borrowed traversal of authoritative pool membership; no roster is stored.
+struct EnemyPoolRange {
+    CreaturePoolView<true> pool;
+    struct Iterator {
+        using value_type = CreatureHandle;
+        using difference_type = std::ptrdiff_t;
+        using iterator_category = std::forward_iterator_tag;
+        using iterator_concept = std::forward_iterator_tag;
+        const CreaturePool* data = nullptr;
+        const OverflowStorage* owner = nullptr;
+        std::size_t index = 0;
+        void seek() noexcept {
+            const auto slots = data->slots.values(*owner);
+            while (index < slots.size() && (!slots[index].live || !slots[index].value.enemy_member)) ++index;
+        }
+        CreatureHandle operator*() const noexcept { return {static_cast<std::uint32_t>(index), data->slots.values(*owner)[index].generation}; }
+        Iterator& operator++() noexcept { ++index; seek(); return *this; }
+        Iterator operator++(int) noexcept { auto previous = *this; ++*this; return previous; }
+        bool operator==(const Iterator& other) const noexcept { return data == other.data && index == other.index; }
+    };
+    Iterator begin() const noexcept { Iterator it{&pool.data, &pool.owner, 0}; it.seek(); return it; }
+    Iterator end() const noexcept { return {&pool.data, &pool.owner, pool.slots().size()}; }
+    bool empty() const noexcept { return begin() == end(); }
+    std::size_t size() const noexcept { std::size_t count = 0; for (auto handle : *this) { (void)handle; ++count; } return count; }
+    CreatureHandle front() const noexcept { return empty() ? CreatureHandle{} : *begin(); }
+    CreatureHandle operator[](std::size_t index) const noexcept { for (auto handle : *this) if (index-- == 0) return handle; return {}; }
+};
 using PersistentCardPool = PoolData<PersistentCard, PersistentCardTag, 32>;
 template<bool Const> struct BasicDeckView {
     using Owner = std::conditional_t<Const, const OverflowStorage, OverflowStorage>;
@@ -137,7 +167,6 @@ struct RunData {
     std::uint8_t ascension = 0;
     CreaturePool creatures {};
     CreatureHandle player {};
-    InlineSequence<CreatureHandle, 4> enemies {};
     std::int32_t gold = 0;
     std::int32_t potion_slots = 3;
     std::int32_t orb_slots = 0;
@@ -174,7 +203,7 @@ struct RunData {
         if (creatures.slots.valid(owner)) for (const auto& slot : creatures.slots.values(owner)) visit(slot.value.powers);
     }
     template<class Visit> void for_each_sequence(Visit visit) const noexcept {
-        visit(seed); visit(creatures.slots); visit(creatures.free); visit(enemies);
+        visit(seed); visit(creatures.slots);
         for (const auto* bag : {&shared_relics, &player_relics}) {
             for (const auto& tier : bag->tiers) visit(tier);
             visit(bag->order);
@@ -187,12 +216,14 @@ struct RunData {
 static_assert(std::is_trivially_copyable_v<RunData>);
 inline bool valid_creature_storage(const RunData& data, const OverflowStorage& owner) noexcept {
     if (!valid_data_storage(data, owner)) return false;
-    const PoolView<CreatureState, CreatureTag, 8, true> pool{data.creatures, owner};
+    const CreaturePoolView<true> pool{data.creatures, owner};
     if (!pool.valid() || !pool.get(data.player)) return false;
     for (const auto& slot : pool.slots()) if (!slot.value.powers.valid(owner)) return false;
-    const auto enemies = data.enemies.values(owner);
-    if (data.combat.has_value() != !enemies.empty() || enemies.size() > 1) return false;
-    for (const auto enemy : enemies) if (enemy == data.player || !pool.get(enemy)) return false;
+    const EnemyPoolRange enemies{pool};
+    if (data.combat.has_value() != !enemies.empty() || data.player.slot != 0 || pool.get(data.player)->enemy_member) return false;
+    for (const auto& slot : pool.slots()) {
+        if (static_cast<unsigned>(slot.value.enemy_ai.selected) > static_cast<unsigned>(BeetleMove::stomp)) return false;
+    }
     return true;
 }
 struct RunState;
@@ -201,7 +232,7 @@ struct RunState {
     RunData data;
     OverflowStorage overflow, combat_overflow;
     explicit RunState(StorageAllocator allocator = {}) : overflow(allocator), combat_overflow(allocator) {
-        data.player = PoolView<CreatureState, CreatureTag, 8>{data.creatures, overflow}.create({}, UINT32_MAX);
+        data.player = CreaturePoolView<>{data.creatures, overflow}.create_at(0, {}, UINT32_MAX);
     }
     RunState(const RunState& other) : RunState(other.overflow.allocator()) { if (clone_into(*this, other) != CloneStatus::cloned) throw std::bad_alloc{}; }
     RunState& operator=(const RunState& other) { if (clone_into(*this, other) != CloneStatus::cloned) throw std::bad_alloc{}; return *this; }
@@ -217,19 +248,42 @@ struct RunState {
     }
     void reset() noexcept {
         data = RunData{}; overflow.reset(); combat_overflow.reset();
-        data.player = PoolView<CreatureState, CreatureTag, 8>{data.creatures, overflow}.create({}, UINT32_MAX);
+        data.player = CreaturePoolView<>{data.creatures, overflow}.create_at(0, {}, UINT32_MAX);
     }
     bool has_combat() const noexcept { return data.combat.has_value(); }
     CombatData& combat() noexcept { return *data.combat; }
     const CombatData& combat() const noexcept { return *data.combat; }
-    auto creatures() noexcept { return PoolView<CreatureState, CreatureTag, 8>{data.creatures, overflow}; }
-    auto creatures() const noexcept { return PoolView<CreatureState, CreatureTag, 8, true>{data.creatures, overflow}; }
+    auto creatures() noexcept { return CreaturePoolView<>{data.creatures, overflow}; }
+    auto creatures() const noexcept { return CreaturePoolView<true>{data.creatures, overflow}; }
     CreatureState* creature(CreatureHandle id) noexcept { return creatures().get(id); }
     const CreatureState* creature(CreatureHandle id) const noexcept { return creatures().get(id); }
     CreatureState& player() noexcept { return *creature(data.player); }
     const CreatureState& player() const noexcept { return *creature(data.player); }
-    auto enemies() noexcept { return SequenceView(data.enemies, overflow); }
-    auto enemies() const noexcept { return SequenceView(data.enemies, overflow); }
+    auto enemies() const noexcept { return EnemyPoolRange{creatures()}; }
+    bool has_living_enemies() const noexcept {
+        for (auto handle : enemies()) if (creature(handle)->hp > 0) return true;
+        return false;
+    }
+    bool is_enemy(CreatureHandle handle) const noexcept {
+        const auto* value = creature(handle); return value && value->enemy_member;
+    }
+    void set_enemy_membership(CreatureHandle handle, bool member) {
+        auto* value = creature(handle);
+        if (!value || handle == data.player) throw std::invalid_argument("Invalid enemy identity");
+        value->enemy_member = member;
+    }
+    CreatureHandle create_enemy_at(std::uint32_t encounter_slot, CreatureState value, std::size_t limit = 4096) {
+        if (encounter_slot == UINT32_MAX) return {};
+        value.enemy_member = true;
+        value.skip_current_enemy_turn = has_combat() && combat().enemy_side;
+        return creatures().create_at(encounter_slot + 1, value, limit);
+    }
+    CreatureHandle creature_handle(const CreatureState& value) const noexcept {
+        const auto slots = creatures().slots();
+        for (std::size_t i = 0; i < slots.size(); ++i)
+            if (slots[i].live && &slots[i].value == &value) return {static_cast<std::uint32_t>(i), slots[i].generation};
+        return {};
+    }
     CreatureHandle enemy_handle() const noexcept { return enemies().front(); }
     CreatureState& enemy() noexcept { return *creature(enemy_handle()); }
     const CreatureState& enemy() const noexcept { return *creature(enemy_handle()); }
@@ -245,14 +299,12 @@ struct RunState {
     void reset_combat() noexcept {
         data.combat.reset(); combat_overflow.reset();
         for (auto enemy : enemies()) { if (auto* c = creature(enemy)) c->clear(); (void)creatures().erase(enemy); }
-        enemies().clear();
     }
     void emplace_combat() {
         reset_combat();
-        const auto enemy = creatures().create({}, UINT32_MAX);
-        if (!enemy.present()) throw std::length_error("Creature identity exhausted");
-        try { enemies().push_back(enemy); } catch (...) { (void)creatures().erase(enemy); throw; }
         data.combat.emplace();
+        const auto enemy = create_enemy_at(0, {}, UINT32_MAX);
+        if (!enemy.present()) throw std::length_error("Creature identity exhausted");
     }
     bool valid_storage() const noexcept { return valid_creature_storage(data, overflow); }
     bool valid_combat_storage() const noexcept { return has_combat() && valid_storage() && valid_data_storage(combat(), combat_overflow); }
@@ -309,7 +361,7 @@ inline bool RunState::combat_equals(const RunState& other) const {
         && combat().phase == other.combat().phase
         && combat().energy == other.combat().energy
         && combat().turn == other.combat().turn
-        && combat().enemy_ai.selected == other.combat().enemy_ai.selected
+        && combat().enemy_side == other.combat().enemy_side
         && combat().burning_blood == other.combat().burning_blood
         && combat().counters == other.combat().counters
         && combat().exhaust_relics == other.combat().exhaust_relics
@@ -334,7 +386,7 @@ inline bool operator==(const RunState& a, const RunState& b) {
     return a.seed() == b.seed() && a.data.numeric_seed == b.data.numeric_seed &&
         a.data.character == b.data.character && a.data.ascension == b.data.ascension &&
         a.data.player == b.data.player && a.creatures() == b.creatures() &&
-        a.enemies() == b.enemies() && a.data.gold == b.data.gold &&
+        a.data.gold == b.data.gold &&
         a.data.potion_slots == b.data.potion_slots && a.data.orb_slots == b.data.orb_slots &&
         a.data.rng == b.data.rng && a.data.player_rng == b.data.player_rng &&
         a.shared_relics() == b.shared_relics() && a.player_relics() == b.player_relics() &&

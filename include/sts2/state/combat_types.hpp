@@ -4,6 +4,11 @@
 #include <cstdint>
 
 namespace sts2::engine {
+enum class BeetleMove : std::uint8_t { shrink, chomp, stomp };
+struct EnemyAiState {
+    BeetleMove selected = BeetleMove::shrink;
+    friend bool operator==(const EnemyAiState&, const EnemyAiState&) = default;
+};
 enum class CombatEventKind : std::uint8_t { drawn, discarded, energy_spent, play_started, play_finished, damaged, attacked, block_gained, power_received, combat_started, combat_won, combat_lost, power_changed, combat_updated, exhausted };
 struct HitResult {
     std::int32_t blocked = 0, unblocked = 0, overkill = 0;
@@ -24,6 +29,7 @@ struct CombatEvent {
     bool from_hand_draw : 1 = true;
     bool has_applier : 1 = true;
     bool applier_enemy : 1 = false;
+    CreatureHandle actor {}, receiver {};
     friend bool operator==(const CombatEvent&, const CombatEvent&) = default;
 };
 struct PowerInstance {

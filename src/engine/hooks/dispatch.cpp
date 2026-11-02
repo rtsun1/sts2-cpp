@@ -68,14 +68,20 @@ RangeProgress capture_exhaust_listeners(RunState& state) {
 }
 
 void after_enemy_turn(RunState& state, Scratch& scratch) {
-    for (auto* owner : {&state.player(), &state.enemy()}) {
-        // Supported duration handlers only erase their current instance.
+    for (std::size_t index = 0; index < state.creatures().slots().size(); ++index) {
+        const auto& slot = state.creatures().slots()[index];
+        if (!slot.live || (index != state.data.player.slot && !slot.value.enemy_member)) continue;
+        const CreatureHandle owner{static_cast<std::uint32_t>(index), slot.generation};
         std::size_t i = 0;
-        auto powers = owner->power_instances(state.overflow);
-        while (i < powers.size()) {
-            const auto identity = powers[i].instance; const auto id = powers[i].definition;
-            if (power_ticks_after_enemy_turn(id)) expire_power(state, scratch, *owner, identity);
-            if (i < powers.size() && powers[i].instance == identity) ++i;
+        while (auto* current = state.creature(owner)) {
+            const auto powers = current->power_instances(state.overflow);
+            if (i >= powers.size()) break;
+            const auto identity = powers[i].instance;
+            if (power_ticks_after_enemy_turn(powers[i].definition)) expire_power(state, scratch, *current, identity);
+            current = state.creature(owner);
+            if (!current) break;
+            const auto remaining = current->power_instances(state.overflow);
+            if (i < remaining.size() && remaining[i].instance == identity) ++i;
         }
     }
 }

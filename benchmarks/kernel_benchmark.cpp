@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
             ActionSpaceView actions(state);
             for (std::size_t i = 0; i < state.zone(Zone::hand).size(); ++i) {
                 const auto action = *actions.at(i);
-                if (action.restriction == Restriction::none && action.input.target_enemy) { input = action.input; break; }
+                if (action.restriction == Restriction::none && action.input.target.present()) { input = action.input; break; }
             }
             if (input.kind == CombatInputKind::end_turn) for (std::size_t i = 0; i < actions.size(); ++i) {
                 const auto action = *actions.at(i);

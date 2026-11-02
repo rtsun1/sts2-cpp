@@ -72,7 +72,7 @@ StepResult apply_card_selection(RunState& state, const CombatInput& input, Scrat
 
 Restriction validate_selection_input(const RunState& state, const CombatInput& input) noexcept {
     if (input.prompt != state.combat().selection.id) return Restriction::invalid_selection;
-    if (input.target_enemy) return Restriction::malformed_action;
+    if (input.target != CreatureHandle{}) return Restriction::malformed_action;
     if (input.kind == CombatInputKind::confirm_selection) {
         if (input.card != CardHandle{}) return Restriction::malformed_action;
         if (state.combat().selection.automatic_at_maximum) return Restriction::wrong_phase;

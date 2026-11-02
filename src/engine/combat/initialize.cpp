@@ -17,7 +17,7 @@ constexpr std::array starting_deck = {
 StepResult initialize_combat(RunState& state, const CombatConfig& config, Scratch& scratch, const Ruleset& rules, Limits limits) {
     if (config.build != game_build || config.ascension != 0 || config.encounter != "ENCOUNTER.SHRINKER_BEETLE_WEAK" ||
         config.seed.empty() || config.seed.size() > 4096 || config.player_max_hp < 1 || config.player_hp < 1 || config.player_hp > config.player_max_hp ||
-        config.card_generation == 0 || config.enemy_hp < 0 || config.enemy_hp > 40 || config.exhaust_relics.size() > 2 || config.joss_paper_counter >= 5 ||
+        config.enemy_count < 1 || config.enemy_count > 2 || config.card_generation == 0 || config.enemy_hp < 0 || config.enemy_hp > 40 || config.exhaust_relics.size() > 2 || config.joss_paper_counter >= 5 ||
         (config.seed.starts_with("old") && std::any_of(config.seed.begin(), config.seed.end(), [](unsigned char c) { return c >= 128; })))
         return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
     RunClock checked_clock;
@@ -60,9 +60,14 @@ StepResult initialize_combat(RunState& state, const CombatConfig& config, Scratc
         next.data.joss_paper_counter = config.joss_paper_counter;
         next.reserve_combat(deck.size()); next.seed() = config.seed; next.data.numeric_seed = game_seed(config.seed); next.data.rng = config.initial_rng ? *config.initial_rng : RngBank(config.seed);
         next.player().clear(); next.player().hp = config.player_hp; next.player().max_hp = config.player_max_hp;
-        int enemy_hp = config.enemy_hp;
-        if (enemy_hp == 0) (void)next.data.rng.get(RunStream::niche).next_int(38, 41, enemy_hp);
-        next.enemy().hp = enemy_hp; next.enemy().max_hp = enemy_hp; next.combat().energy = 3; next.combat().turn = 1; next.combat().burning_blood = config.burning_blood;
+        for (std::uint32_t i = 0; i < config.enemy_count; ++i) {
+            auto handle = i == 0 ? next.enemy_handle() : next.create_enemy_at(i, {});
+            if (!handle.present()) return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity};
+            int enemy_hp = config.enemy_hp;
+            if (enemy_hp == 0) (void)next.data.rng.get(RunStream::niche).next_int(38, 41, enemy_hp);
+            next.creature(handle)->hp = next.creature(handle)->max_hp = enemy_hp;
+        }
+        next.combat().energy = 3; next.combat().turn = 1; next.combat().burning_blood = config.burning_blood;
         for (const auto& card : deck) {
             auto handle = next.cards().create({card.definition, card.upgraded, next.combat().next_creation_order++, card.origin}, limits.cards, config.card_generation);
             if (!handle.present()) return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity};

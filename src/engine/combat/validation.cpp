@@ -50,20 +50,22 @@ Restriction validate_combat(const RunState& state, const CombatInput& input, con
         return Restriction::invalid_state;
     for (const auto& slot : state.cards().slots())
         if (slot.live && !supported_card_modifiers(slot.value)) return Restriction::unsupported_setup;
+    if (state.combat().enemy_side) return Restriction::wrong_phase;
     if (input.expected_boundary != state.data.boundary) return Restriction::stale_boundary;
     if (state.combat().phase == CombatPhase::combat_won || state.combat().phase == CombatPhase::player_died) return Restriction::wrong_phase;
     if (state.combat().phase == CombatPhase::card_choice) {
         return validate_selection_input(state, input);
     }
+    if (!input.target.present() && input.target != CreatureHandle{}) return Restriction::malformed_action;
     if (input.prompt != PromptId{}) return Restriction::invalid_selection;
     if (input.kind == CombatInputKind::end_turn) {
-        if (input.card != CardHandle{} || input.target_enemy) return Restriction::malformed_action;
+        if (input.card != CardHandle{} || input.target.present()) return Restriction::malformed_action;
         return state.combat().phase == CombatPhase::play ? Restriction::none : Restriction::wrong_phase;
     }
     if (input.kind != CombatInputKind::play_card && input.kind != CombatInputKind::select_card) return Restriction::malformed_action;
     if (input.kind == CombatInputKind::select_card) {
         if (state.combat().phase != CombatPhase::discard_choice) return Restriction::wrong_phase;
-        if (input.target_enemy) return Restriction::malformed_action;
+        if (input.target.present()) return Restriction::malformed_action;
     } else if (state.combat().phase != CombatPhase::play) return Restriction::wrong_phase;
     const auto* card = state.cards().get(input.card);
     const auto hand = state.zone(Zone::hand);
@@ -71,7 +73,7 @@ Restriction validate_combat(const RunState& state, const CombatInput& input, con
     if (input.kind == CombatInputKind::select_card) return Restriction::none;
     const auto* definition = rules.card(card->definition);
     if (!definition) return Restriction::invalid_state;
-    if (definition->enemy_target != input.target_enemy || (input.target_enemy && state.enemy().hp <= 0)) return Restriction::invalid_target;
+    if (definition->enemy_target != input.target.present() || (input.target.present() && (!state.is_enemy(input.target) || state.creature(input.target)->hp <= 0))) return Restriction::invalid_target;
     if (state.combat().energy < effective_card_cost(state, input.card, rules)) return Restriction::insufficient_energy;
     return Restriction::none;
 }
@@ -95,22 +97,27 @@ bool valid_combat(const RunState& state, const Ruleset& rules) noexcept {
     }
     if (!joss && state.data.joss_paper_counter != 0) return false;
     if (static_cast<unsigned>(state.combat().phase) > static_cast<unsigned>(CombatPhase::invalid) ||
-        static_cast<unsigned>(state.combat().enemy_ai.selected) > static_cast<unsigned>(BeetleMove::stomp) ||
+        static_cast<unsigned>(state.enemy().enemy_ai.selected) > static_cast<unsigned>(BeetleMove::stomp) ||
         state.seed().empty() || state.seed().size() > 4096 || state.data.numeric_seed != game_seed(state.seed()) ||
         state.combat().rules != rules_revision || state.combat().phase == CombatPhase::uninitialized || state.combat().phase == CombatPhase::invalid ||
         state.data.boundary.value == 0 || state.player().max_hp < 1 || state.player().hp < 0 || state.player().hp > state.player().max_hp ||
         state.enemy().max_hp < 1 || state.enemy().hp < 0 || state.enemy().hp > state.enemy().max_hp ||
         state.player().block < 0 || state.enemy().block < 0 ||
         state.combat().energy < 0 || state.combat().turn < 1 || state.zone(Zone::hand).size() > 10) return false;
+    for (auto handle : state.enemies()) {
+        const auto& enemy = *state.creature(handle);
+        if (enemy.max_hp < 1 || enemy.hp < 0 || enemy.hp > enemy.max_hp || enemy.block < 0) return false;
+        if (state.combat().phase == CombatPhase::combat_won && !enemy.powers.empty()) return false;
+    }
     if (state.data.clock.elapsed_seconds() != std::int64_t(state.data.boundary.value - 1) * state.data.clock.config().seconds_per_action) return false;
     for (const auto& stream : state.data.rng.streams) {
         const auto& s = stream.state().words;
         if ((s[0] | s[1] | s[2] | s[3]) == 0) return false;
     }
     const bool terminal = state.combat().phase == CombatPhase::combat_won || state.combat().phase == CombatPhase::player_died;
-    if ((state.combat().phase == CombatPhase::combat_won && (state.enemy().hp != 0 || state.player().hp == 0)) ||
+    if ((state.combat().phase == CombatPhase::combat_won && (state.has_living_enemies() || state.player().hp == 0)) ||
         (state.combat().phase == CombatPhase::player_died && state.player().hp != 0) ||
-        (!terminal && (state.enemy().hp == 0 || state.player().hp == 0))) return false;
+        (!terminal && (!state.has_living_enemies() || state.player().hp == 0))) return false;
     if (state.combat().next_prompt.value == 0 || (state.combat().phase != CombatPhase::card_choice && (state.combat().selection != CardSelection{} || !state.selection_candidates().empty() || !state.selection_order().empty()))) return false;
     if (!valid_continuations(state, rules)) return false;
     if (state.combat().phase == CombatPhase::combat_won && (!state.player().powers.empty() || !state.enemy().powers.empty())) return false;

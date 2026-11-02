@@ -62,8 +62,13 @@ int main() {
                 if (kind == "play_card") {
                     const auto view = observe(run); const auto index = action.at("card_index").get<std::size_t>();
                     if (!view.combat || index >= view.combat->hand.size()) throw std::invalid_argument("Invalid hand index");
-                    if (action.contains("target_index") && action.at("target_index") != 0) throw std::invalid_argument("Invalid target");
-                    input = CombatInput{run.data.boundary, CombatInputKind::play_card, view.combat->hand[index], action.contains("target_index")};
+                    CreatureHandle target{};
+                    if (action.contains("target_index")) {
+                        const auto slot = action.at("target_index").get<std::uint32_t>();
+                        if (slot == UINT32_MAX || slot + 1 >= run.creatures().slots().size()) throw std::invalid_argument("Invalid target");
+                        target = {slot + 1, run.creatures().slots()[slot + 1].generation};
+                    }
+                    input = CombatInput{run.data.boundary, CombatInputKind::play_card, view.combat->hand[index], target};
                 }
                 else if (kind == "select_card" || kind == "deselect_card" || kind == "confirm_selection") {
                     const auto view = observe(run);
@@ -77,7 +82,7 @@ int main() {
                     }
                     const auto prompt = action.contains("prompt") ? PromptId{action.at("prompt").get<std::uint32_t>()} : selection.id;
                     const auto input_kind = kind == "select_card" ? CombatInputKind::select_card : kind == "deselect_card" ? CombatInputKind::deselect_card : CombatInputKind::confirm_selection;
-                    input = CombatInput{run.data.boundary, input_kind, card, false, prompt};
+                    input = CombatInput{run.data.boundary, input_kind, card, {}, prompt};
                 }
                 else if (kind == "end_turn") input = CombatInput{run.data.boundary, CombatInputKind::end_turn};
                 else {

@@ -25,7 +25,7 @@ StepResult resume_card_program(RunState& state, Scratch& scratch, const Ruleset&
         const int amount = instruction.base;
         switch (instruction.opcode) {
         case Opcode::draw:
-            if (amount > 0 && state.enemy().hp != 0 && state.player().hp != 0) {
+            if (amount > 0 && state.has_living_enemies() && state.player().hp != 0) {
                 state.execution().push_back(DrawFrame{.remaining = amount, .from_hand_draw = false});
                 return result(state);
             }
@@ -55,7 +55,7 @@ StepResult resume_card_program(RunState& state, Scratch& scratch, const Ruleset&
             break;
         case Opcode::topdeck_choice: {
             const auto& candidates = state.zone(Zone::discard);
-            if (state.enemy().hp == 0 || candidates.empty()) break;
+            if (!state.has_living_enemies() || candidates.empty()) break;
             if (candidates.size() == 1) {
                 const auto card = candidates.front(); move_card(state, Zone::discard, Zone::draw, card);
                 auto pile = state.zone(Zone::draw); std::rotate(pile.begin(), pile.end() - 1, pile.end());
@@ -88,8 +88,8 @@ StepResult resume_card_program(RunState& state, Scratch& scratch, const Ruleset&
             break;
         case Opcode::damage: {
             const auto hit = damage(*target, amount, state.player(), state.overflow);
-            emit(state, scratch, CombatEventKind::damaged, false, true, frame.source, 0, 0, hit);
-            emit(state, scratch, CombatEventKind::attacked, false, false, frame.source, 0, 0, hit);
+            emit(state, scratch, CombatEventKind::damaged, false, true, frame.source, 0, 0, hit, true, false, state.data.player, frame.target);
+            emit(state, scratch, CombatEventKind::attacked, false, false, frame.source, 0, 0, hit, true, false, state.data.player, frame.target);
             break;
         }
         case Opcode::block: {
@@ -98,11 +98,19 @@ StepResult resume_card_program(RunState& state, Scratch& scratch, const Ruleset&
         }
         case Opcode::strength:
             (void)apply_power(state, scratch, PowerId::strength, amount, false, false, frame.source); break;
-        case Opcode::weak:
-            (void)apply_power(state, scratch, PowerId::weak, amount, true, false, frame.source, true, false, PowerInstance::Stacking::by_type, {}, frame.target); break;
-        case Opcode::vulnerable:
-            if (amount > std::numeric_limits<int>::max() - target->power_amount(PowerId::vulnerable, state.overflow)) return fail(state, Restriction::capacity);
-            (void)apply_power(state, scratch, PowerId::vulnerable, amount, true, false, frame.source, true, false, PowerInstance::Stacking::by_type, {}, frame.target); break;
+        case Opcode::weak: case Opcode::vulnerable: {
+            const auto power = instruction.opcode == Opcode::weak ? PowerId::weak : PowerId::vulnerable;
+            if (definition->enemy_target) {
+                (void)apply_power(state, scratch, power, amount, true, false, frame.source, true, false,
+                    PowerInstance::Stacking::by_type, {}, frame.target);
+            } else {
+                // Existing Shockwave content applies to every living enemy.
+                for (auto enemy : state.enemies()) if (state.creature(enemy)->hp > 0)
+                    (void)apply_power(state, scratch, power, amount, true, false, frame.source, true, false,
+                        PowerInstance::Stacking::by_type, {}, enemy);
+            }
+            break;
+        }
         case Opcode::discard_choice:
             if (state.zone(Zone::hand).size() == 1) {
                 const auto discarded = state.zone(Zone::hand).front();
@@ -125,7 +133,7 @@ StepResult resume_card_program(RunState& state, Scratch& scratch, const Ruleset&
                 state.cards().get(card)->removed = true;
             } else if (!exhaust_after_play)
                 move_card(state, Zone::play, Zone::discard, card);
-            if (state.enemy().hp == 0) { end_combat(state, scratch, true); return result(state); }
+            if (!state.has_living_enemies()) { end_combat(state, scratch, true); return result(state); }
             ++state.combat().counters.finished_plays;
             state.cards().get(card)->last_finished_player_turn = state.combat().turn;
             emit(state, scratch, CombatEventKind::play_finished, false, false, card, play);
@@ -134,7 +142,7 @@ StepResult resume_card_program(RunState& state, Scratch& scratch, const Ruleset&
                 state.execution().push_back(ExhaustCardsFrame{.cards = cards, .source_zone = Zone::play, .charge_card_step = false});
                 return result(state);
             }
-            if (state.enemy().hp == 0) { end_combat(state, scratch, true); return result(state); }
+            if (!state.has_living_enemies()) { end_combat(state, scratch, true); return result(state); }
             return result(state);
         }
         }

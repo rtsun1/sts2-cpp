@@ -80,6 +80,8 @@ void export_rewards(Json& out, const RunState& run) {
 }
 }
 void export_native_combat(Json& out, const RunState& run, const RecordedCombat& recorded) {
+    if (run.has_combat() && (run.enemies().size() != 1 || run.combat().enemy_side))
+        throw std::invalid_argument("Multi-enemy/active enemy-side native diagnostics are not mapped");
     if (run.data.combat && run.combat().phase == CombatPhase::card_choice &&
         run.combat().selection.effect == SelectionEffect::add_to_hand)
         throw std::invalid_argument("Stratagem pile selection has no native diagnostic mapping yet");
@@ -142,14 +144,14 @@ void export_native_combat(Json& out, const RunState& run, const RecordedCombat& 
         auto e = make_creature(true, run.enemy().block);
         constexpr std::array<const char*, 3> moves{"SHRINKER_MOVE", "CHOMP_MOVE", "STOMP_MOVE"};
         Json move_states = Json::object(), log = Json::array();
-        for (unsigned i = 0; i < moves.size(); ++i) move_states[moves[i]] = {{"performed_at_least_once", died && i == static_cast<unsigned>(run.combat().enemy_ai.selected)}, {"must_perform_once_before_transitioning", false}, {"follow_up_state", moves[i == 1 ? 2 : 1]}};
+        for (unsigned i = 0; i < moves.size(); ++i) move_states[moves[i]] = {{"performed_at_least_once", died && i == static_cast<unsigned>(run.enemy().enemy_ai.selected)}, {"must_perform_once_before_transitioning", false}, {"follow_up_state", moves[i == 1 ? 2 : 1]}};
         for (int turn = 1; turn <= run.combat().turn; ++turn) log.push_back(moves[turn == 1 ? 0 : (turn % 2 == 0 ? 1 : 2)]);
         const auto& map = *run.data.maps[run.data.act_index]; const auto& coord = map.nodes[run.data.current];
         const GameRng monster_rng(run.data.numeric_seed + static_cast<std::uint64_t>(coord.col + coord.row + run.data.act_index + 1));
         e["monster"] = {{"id", "MONSTER.SHRINKER_BEETLE"}, {"current_hp", run.enemy().hp}, {"max_hp", run.enemy().max_hp},
             {"spawned_this_turn", run.combat().turn == 1}, {"is_performing_move", false}, {"rng", random_state(monster_rng.state())},
-            {"ai", {{"current_state", moves[static_cast<std::size_t>(run.combat().enemy_ai.selected)]}, {"initial_state", moves[0]},
-                {"next_move", moves[static_cast<std::size_t>(run.combat().enemy_ai.selected)]}, {"state_log", log}, {"performed_first_move", run.combat().turn > 1}, {"move_states", move_states}}}, {"model_fields", Json::object()}};
+            {"ai", {{"current_state", moves[static_cast<std::size_t>(run.enemy().enemy_ai.selected)]}, {"initial_state", moves[0]},
+                {"next_move", moves[static_cast<std::size_t>(run.enemy().enemy_ai.selected)]}, {"state_log", log}, {"performed_first_move", run.combat().turn > 1}, {"move_states", move_states}}}, {"model_fields", Json::object()}};
         combat["creatures"]["enemy_0"] = std::move(e);
     }
     if (won) for (std::size_t i = 0; i < run.deck().size(); ++i) {

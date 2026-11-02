@@ -20,12 +20,12 @@ void exhaust_into_shuffle(RunState& state, Scratch& scratch) {
     }
     auto& combat = state;
     const auto prompt = combat.combat().selection.id;
-    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, combat.selection_candidates().front(), false, prompt}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, false, prompt}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, combat.selection_candidates().front(), {}, prompt}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, {}, prompt}, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(state.combat().selection.effect, SelectionEffect::add_to_hand);
 }
 StepResult select(RunState& state, Scratch& scratch, CardHandle card) {
-    return apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, card, false, state.combat().selection.id}, scratch);
+    return apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, card, {}, state.combat().selection.id}, scratch);
 }
 }
 
@@ -117,7 +117,7 @@ TEST(HookDispatch, StratagemRunsAgainOnTheNextShuffle) {
         EXPECT_NE(state.combat().selection.id, previous);
         previous = state.combat().selection.id;
         const auto selected = state.selection_candidates().front();
-        ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::select_card, selected, false, previous}, scratch).status, StepStatus::awaiting_input);
+        ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::select_card, selected, {}, previous}, scratch).status, StepStatus::awaiting_input);
         EXPECT_EQ(state.zone(Zone::hand).size(), 2u);
         EXPECT_EQ(state.combat().counters.non_hand_draws_this_turn, repeat + 1u);
     }
@@ -154,7 +154,7 @@ TEST(HookDispatch, StratagemHandOverflowGoesToDiscardWithoutCountingAsDraw) {
     combat.execution().push_back(ShuffleFrame{.listeners = gameplay::capture_shuffle_listeners(combat), .phase = ShufflePhase::hooks});
     ASSERT_EQ(advance_combat(state, scratch).status, StepStatus::awaiting_input);
     const auto prompt = combat.combat().selection.id; const auto card = combat.selection_candidates().front();
-    ASSERT_EQ(apply_combat(state, {combat.data.boundary, CombatInputKind::select_card, card, false, prompt}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_combat(state, {combat.data.boundary, CombatInputKind::select_card, card, {}, prompt}, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(combat.zone(Zone::hand).size(), 10u);
     ASSERT_EQ(combat.zone(Zone::discard).size(), 1u);
     EXPECT_EQ(combat.zone(Zone::discard).front(), card);

@@ -74,8 +74,15 @@ StepResult Session::apply(const Json& action) {
         fields(action, {"kind", "card_instance", "target"});
         const auto index = label_index(action.at("card_instance"));
         if (index >= cards_.size()) throw std::invalid_argument("Unknown card identity");
-        if (action.contains("target") && action.at("target") != "enemy_0") throw std::invalid_argument("Unsupported target");
-        return apply_input(state_, CombatInput{state_.data.boundary, CombatInputKind::play_card, cards_[index], action.contains("target")}, scratch_);
+        CreatureHandle target{};
+        if (action.contains("target")) {
+            const auto label = action.at("target").get<std::string>();
+            if (!label.starts_with("enemy_")) throw std::invalid_argument("Unsupported target");
+            const auto slot = std::stoul(label.substr(6));
+            if (label != "enemy_" + std::to_string(slot) || slot >= UINT32_MAX || slot + 1 >= state_.creatures().slots().size()) throw std::invalid_argument("Unsupported target");
+            target = {static_cast<std::uint32_t>(slot + 1), state_.creatures().slots()[slot + 1].generation};
+        }
+        return apply_input(state_, CombatInput{state_.data.boundary, CombatInputKind::play_card, cards_[index], target}, scratch_);
     }
     if (kind == "select_cards") {
         fields(action, {"kind", "card_instances"});

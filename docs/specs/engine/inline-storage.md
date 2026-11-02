@@ -1,5 +1,10 @@
 # Inline complete state and owning clones
 
+This sheet records the original storage refactor and its verification. Current
+RunState ownership, creature allocation, membership and checkpoint revisions are
+described in [multi-creature combat](multi-creature-combat.md); those details
+supersede the earlier owners/views and format revisions below.
+
 [Issue #55](https://github.com/TonyinBio/sts2-cpp/issues/55) implements
 [ADR 0003](../../adr/0003-inline-state-with-correct-overflow.md) for the currently
 supported engine content. `CombatData` and `RunData` are trivially copyable.

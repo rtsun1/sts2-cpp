@@ -50,7 +50,7 @@ TEST(PublicRunParity, ExistingDenseAndSparseRecordingsMatchAtCorrespondingDecisi
                 EXPECT_EQ(checkpoint(player).bytes, before);
                 PlayerInput input = RunInput{player.data.boundary, RunInputKind::skip_rewards};
                 if (kind == "play_card") input = CombatInput{player.data.boundary, CombatInputKind::play_card,
-                    labels.at(std::stoul(a["card_instance"].get<std::string>().substr(5))), a.contains("target")};
+                    labels.at(std::stoul(a["card_instance"].get<std::string>().substr(5))), (a.contains("target")) ? player.enemy_handle() : CreatureHandle{}};
                 else if (kind == "end_turn") input = CombatInput{player.data.boundary, CombatInputKind::end_turn};
                 else {
                     RunInput run{player.data.boundary, RunInputKind::skip_rewards};
@@ -71,7 +71,7 @@ TEST(PublicRunParity, ExistingDenseAndSparseRecordingsMatchAtCorrespondingDecisi
                         return a->kind == b.kind && a->option == b.option && a->col == b.col && a->row == b.row;
                     }
                     const auto& a = std::get<CombatInput>(input); const auto& b = std::get<CombatInput>(action.input);
-                    return a.kind == b.kind && a.card == b.card && a.target_enemy == b.target_enemy;
+                    return a.kind == b.kind && a.card == b.card && a.target == b.target;
                 });
                 ASSERT_NE(offered_input, offered.end());
                 input = offered_input->input;
@@ -142,7 +142,7 @@ TEST(SeededRunParity, CanonicalCombatReproducesEveryFieldThroughVictory) {
         if (a["kind"] == "play_card") {
             const auto label = a["card_instance"].get<std::string>();
             input.kind = CombatInputKind::play_card; input.card = labels.at(std::stoul(label.substr(5)));
-            input.target_enemy = a["target"] == "enemy_0";
+            input.target = a["target"] == "enemy_0" ? state.enemy_handle() : CreatureHandle{};
         }
         const auto result = apply_input(state, input, scratch);
         ASSERT_TRUE(result.status == StepStatus::awaiting_input || result.status == StepStatus::combat_won);
@@ -229,7 +229,7 @@ TEST(SeededRunParity, ExporterRetainsExpiredPowerIdentityWhileEngineReclaimsIt) 
         auto& combat = state; auto hand = combat.zone(Zone::hand);
         const auto card = std::find_if(hand.begin(), hand.end(), [&](auto h) { return combat.cards().get(h)->definition == id; });
         if (card == hand.end()) return StepResult{StepStatus::engine_error, combat.data.boundary};
-        return apply_input(state, CombatInput{state.data.boundary, CombatInputKind::play_card, *card, id == CardId::bash}, scratch);
+        return apply_input(state, CombatInput{state.data.boundary, CombatInputKind::play_card, *card, (id == CardId::bash) ? state.enemy_handle() : CreatureHandle{}}, scratch);
     };
     const auto end_turn = [&] { return apply_input(state, CombatInput{state.data.boundary, CombatInputKind::end_turn}, scratch); };
     ASSERT_EQ(play(CardId::bash).status, StepStatus::awaiting_input);

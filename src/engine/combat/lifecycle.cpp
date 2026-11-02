@@ -22,12 +22,13 @@ StepResult fail(RunState& state, Restriction reason) noexcept {
 }
 bool consume(Scratch& scratch) noexcept { return ++scratch.steps <= scratch.step_limit; }
 void end_combat(RunState& state, Scratch& scratch, bool won) {
+    if (state.combat().phase == CombatPhase::combat_won || state.combat().phase == CombatPhase::player_died) return;
     state.combat().phase = won ? CombatPhase::combat_won : CombatPhase::player_died;
     state.data.phase = won ? RunPhase::combat_done : RunPhase::complete;
     state.execution().clear(); state.cost_modifiers().clear();
     state.continuation_cards().clear(); state.captured_hook_listeners().clear(); clear_selection(state);
     if (won) {
-        state.player().clear_powers(); state.enemy().clear_powers();
+        for (auto& slot : state.creatures().slots()) if (slot.live) slot.value.clear_powers();
         for (auto& zone : state.zone_views()) zone.clear();
     } else {
         for (auto& power : state.player().power_instances(state.overflow)) {

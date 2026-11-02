@@ -11,6 +11,19 @@ struct CardSelectionView {
     std::uint32_t minimum, maximum;
     bool submits_immediately, can_confirm;
 };
+struct EnemyObservation {
+    CreatureHandle handle;
+    std::int32_t hp, max_hp, block, vulnerable, weak, attack;
+    BeetleMove intent;
+};
+class EnemyObservationRange {
+    const RunState* state_ = nullptr;
+public:
+    EnemyObservationRange() = default;
+    explicit EnemyObservationRange(const RunState& state) noexcept : state_(&state) {}
+    std::size_t size() const noexcept;
+    std::optional<EnemyObservation> at(std::size_t index) const noexcept;
+};
 struct CombatObservationView {
     std::string_view build;
     BoundaryId boundary;
@@ -23,6 +36,7 @@ struct CombatObservationView {
     std::size_t draw_count, discard_count, exhaust_count;
     std::optional<CardSelectionView> selection;
     std::int32_t player_strength, player_dexterity, player_weak, enemy_weak;
+    EnemyObservationRange enemies;
 };
 // Borrows hand storage; invalidated by state mutation. Hidden draw order, RNG,
 // execution frames and unrevealed data are never part of the public projection.
@@ -41,9 +55,9 @@ struct CardView {
     CardAffliction affliction {};
     std::int32_t base_replay_count = 0;
 };
-[[nodiscard]] std::optional<CardView> observe_card(const RunState&, CardHandle, const Ruleset& = Ruleset::pinned()) noexcept;
+[[nodiscard]] std::optional<CardView> observe_card(const RunState&, CardHandle, const Ruleset& = Ruleset::pinned(), CreatureHandle target = {}) noexcept;
 // Metadata for inspectable hand/draw/discard/exhaust cards; never pile position.
-[[nodiscard]] std::optional<CardView> inspect_card(const RunState&, CardHandle, const Ruleset& = Ruleset::pinned()) noexcept;
+[[nodiscard]] std::optional<CardView> inspect_card(const RunState&, CardHandle, const Ruleset& = Ruleset::pinned(), CreatureHandle target = {}) noexcept;
 // English rendering is outside the kernel; callers pay for it only on demand.
 [[nodiscard]] std::string describe(const CardView&);
 } // namespace sts2::engine

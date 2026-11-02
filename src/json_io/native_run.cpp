@@ -47,6 +47,8 @@ CombatTrace NativeRunExporter::trace() noexcept {
     }};
 }
 void NativeRunExporter::record(const RunState& state, const CombatEvent& event) {
+    if (state.has_combat() && state.enemies().size() != 1)
+        throw std::invalid_argument("Multi-enemy native trace mapping is not implemented");
     if (event.kind == CombatEventKind::combat_started) {
         reset(); combat_.attached = true;
         combat_.card_generation = state.cards().data.highest_generation;

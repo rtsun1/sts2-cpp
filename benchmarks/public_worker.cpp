@@ -61,7 +61,8 @@ Json project(const RunState& state, Json& capabilities) {
             if (input->kind == CombatInputKind::end_turn) action["kind"] = "end_turn";
             else {
                 if (input->kind != CombatInputKind::play_card) throw std::runtime_error("Unsupported benchmark selection");
-                action["kind"] = "play_card"; action["target_enemy"] = input->target_enemy;
+                action["kind"] = "play_card"; action["target_enemy"] = input->target.present();
+                if (input->target.present()) action["target_index"] = input->target.slot - 1;
                 const auto found = std::find(view.combat->hand.begin(), view.combat->hand.end(), input->card);
                 action["index"] = std::distance(view.combat->hand.begin(), found);
             }
@@ -132,8 +133,13 @@ int main() {
                 if (kind == "play_card") {
                     const auto view = observe(run); const auto index = action.at("card_index").get<std::size_t>();
                     if (!view.combat || index >= view.combat->hand.size()) throw std::invalid_argument("Invalid hand index");
-                    if (action.contains("target_index") && action.at("target_index") != 0) throw std::invalid_argument("Invalid target");
-                    input = CombatInput{run.data.boundary, CombatInputKind::play_card, view.combat->hand[index], action.contains("target_index")};
+                    CreatureHandle target{};
+                    if (action.contains("target_index")) {
+                        const auto slot = action.at("target_index").get<std::uint32_t>();
+                        if (slot == UINT32_MAX || slot + 1 >= run.creatures().slots().size()) throw std::invalid_argument("Invalid target");
+                        target = {slot + 1, run.creatures().slots()[slot + 1].generation};
+                    }
+                    input = CombatInput{run.data.boundary, CombatInputKind::play_card, view.combat->hand[index], target};
                 }
                 else if (kind == "end_turn") input = CombatInput{run.data.boundary, CombatInputKind::end_turn};
                 else {

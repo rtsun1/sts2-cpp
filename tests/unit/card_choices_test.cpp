@@ -13,11 +13,10 @@ CardHandle find(const RunState& state, CardId id) {
     return {};
 }
 StepResult play(RunState& state, CardHandle card, Scratch& scratch) {
-    return apply_combat(state, {state.data.boundary, CombatInputKind::play_card, card,
-        Ruleset::pinned().card(state.cards().get(card)->definition)->enemy_target}, scratch);
+    return apply_combat(state, {state.data.boundary, CombatInputKind::play_card, card, (Ruleset::pinned().card(state.cards().get(card)->definition)->enemy_target) ? state.enemy_handle() : CreatureHandle{}}, scratch);
 }
 StepResult choose(RunState& state, CombatInputKind kind, Scratch& scratch, CardHandle card = {}) {
-    return apply_combat(state, {state.data.boundary, kind, card, false, observe_combat(state).selection->id}, scratch);
+    return apply_combat(state, {state.data.boundary, kind, card, {}, observe_combat(state).selection->id}, scratch);
 }
 }
 TEST(CardChoices, PurityClampsVisibleMaximumToNativeCandidateCount) {
@@ -126,8 +125,8 @@ TEST(CardChoices, PublicChoiceActionsExposeSelectedOrderAndRejectWithoutMutation
     EXPECT_EQ(view.selection->candidates.size(), 2u);
     EXPECT_TRUE(view.selection->can_confirm);
     EXPECT_EQ(ActionSpaceView(state).size(), 3u);
-    EXPECT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::select_card, source, false, state.combat().selection.id}, scratch).status, StepStatus::invalid_action);
-    EXPECT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::confirm_selection, {}, false, PromptId{999}}, scratch).status, StepStatus::invalid_action);
+    EXPECT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::select_card, source, {}, state.combat().selection.id}, scratch).status, StepStatus::invalid_action);
+    EXPECT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::confirm_selection, {}, {}, PromptId{999}}, scratch).status, StepStatus::invalid_action);
     EXPECT_EQ(state, before);
     const auto input = ActionSpaceView(state).at(0)->input;
     ASSERT_EQ(apply_combat(state, input, scratch).status, StepStatus::awaiting_input);
@@ -147,10 +146,10 @@ TEST(CardChoices, ArmamentsPaysAndBlocksBeforeChoiceThenUpgradesOnlySelectedComb
     ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
     EXPECT_EQ(state.player().block, 5); EXPECT_EQ(state.combat().energy, 2);
     const auto chosen = state.selection_candidates().back();
-    ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::select_card, chosen, false, state.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::select_card, chosen, {}, state.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
     EXPECT_FALSE(state.cards().get(chosen)->upgraded);
     RunState copy; ASSERT_EQ(restore(copy, checkpoint(state).bytes, scratch), RestoreStatus::restored);
-    ASSERT_EQ(apply_combat(copy, {copy.data.boundary, CombatInputKind::confirm_selection, {}, false, copy.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_combat(copy, {copy.data.boundary, CombatInputKind::confirm_selection, {}, {}, copy.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
     EXPECT_TRUE(copy.cards().get(chosen)->upgraded);
     EXPECT_FALSE(state.cards().get(chosen)->upgraded);
     EXPECT_EQ(copy.combat().energy, 2); EXPECT_EQ(copy.player().block, 5);
@@ -169,12 +168,12 @@ TEST(CardChoices, HeadbuttSelectsDiscardAndAutomaticallyReturnsItToTop) {
         if (state.cards().get(card)->definition == CardId::headbutt) source = card;
         else ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::play_card, card}, scratch).status, StepStatus::awaiting_input);
     }
-    ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::play_card, source, true}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::play_card, source, state.enemy_handle()}, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
     const auto chosen = state.selection_candidates().back();
     EXPECT_TRUE(state.combat().selection.automatic_at_maximum);
     EXPECT_EQ(ActionSpaceView(state).size(), 2u);
-    ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::select_card, chosen, false, state.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::select_card, chosen, {}, state.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(state.combat().phase, CombatPhase::play);
     ASSERT_FALSE(state.zone(Zone::draw).empty());
     EXPECT_EQ(state.zone(Zone::draw).front(), chosen);
@@ -190,10 +189,10 @@ TEST(CardChoices, BurningPactDrawsOnceAfterConfirmedExhaustAndSurvivesPartialRes
     const auto source = *std::find_if(state.zone(Zone::hand).begin(), state.zone(Zone::hand).end(), [&](auto h) { return state.cards().get(h)->definition == CardId::burning_pact; });
     ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::play_card, source}, scratch).status, StepStatus::awaiting_input);
     const auto chosen = state.selection_candidates().front();
-    ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::select_card, chosen, false, state.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::select_card, chosen, {}, state.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(state.zone(Zone::hand).size(), 4u);
     RunState copy; ASSERT_EQ(restore(copy, checkpoint(state).bytes, scratch), RestoreStatus::restored);
-    const auto confirm = CombatInput{copy.data.boundary, CombatInputKind::confirm_selection, {}, false, copy.combat().selection.id};
+    const auto confirm = CombatInput{copy.data.boundary, CombatInputKind::confirm_selection, {}, {}, copy.combat().selection.id};
     ASSERT_EQ(apply_combat(copy, confirm, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(copy.zone(Zone::exhaust), (std::vector<CardHandle>{chosen}));
      EXPECT_EQ(copy.zone(Zone::hand).size(), 6u); EXPECT_EQ(copy.combat().counters.non_hand_draws_this_turn, 3u);
@@ -217,8 +216,8 @@ TEST(CardChoices, TrueGritUpgradedChoosesAfterBlockAndBaseUsesOwnedSelectionRng)
         if (upgraded) {
             ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
             const auto chosen = state.selection_candidates().back();
-            ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::select_card, chosen, false, state.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
-            ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::confirm_selection, {}, false, state.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
+            ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::select_card, chosen, {}, state.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
+            ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::confirm_selection, {}, {}, state.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
             EXPECT_EQ(state.zone(Zone::exhaust), (std::vector<CardHandle>{chosen}));
             EXPECT_EQ(state.data.rng.get(RunStream::combat_card_selection).state(), rng);
         } else {

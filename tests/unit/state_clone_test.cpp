@@ -12,6 +12,157 @@ using test::AllocationCounter;
 static_assert(std::is_trivially_copyable_v<CombatData>);
 static_assert(std::is_trivially_copyable_v<RunData>);
 
+TEST(CreaturePool, ExplicitPositionsPreserveOccupiedSlotsAndReuseGenerations) {
+    AllocationCounter allocation;
+    CreaturePool data;
+    OverflowStorage owner(allocation.allocator());
+    CreaturePoolView<> pool{data, owner};
+    const auto player = pool.create_at(0, {80, 80}, 8);
+    const auto last = pool.create_at(4, {40, 40}, 8);
+    const auto middle = pool.create_at(2, {30, 30}, 8);
+    ASSERT_TRUE(player.present()); ASSERT_TRUE(last.present()); ASSERT_TRUE(middle.present());
+    EXPECT_TRUE(pool.valid());
+    EXPECT_EQ(allocation.allocations, 0u);
+    EXPECT_EQ(pool.get(last)->hp, 40);
+    EXPECT_FALSE(pool.create_at(2, {99, 99}, 8).present());
+    EXPECT_FALSE(pool.create_at(8, {}, 8).present());
+    EXPECT_FALSE(pool.create_at(1, {}, 8, 0).present());
+    EXPECT_EQ(pool.get(middle)->hp, 30);
+    ASSERT_TRUE(pool.erase(middle));
+    const auto replacement = pool.create_at(2, {35, 35}, 8);
+    ASSERT_TRUE(replacement.present());
+    EXPECT_EQ(replacement.slot, middle.slot);
+    EXPECT_GT(replacement.generation, middle.generation);
+    EXPECT_EQ(pool.get(middle), nullptr);
+    EXPECT_EQ(pool.get(replacement)->hp, 35);
+    EXPECT_EQ(pool.get(player)->hp, 80);
+    EXPECT_EQ(pool.get(last)->hp, 40);
+    EXPECT_TRUE(pool.valid());
+    const auto exhausted = pool.create_at(6, {10, 10}, 8, UINT32_MAX);
+    ASSERT_TRUE(exhausted.present());
+    ASSERT_TRUE(pool.erase(exhausted));
+    EXPECT_FALSE(pool.create_at(6, {10, 10}, 8).present());
+    EXPECT_TRUE(pool.valid());
+    EXPECT_TRUE(pool.create_at(5, {10, 10}, 8).present());
+}
+
+TEST(CreaturePool, ExplicitPositionGrowthSurvivesAllocationFailureAndPreservesHoles) {
+    AllocationCounter allocation;
+    PoolData<CreatureState, CreatureTag, 2, PoolAllocation::specified_slot> data;
+    OverflowStorage owner(allocation.allocator());
+    PoolView<CreatureState, CreatureTag, 2, false, PoolAllocation::specified_slot> pool{data, owner};
+    const auto original = pool.create_at(0, {80, 80}, 16);
+    allocation.fail_after = allocation.allocations;
+    EXPECT_THROW((void)pool.create_at(8, {40, 40}, 16), std::bad_alloc);
+    EXPECT_TRUE(pool.valid());
+    EXPECT_EQ(pool.slots().size(), 1u);
+    EXPECT_EQ(pool.get(original)->hp, 80);
+    allocation.fail_after = SIZE_MAX;
+    const auto last = pool.create_at(8, {40, 40}, 16);
+    ASSERT_TRUE(last.present());
+    EXPECT_TRUE(pool.valid());
+    for (std::uint32_t i = 1; i < 8; ++i) {
+        EXPECT_TRUE(pool.available_at(i, 16));
+        ASSERT_TRUE(pool.create_at(i, {20, 20}, 16).present());
+    }
+    const auto allocations = allocation.allocations;
+    allocation.fail_after = allocations;
+    EXPECT_TRUE(pool.erase(last));
+    EXPECT_TRUE(pool.create_at(last.slot, {30, 30}, 16).present());
+    EXPECT_EQ(allocation.allocations, allocations);
+    EXPECT_TRUE(pool.valid());
+}
+
+TEST(CreaturePool, ReverseEncounterSearchIncludesUngrownSlotsAndSkipsUnavailablePositions) {
+    CreaturePool data;
+    OverflowStorage owner;
+    CreaturePoolView<> pool{data, owner};
+    const auto player = pool.create_at(0, {80, 80}, 16);
+    ASSERT_TRUE(player.present());
+    // The encounter owns positions [1, 5); selection remains outside the pool.
+    const auto last_available = [&]() -> std::uint32_t {
+        for (std::uint32_t index = 5; index > 1;) {
+            --index;
+            if (pool.available_at(index, 5)) return index;
+        }
+        return UINT32_MAX;
+    };
+    EXPECT_EQ(pool.slots().size(), 1u);
+    EXPECT_EQ(last_available(), 4u);
+    const auto exhausted = pool.create_at(4, {10, 10}, 5, UINT32_MAX);
+    ASSERT_TRUE(exhausted.present());
+    ASSERT_TRUE(pool.erase(exhausted));
+    EXPECT_EQ(last_available(), 3u);
+    const auto occupied = pool.create_at(3, {10, 10}, 5);
+    ASSERT_TRUE(occupied.present());
+    EXPECT_EQ(last_available(), 2u);
+    ASSERT_TRUE(pool.create_at(2, {10, 10}, 5).present());
+    ASSERT_TRUE(pool.create_at(1, {10, 10}, 5).present());
+    EXPECT_EQ(last_available(), UINT32_MAX);
+    ASSERT_TRUE(pool.erase(occupied));
+    EXPECT_EQ(last_available(), 3u);
+    EXPECT_FALSE(pool.available_at(5, 5));
+    EXPECT_FALSE(pool.available_at(UINT32_MAX, SIZE_MAX));
+    EXPECT_TRUE(pool.valid());
+}
+
+TEST(CardPool, DefaultAllocationReusesFreedSlotWithNewGeneration) {
+    PoolData<std::uint32_t, CombatCardTag, 2> data;
+    OverflowStorage owner;
+    PoolView<std::uint32_t, CombatCardTag, 2> pool{data, owner};
+    const auto first = pool.create(10, 2);
+    const auto second = pool.create(20, 2);
+    ASSERT_TRUE(first.present()); ASSERT_TRUE(second.present());
+    ASSERT_TRUE(pool.erase(first));
+    ASSERT_EQ(pool.free_slots().size(), 1u);
+    EXPECT_EQ(pool.free_slots().front(), first.slot);
+    const auto reused = pool.create(30, 2);
+    EXPECT_EQ(reused.slot, first.slot);
+    EXPECT_NE(reused.generation, first.generation);
+    EXPECT_EQ(pool.get(first), nullptr);
+    ASSERT_NE(pool.get(reused), nullptr);
+    EXPECT_EQ(*pool.get(reused), 30u);
+    EXPECT_TRUE(pool.free_slots().empty());
+    EXPECT_TRUE(pool.valid());
+}
+
+TEST(CompleteStateClone, SpecifiedCreaturePositionsPreserveHolesAndRecycledGenerations) {
+    RunState state; Scratch scratch;
+    ASSERT_EQ(initialize_combat_scenario(state, {}, {}).status, StepStatus::awaiting_input);
+    const auto retained = state.creatures().create_at(9, {30, 30}, 16);
+    const auto removed = state.creatures().create_at(10, {40, 40}, 16);
+    ASSERT_TRUE(retained.present()); ASSERT_TRUE(removed.present());
+    ASSERT_TRUE(state.creatures().erase(removed));
+    ASSERT_TRUE(valid_run(state));
+    RunState clone = state, restored;
+    ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
+    EXPECT_EQ(state, clone); EXPECT_EQ(state, restored);
+    for (auto* branch : {&clone, &restored}) {
+        EXPECT_TRUE(branch->creatures().available_at(4, 16));
+        EXPECT_TRUE(branch->creatures().available_at(10, 16));
+        EXPECT_FALSE(branch->creatures().available_at(9, 16));
+        const auto replacement = branch->creatures().create_at(10, {50, 50}, 16);
+        ASSERT_TRUE(replacement.present());
+        EXPECT_EQ(replacement.generation, removed.generation + 1);
+        EXPECT_EQ(branch->creatures().get(removed), nullptr);
+        ASSERT_NE(branch->creatures().get(retained), nullptr);
+        EXPECT_EQ(branch->creatures().get(retained)->hp, 30);
+        EXPECT_TRUE(valid_run(*branch));
+    }
+    EXPECT_EQ(clone, restored);
+}
+
+TEST(CompleteStateClone, PreviousCreatureFreeListCheckpointVersionIsIncompatible) {
+    RunState state; Scratch scratch;
+    ASSERT_EQ(initialize_combat_scenario(state, {}, {}).status, StepStatus::awaiting_input);
+    const auto saved = checkpoint(state).bytes;
+    auto previous = saved;
+    test::checkpoint_u32(previous, 8, 17);
+    test::checksum_checkpoint(previous);
+    EXPECT_EQ(restore(state, previous, scratch), RestoreStatus::incompatible);
+    EXPECT_EQ(checkpoint(state).bytes, saved);
+}
+
 TEST(CompleteStateClone, CombatSetupPreservesPlayerAndCreatesEnemyOnlyOnce) {
     RunState state;
     const auto player = state.data.player;
@@ -165,7 +316,7 @@ TEST(CompleteStateClone, FailedPublicInitializationAndCloneKeepDestinationUnchan
 TEST(CompleteStateClone, CheckpointRejectsAbsentOrEnemyPlayerIdentity) {
     RunState run; Scratch scratch;
     ASSERT_EQ(initialize_combat_scenario(run, {}, {}).status, StepStatus::awaiting_input);
-    const auto retained = run.creatures().create({5, 5}, 4096);
+    const auto retained = run.creatures().create_at(2, {5, 5}, 4096);
     const auto saved = checkpoint(run).bytes;
     const auto offset = test::player_identity_offset(saved);
     for (auto player : {CreatureHandle{}, run.enemy_handle()}) {
@@ -215,11 +366,12 @@ TEST(CompleteStateClone, RecycledCreatureRetainsIndependentOverflowPowerStorage)
     for (int i = 0; i < 9; ++i)
         gameplay::apply_power(state, scratch, PowerId::strength, 1, true, false, {}, true, false, PowerInstance::Stacking::separate);
     const auto old = state.enemies().front();
-    const auto replacement = state.creatures().create({40, 40}, 4096);
-    state.enemies()[0] = replacement;
+    const auto replacement = state.creatures().create_at(2, {40, 40}, 4096);
+    state.set_enemy_membership(state.enemy_handle(), false);
+    state.set_enemy_membership(replacement, true);
     state.creatures().get(old)->clear();
     ASSERT_TRUE(state.creatures().erase(old));
-    const auto reused = state.creatures().create({5, 5}, 4096);
+    const auto reused = state.creatures().create_at(old.slot, {5, 5}, 4096);
     EXPECT_EQ(reused.slot, old.slot); EXPECT_NE(reused.generation, old.generation);
     ASSERT_TRUE(valid_run(state));
     EXPECT_TRUE(state.creatures().get(reused)->powers.overflowed());
@@ -268,7 +420,7 @@ TEST(CompleteStateClone, PendingChoicePreservesSourceAfterUnreferencedCardRemova
         return CardHandle{};
     };
     const auto strike = find(CardId::strike), survivor = find(CardId::survivor), defend = find(CardId::defend), bash = find(CardId::bash);
-    ASSERT_EQ(apply_combat(source, {source.data.boundary, CombatInputKind::play_card, strike, true}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_combat(source, {source.data.boundary, CombatInputKind::play_card, strike, source.enemy_handle()}, scratch).status, StepStatus::awaiting_input);
     auto discard = source.zone(Zone::discard);
     discard.erase(std::find(discard.begin(), discard.end(), strike));
     ASSERT_TRUE(source.cards().erase(strike));
@@ -295,7 +447,7 @@ TEST(CompleteStateClone, VictoryReleasesCompletedOverflowGraphButPreservesIdenti
     ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
     ASSERT_FALSE(state.combat_overflow.empty());
     const auto card = state.zone(Zone::hand).front();
-    ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::play_card, card, true}, scratch).status, StepStatus::combat_won);
+    ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::play_card, card, state.enemy_handle()}, scratch).status, StepStatus::combat_won);
     EXPECT_TRUE(state.combat_overflow.empty()); EXPECT_TRUE(state.cards().slots().empty());
     EXPECT_EQ(state.cards().data.highest_generation, 1u);
     ASSERT_TRUE(valid_combat(state));
@@ -318,7 +470,7 @@ TEST(CompleteStateClone, SuspendedCountersAndCapturedOperandsSurviveIndependentF
     EXPECT_EQ(source.combat().counters.finished_plays, 0u);
     ASSERT_EQ(source.execution().size(), 1u);
     EXPECT_EQ(std::get<CardProgramFrame>(source.execution().back()).energy, 1);
-    EXPECT_EQ(std::get<CardProgramFrame>(source.execution().back()).target, source.enemy_handle());
+    EXPECT_EQ(std::get<CardProgramFrame>(source.execution().back()).target, source.data.player);
     const auto saved = checkpoint(source).bytes;
     auto branch = source; RunState restored;
     ASSERT_EQ(restore(restored, saved, scratch), RestoreStatus::restored);
@@ -327,7 +479,7 @@ TEST(CompleteStateClone, SuspendedCountersAndCapturedOperandsSurviveIndependentF
         EXPECT_TRUE(state->execution().empty());
         EXPECT_EQ(state->combat().counters.finished_plays, 1u);
         EXPECT_EQ(state->cards().get(survivor)->last_finished_player_turn, 1);
-        ASSERT_EQ(apply_combat(*state, {state->data.boundary, CombatInputKind::play_card, strike, true}, scratch).status, StepStatus::awaiting_input);
+        ASSERT_EQ(apply_combat(*state, {state->data.boundary, CombatInputKind::play_card, strike, state->enemy_handle()}, scratch).status, StepStatus::awaiting_input);
         EXPECT_EQ(state->enemy().hp, 34);
         EXPECT_EQ(state->enemy().positive_unblocked_hits, 1u);
         EXPECT_EQ(state->combat().counters.started_this_turn, 2u);

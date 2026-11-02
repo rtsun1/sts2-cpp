@@ -7,7 +7,7 @@
 
 namespace sts2::engine::gameplay {
 bool exhaust_one(RunState& state, Scratch& scratch, Zone from, CardHandle card) {
-    if (state.enemy().hp == 0 || state.player().hp == 0) return false;
+    if (!state.has_living_enemies() || state.player().hp == 0) return false;
     move_card(state, from, Zone::exhaust, card);
     emit(state, scratch, CombatEventKind::exhausted, false, false, card);
     return true;
@@ -31,7 +31,7 @@ StepResult resume_exhaust_cards(RunState& state, Scratch& scratch, const Ruleset
             if (frame.charge_card_step && !consume(scratch)) return fail(state, Restriction::execution_budget);
             const auto card = state.continuation_cards()[frame.cards.begin + frame.cards.cursor];
             if (!state.cards().get(card)) return fail(state, Restriction::invalid_state);
-            if (state.enemy().hp == 0 || state.player().hp == 0) {
+            if (!state.has_living_enemies() || state.player().hp == 0) {
                 ++frame.cards.cursor; continue;
             }
             const auto zone = state.zone(frame.source_zone);

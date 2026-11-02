@@ -138,7 +138,7 @@ TEST(CardExtra, CombatCopiesPersistentPayloadAndClearsOnlyCombatStateAtVictory) 
     for (auto card : first_combat.zone(Zone::hand))
         if (first_combat.cards().get(card)->definition == CardId::strike) { first_strike = card; break; }
     ASSERT_TRUE(first_strike.present());
-    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, first_strike, true}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, first_strike, state.enemy_handle()}, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(state.data.phase, RunPhase::rewards);
     ASSERT_EQ(apply_action(state, RunInput{state.data.boundary, RunInputKind::skip_rewards}, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(enter_combat_scenario(state, state.data.boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::awaiting_input);
@@ -154,7 +154,7 @@ TEST(CardExtra, CombatCopiesPersistentPayloadAndClearsOnlyCombatStateAtVictory) 
     for (auto hand_card : combat.zone(Zone::hand))
         if (combat.cards().get(hand_card)->definition == CardId::strike) { strike = hand_card; break; }
     ASSERT_TRUE(strike.present());
-    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, strike, true}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, strike, state.enemy_handle()}, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(state.data.phase, RunPhase::rewards);
     EXPECT_FALSE(state.data.combat);
     EXPECT_TRUE(state.combat_overflow.empty());

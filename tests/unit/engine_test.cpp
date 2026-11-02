@@ -26,7 +26,7 @@ CardHandle find_card(const RunState& state, CardId id) {
     return {};
 }
 StepResult play(RunState& s, CardHandle card, Scratch& scratch) {
-    return apply_combat(s, {s.data.boundary, CombatInputKind::play_card, card, Ruleset::pinned().card(s.cards().get(card)->definition)->enemy_target}, scratch);
+    return apply_combat(s, {s.data.boundary, CombatInputKind::play_card, card, (Ruleset::pinned().card(s.cards().get(card)->definition)->enemy_target) ? s.enemy_handle() : CreatureHandle{}}, scratch);
 }
 TEST(OrderedPowers, InflameChangesSubsequentAttackAndSurvivesCheckpoint) {
     const std::array deck{CardSpec{CardId::inflame}, CardSpec{CardId::strike},
@@ -180,13 +180,13 @@ TEST(Engine, RejectsInvalidAndStaleInputWithoutChangingAnyState) {
     auto state = initial(); Scratch scratch;
     const auto before = checkpoint(state).bytes;
     for (auto input : {CombatInput{{0}, CombatInputKind::end_turn},
-                       CombatInput{state.data.boundary, CombatInputKind::play_card, {999, 1}, true},
+                       CombatInput{state.data.boundary, CombatInputKind::play_card, {999, 1}, state.enemy_handle()},
                        CombatInput{state.data.boundary, CombatInputKind::select_card, state.zone(Zone::hand)[0]}}) {
         EXPECT_EQ(apply_combat(state, input, scratch).status, StepStatus::invalid_action);
         EXPECT_EQ(checkpoint(state).bytes, before);
     }
     const auto h = find_card(state, CardId::strike); ASSERT_TRUE(h.present());
-    EXPECT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::play_card, h, false}, scratch).reason, Restriction::invalid_target);
+    EXPECT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::play_card, h, {}}, scratch).reason, Restriction::invalid_target);
     EXPECT_EQ(checkpoint(state).bytes, before);
     EXPECT_EQ(play(state, h, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(state.data.boundary.value, 2u); EXPECT_EQ(state.data.clock.elapsed_seconds(), 1);
@@ -213,9 +213,9 @@ TEST(Engine, ShrinkerAlternatesMovesBlockExpiresAndDeathIsTerminal) {
     CombatConfig config; config.player_hp = 15;
     auto s = initial(config); Scratch scratch;
     ASSERT_EQ(apply_combat(s, {s.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
-    EXPECT_EQ(s.player().hp, 15); EXPECT_EQ(s.combat().enemy_ai.selected, BeetleMove::chomp);
+    EXPECT_EQ(s.player().hp, 15); EXPECT_EQ(s.enemy().enemy_ai.selected, BeetleMove::chomp);
     ASSERT_EQ(apply_combat(s, {s.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
-    EXPECT_EQ(s.player().hp, 8); EXPECT_EQ(s.combat().enemy_ai.selected, BeetleMove::stomp);
+    EXPECT_EQ(s.player().hp, 8); EXPECT_EQ(s.enemy().enemy_ai.selected, BeetleMove::stomp);
     ASSERT_EQ(apply_combat(s, {s.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::player_died);
     EXPECT_EQ(s.player().hp, 0); EXPECT_TRUE(valid_combat(s));
     const auto before = checkpoint(s).bytes;
@@ -358,7 +358,7 @@ TEST(CombatMechanics, RecordedActionsMatchEveryModeledCheckpointIncludingShuffle
             EXPECT_EQ(state.enemy().hp, enemy["monster"]["current_hp"]);
             EXPECT_EQ(state.enemy().block, enemy["block"]); EXPECT_EQ(state.enemy().power_amount(PowerId::vulnerable, state.overflow), vulnerable);
             const std::array<std::string, 3> moves{"SHRINKER_MOVE", "CHOMP_MOVE", "STOMP_MOVE"};
-            EXPECT_EQ(moves[static_cast<std::size_t>(state.combat().enemy_ai.selected)], enemy["monster"]["ai"]["current_state"]);
+            EXPECT_EQ(moves[static_cast<std::size_t>(state.enemy().enemy_ai.selected)], enemy["monster"]["ai"]["current_state"]);
         } else EXPECT_EQ(state.combat().phase, CombatPhase::combat_won);
         const std::array<std::string, 5> names{"Hand", "Draw", "Discard", "Exhaust", "Play"};
         for (std::size_t i = 0; i < names.size(); ++i) {

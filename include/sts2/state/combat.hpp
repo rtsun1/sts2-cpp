@@ -12,7 +12,6 @@
 
 namespace sts2::engine {
 enum class CombatPhase : std::uint8_t { uninitialized, play, discard_choice, combat_won, player_died, card_choice, invalid };
-enum class BeetleMove : std::uint8_t { shrink, chomp, stomp };
 // Sufficient summaries for the audited single-player consumers. Card types are
 // immutable in supported content; mutable-type mechanics need a fresh audit.
 struct CombatCounters {
@@ -22,17 +21,12 @@ struct CombatCounters {
     std::uint32_t finished_ethereal = 0;
     friend bool operator==(const CombatCounters&, const CombatCounters&) = default;
 };
-struct EnemyAiState {
-    // Shrinker's deterministic cycle needs only its selected move, not a
-    // duplicate intent or invented history. Other AI can add required records.
-    BeetleMove selected = BeetleMove::shrink;
-};
 struct CombatData {
     std::uint32_t rules = rules_revision;
     CombatPhase phase = CombatPhase::uninitialized;
     std::int32_t energy = 0;
     std::int32_t turn = 0;
-    EnemyAiState enemy_ai {};
+    bool enemy_side = false;
     bool burning_blood = true;
     CardPool cards {};
     InlineSequence<CombatCardExtra, 20> card_extra {};
@@ -93,6 +87,7 @@ struct CombatConfig {
     std::int32_t player_max_hp = 80;
     std::int32_t enemy_hp = 0; // Zero rolls the native A0 38..40 range.
     bool burning_blood = true;
+    std::uint32_t enemy_count = 1; // Authored scenarios support one or two beetles.
     std::uint32_t card_generation = 1;
     std::uint8_t ascension = 0;
     std::string_view encounter = "ENCOUNTER.SHRINKER_BEETLE_WEAK";
