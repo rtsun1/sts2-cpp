@@ -40,6 +40,10 @@ A request for player input with offered options, selection constraints and any a
 **Action**:
 One submitted player input at the current boundary.
 
+**Legal action**:
+An action permitted by gameplay rules at the current boundary. Legality does not
+guarantee that the simulator supports the resulting content or can complete execution.
+
 **Gameplay hook**:
 A named point in gameplay processing at which game objects, such as powers and relics, can respond.
 
