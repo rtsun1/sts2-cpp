@@ -16,25 +16,30 @@ constexpr std::array starting_deck = {
     CardSpec{CardId::defend}, CardSpec{CardId::defend}, CardSpec{CardId::defend}, CardSpec{CardId::bash}};
 }
 namespace {
+template<bool CheckSupport>
 StepResult initialize_combat_impl(RunState& state, const CombatConfig& config, Scratch& scratch, const Ruleset& rules, Limits limits, bool in_place) {
-    if (config.build != game_build || config.ascension != 0 || config.encounter != "ENCOUNTER.SHRINKER_BEETLE_WEAK" ||
-        config.seed.empty() || config.seed.size() > 4096 || config.player_max_hp < 1 || config.player_hp < 1 || config.player_hp > config.player_max_hp ||
-        config.enemy_count < 1 || config.enemy_count > 2 || config.card_generation == 0 || config.enemy_hp < 0 || config.enemy_hp > 40 || config.exhaust_relics.size() > 2 || config.joss_paper_counter >= 5 ||
-        (config.seed.starts_with("old") && std::any_of(config.seed.begin(), config.seed.end(), [](unsigned char c) { return c >= 128; })))
-        return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
-    RunClock checked_clock;
-    if (!checked_clock.initialize(config.clock)) return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
+    if constexpr (CheckSupport) {
+        if (config.build != game_build || config.ascension != 0 || config.encounter != "ENCOUNTER.SHRINKER_BEETLE_WEAK" ||
+            config.seed.empty() || config.seed.size() > 4096 || config.player_max_hp < 1 || config.player_hp < 1 || config.player_hp > config.player_max_hp ||
+            config.enemy_count < 1 || config.enemy_count > 2 || config.card_generation == 0 || config.enemy_hp < 0 || config.enemy_hp > 40 || config.exhaust_relics.size() > 2 || config.joss_paper_counter >= 5 ||
+            (config.seed.starts_with("old") && std::any_of(config.seed.begin(), config.seed.end(), [](unsigned char c) { return c >= 128; })))
+            return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
+        RunClock checked_clock;
+        if (!checked_clock.initialize(config.clock)) return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
+    }
     const auto deck = config.deck.empty() ? std::span<const CardSpec>(starting_deck) : config.deck;
     if (deck.size() > limits.cards) return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity};
-    for (const auto& card : deck) if (!rules.card(card.definition) || !valid_enchantment(card.enchantment) ||
-        (card.enchantment.definition != EnchantmentId::none && card.enchantment.definition != EnchantmentId::souls_power))
-        return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
-    for (std::size_t i = 0; i < config.exhaust_relics.size(); ++i)
-        if (static_cast<unsigned>(config.exhaust_relics[i]) > 1 ||
-            std::find(config.exhaust_relics.begin(), config.exhaust_relics.begin() + i, config.exhaust_relics[i]) != config.exhaust_relics.begin() + i)
+    if constexpr (CheckSupport) {
+        for (const auto& card : deck) if (!rules.card(card.definition) || !valid_enchantment(card.enchantment) ||
+            (card.enchantment.definition != EnchantmentId::none && card.enchantment.definition != EnchantmentId::souls_power))
             return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
-    if (config.joss_paper_counter != 0 && std::find(config.exhaust_relics.begin(), config.exhaust_relics.end(), ExhaustRelic::joss_paper) == config.exhaust_relics.end())
-        return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
+        for (std::size_t i = 0; i < config.exhaust_relics.size(); ++i)
+            if (static_cast<unsigned>(config.exhaust_relics[i]) > 1 ||
+                std::find(config.exhaust_relics.begin(), config.exhaust_relics.begin() + i, config.exhaust_relics[i]) != config.exhaust_relics.begin() + i)
+                return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
+        if (config.joss_paper_counter != 0 && std::find(config.exhaust_relics.begin(), config.exhaust_relics.end(), ExhaustRelic::joss_paper) == config.exhaust_relics.end())
+            return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
+    }
     try {
         std::optional<RunState> staged;
         if (!in_place) staged.emplace(state.overflow.allocator());
@@ -99,10 +104,13 @@ StepResult initialize_combat_impl(RunState& state, const CombatConfig& config, S
 }
 } // namespace
 StepResult initialize_combat(RunState& state, const CombatConfig& config, Scratch& scratch, const Ruleset& rules, Limits limits) {
-    return initialize_combat_impl(state, config, scratch, rules, limits, false);
+    return initialize_combat_impl<true>(state, config, scratch, rules, limits, false);
 }
 StepResult initialize_combat_in_place(RunState& state, const CombatConfig& config, Scratch& scratch) {
-    return initialize_combat_impl(state, config, scratch, Ruleset::pinned(), {}, true);
+    return initialize_combat_impl<true>(state, config, scratch, Ruleset::pinned(), {}, true);
+}
+StepResult initialize_combat_in_place_trusted(RunState& state, const CombatConfig& config, Scratch& scratch) {
+    return initialize_combat_impl<STS2_DEFENSIVE_VALIDATION>(state, config, scratch, Ruleset::pinned(), {}, true);
 }
 
 }

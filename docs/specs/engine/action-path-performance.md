@@ -1,7 +1,11 @@
 # Action-path measurements and verification
 
 Implementation evidence for [issue #63](https://github.com/rtsun1/sts2-cpp/issues/63),
-measured 2026-11-02. This report measures supported examples and synthetic branching;
+measured 2026-11-02 at commit `3fcfc7f`, before the follow-up that omits trusted
+support guards in performance builds. These are historical measurements, not
+measurements of the updated mode. No benchmarks were run for that follow-up.
+
+This report measures supported examples and synthetic branching;
 there is no MCTS runner and no whole-simulation throughput claim.
 
 ## Configuration and method
@@ -135,3 +139,30 @@ actionable spec concern. Unsupported combat modifiers also now produce the expli
 
 Review totals: Standards 0 rule violations / 1 low maintenance concern; Spec 2 findings
 resolved / 0 remaining. The learning checkpoint remains for the owner to complete.
+
+## Support-assuming mode follow-up
+
+The owner subsequently approved omitting redundant trusted support guards from
+performance builds, retaining them with `STS2_DEFENSIVE_VALIDATION=ON`, and keeping
+execution limits and checked-API support handling. This supersedes the earlier
+contract that trusted performance execution always reports unsupported content.
+Unsupported content or reachable effects now violate its caller preconditions.
+No benchmarks were run for this follow-up, at the owner's request; all measurements
+above and the raw JSON describe `3fcfc7f` and must not be presented as updated results.
+
+The performance path omits the combat card-modifier scan and compile-time-specializes
+run preparation, combat configuration checks, and reward capability guards. Checked
+automatic transitions explicitly retain support guards without repeating input
+legality validation. Definition/pool lookup and operand construction remain necessary;
+missing definitions can still fail explicitly. Execution budget, capacity, clock,
+and allocation-failure handling remain active. The benchmark consumer is restricted
+to implemented seeded Neow branches so future runs satisfy the stronger preconditions.
+The indexed `.at()` interfaces were retained.
+
+Verification: release build and **308/308 CTest checks passed**; defensive engine
+executable **198/198 passed**, including ten public action-path tests in each mode.
+The additional regression verifies checked automatic reward support rejection.
+Compiled-object inspection found zero `supported_card_modifiers` call references in
+the performance `apply_combat_trusted` entry and one in its defensive counterpart.
+`git diff --check` passed. Independent fresh-context Standards and Spec reviews
+reported no actionable findings for this follow-up.

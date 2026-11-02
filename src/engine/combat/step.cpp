@@ -132,8 +132,10 @@ StepResult apply_combat(RunState& state, const CombatInput& input, Scratch& scra
 }
 StepResult apply_combat_trusted(RunState& state, const CombatInput& input, Scratch& scratch, const Ruleset& rules) noexcept {
     STS2_CHECK_INVARIANT(legal_combat_input(state, input, rules) == Restriction::none);
+#if STS2_DEFENSIVE_VALIDATION
     for (const auto& slot : state.cards().slots())
         if (slot.live && !supported_card_modifiers(slot.value)) return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
+#endif
     return execute_combat(state, input, scratch, rules);
 }
 StepResult apply_power_scenario(RunState& state, const PowerApplication& operation, Scratch& scratch) noexcept {

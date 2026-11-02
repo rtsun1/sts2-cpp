@@ -121,8 +121,8 @@ std::array<ContentId, 3> neow_options(GameRng& rng) {
     return {positive[0], positive[1], curse};
 }
 }
-// Initialize combat in a staged run without advancing its clock.
-StepResult flow::prepare_combat(RunState& run, Scratch& scratch, BoundaryId rejection_boundary, std::int32_t enemy_hp) {
+// Initialize combat in place without advancing its clock.
+StepResult flow::prepare_combat(RunState& run, Scratch& scratch, BoundaryId rejection_boundary, std::int32_t enemy_hp, bool trusted) {
     std::vector<CardSpec> deck;
     for (std::size_t card_index = 0; card_index < run.deck().size(); ++card_index) {
         const auto& card = run.deck()[card_index];
@@ -148,7 +148,8 @@ StepResult flow::prepare_combat(RunState& run, Scratch& scratch, BoundaryId reje
     config.seed = run.seed(); config.clock = run.data.clock.config(); config.initial_rng = &run.data.rng;
     config.deck = deck; config.player_hp = run.player().hp; config.player_max_hp = run.player().max_hp;
     config.card_generation = next_combat_generation(run);
-    const auto result = initialize_combat_in_place(run, config, scratch);
+    const auto result = trusted ? initialize_combat_in_place_trusted(run, config, scratch)
+                                : initialize_combat_in_place(run, config, scratch);
     if (result.status == StepStatus::awaiting_input) {
         for (std::size_t i = 0; i < run.cards().slots().size(); ++i) {
             const auto& slot = run.cards().slots()[i];

@@ -157,21 +157,32 @@ for (const auto& input : actions) {
 
 Gameplay legality does not imply implemented content or available resources.
 Enumeration includes legal Neow and reward choices even when acquisition is
-unsupported, and legal travel regardless of hidden encounter capability. Execution
-reports unsupported content, clock/capacity limits and budget failures explicitly.
+unsupported, and legal travel regardless of hidden encounter capability. Checked
+execution reports unsupported content, clock/capacity limits and budget failures.
+Trusted performance execution additionally requires the caller to guarantee that
+content and reachable effects are implemented. Unsupported behavior violates that
+contract; rejection or a correct result is not guaranteed. Use a defensive build
+when that guarantee has not been established.
 The legacy offered views retain their restrictions and may therefore expose a
 smaller unrestricted set than legal enumeration in capability-limited scenarios.
 They remain useful for checked external consumers.
 
 Configure `-DSTS2_DEFENSIVE_VALIDATION=ON` to compile internal invariant diagnostics.
-These reuse validators, print the failed condition and source location, and abort
-on an internal invariant failure. They do not depend on `NDEBUG`; checked input
+Invariant checks reuse validators, print the failed condition and source location,
+and abort on an internal invariant failure. Defensive builds also retain trusted
+content-support guards, which report `unsupported_content` rather than executing
+unimplemented effects. They do not depend on `NDEBUG`; checked input
 validation remains active with the option off. The performance configuration omits
-internal diagnostic evaluation and uses the same transitions. Diagnostic checks at
+internal diagnostic evaluation and repeated support guards, using the same
+transitions. Budget, capacity, clock, and allocation-failure handling remain active.
+Checked APIs retain support guards in both builds, including their automatic
+transitions. Required definition/pool lookups and failures to construct or dispatch
+missing behavior remain explicit; omitting support guards does not implement it. Diagnostic checks at
 continuation entry use storage/power/modifier invariants, since an unfinished
 operation is not a published decision state.
 
 Measurements and verification for this change are recorded in
 [the action-path report](action-path-performance.md). These are supported-scenario
 microbenchmarks and synthetic branching, not actual MCTS throughput or proof of
-full-game correctness.
+full-game correctness. Those measurements predate the support-assuming trusted
+performance mode; no benchmarks were run for that follow-up.

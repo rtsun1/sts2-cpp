@@ -61,14 +61,18 @@ Restriction legal_run_input(const RunState& state, const RunInput& input) noexce
     }
 }
 // Legal inputs still need execution operands, capability and resource checks.
-StepResult prepare_run_input(const RunState& state, const RunInput& input, RunActionPlan& plan, ValidationMode mode) {
+namespace {
+template<bool CheckSupport>
+StepResult prepare_run_input_impl(const RunState& state, const RunInput& input, RunActionPlan& plan, ValidationMode mode) {
     const auto reject = [&](StepStatus status, Restriction reason) { return StepResult{status, state.data.boundary, reason}; };
     plan.potion_slot = state.potions().size();
     plan.reward_kind = input.kind == RunInputKind::take_reward || input.kind == RunInputKind::skip_rewards ||
         input.kind == RunInputKind::choose_reward_card || input.kind == RunInputKind::reward_alternative;
     if (input.kind == RunInputKind::choose_reward_card) {
-        const auto id = SetupRules::name(state.data.rewards->cards[input.option].definition);
-        if (id != "CARD.TRUE_GRIT" && id != "CARD.JUGGLING" && id != "CARD.RAGE") return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
+        if constexpr (CheckSupport) {
+            const auto id = SetupRules::name(state.data.rewards->cards[input.option].definition);
+            if (id != "CARD.TRUE_GRIT" && id != "CARD.JUGGLING" && id != "CARD.RAGE") return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
+        }
         if (state.deck().size() >= 4096) return reject(StepStatus::resource_limit, Restriction::capacity);
         for (const auto& card : state.deck()) {
             if (card.instance == UINT32_MAX) return reject(StepStatus::resource_limit, Restriction::capacity);
@@ -85,7 +89,9 @@ StepResult prepare_run_input(const RunState& state, const RunInput& input, RunAc
             if (input.option == 0 && state.data.gold > INT32_MAX - gold) return reject(StepStatus::resource_limit, Restriction::capacity);
         } else {
             if (state.data.gold > INT32_MAX - 150) return reject(StepStatus::resource_limit, Restriction::capacity);
-            if (SetupRules::name(state.data.neow_options[input.option]) != "RELIC.GOLDEN_PEARL") return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
+            if constexpr (CheckSupport) {
+                if (SetupRules::name(state.data.neow_options[input.option]) != "RELIC.GOLDEN_PEARL") return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
+            }
         }
     } else if (input.kind == RunInputKind::proceed) {
         plan.generate_rewards = state.data.phase == RunPhase::combat_done && !state.data.direct_combat;
@@ -93,15 +99,29 @@ StepResult prepare_run_input(const RunState& state, const RunInput& input, RunAc
         const auto& map = *state.data.maps[state.data.act_index]; const auto next = map.at(input.col, input.row);
         plan.destination = next;
         if (mode == ValidationMode::visible) return reject(StepStatus::awaiting_input, Restriction::none);
-        if (map.nodes[next].kind != MapKind::monster || state.data.ascension != 0 || SetupRules::name(state.data.character) != "CHARACTER.IRONCLAD")
-            return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
+        if constexpr (CheckSupport) {
+            if (map.nodes[next].kind != MapKind::monster || state.data.ascension != 0 || SetupRules::name(state.data.character) != "CHARACTER.IRONCLAD")
+                return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
+        }
         plan.entering_generation = next_combat_generation(state);
         if (plan.entering_generation == 0) return reject(StepStatus::resource_limit, Restriction::capacity);
         const auto rooms = state.act(state.data.act_index);
-        if (rooms.normal_visited >= rooms.normal.size() || SetupRules::name(rooms.normal[rooms.normal_visited]) != "ENCOUNTER.SHRINKER_BEETLE_WEAK" || !supported_combat_inventory(state))
+        // Queue bounds remain operational even when content support is assumed.
+        if (rooms.normal_visited >= rooms.normal.size())
             return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
+        if constexpr (CheckSupport) {
+            if (SetupRules::name(rooms.normal[rooms.normal_visited]) != "ENCOUNTER.SHRINKER_BEETLE_WEAK" || !supported_combat_inventory(state))
+                return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
+        }
     }
     return reject(StepStatus::awaiting_input, Restriction::none);
+}
+} // namespace
+StepResult prepare_run_input(const RunState& state, const RunInput& input, RunActionPlan& plan, ValidationMode mode) {
+    return prepare_run_input_impl<true>(state, input, plan, mode);
+}
+StepResult prepare_run_input_trusted(const RunState& state, const RunInput& input, RunActionPlan& plan) {
+    return prepare_run_input_impl<STS2_DEFENSIVE_VALIDATION>(state, input, plan, ValidationMode::execution);
 }
 StepResult plan_run_input(const RunState& state, const RunInput& input, RunActionPlan& plan, ValidationMode mode) {
     if (!valid_room_context(state) || state.data.phase == RunPhase::uninitialized || state.data.phase == RunPhase::invalid)

@@ -168,9 +168,10 @@ std::vector<PlayerAction> get_actions(const RunState& state) {
     return actions;
 }
 namespace {
-StepResult advance_decision(RunState& state, Scratch& scratch) {
+StepResult advance_decision(RunState& state, Scratch& scratch, bool trusted) {
     while (needs_automatic_transition(state)) {
-        const auto result = apply_input_trusted(state, RunInput{state.data.boundary, RunInputKind::proceed}, scratch);
+        const RunInput input{state.data.boundary, RunInputKind::proceed};
+        const auto result = trusted ? apply_input_trusted(state, input, scratch) : apply_automatic_run_input(state, input, scratch);
         if (result.status != StepStatus::awaiting_input) {
             // The initiating player input has already executed. A missing
             // automatic capability cannot be published as a valid partial stop.
@@ -188,17 +189,17 @@ StepResult advance_decision(RunState& state, Scratch& scratch) {
 } // namespace
 StepResult advance_to_decision(RunState& state, Scratch& scratch) {
     if (!valid_creature_storage(state.data, state.overflow) || !flow::valid_room_context(state)) return {StepStatus::engine_error, state.data.boundary, Restriction::invalid_state};
-    return advance_decision(state, scratch);
+    return advance_decision(state, scratch, false);
 }
 StepResult apply_action_trusted(RunState& state, const PlayerInput& input, Scratch& scratch) {
     STS2_CHECK_INVARIANT(valid_run(state));
     const auto result = apply_input_trusted(state, input, scratch);
     if (result.status != StepStatus::awaiting_input && result.status != StepStatus::combat_won) return result;
-    return advance_decision(state, scratch);
+    return advance_decision(state, scratch, true);
 }
 StepResult apply_action(RunState& state, const PlayerInput& input, Scratch& scratch) {
     const auto result = submit_action(state, input, scratch);
     if (result.status != StepStatus::awaiting_input && result.status != StepStatus::combat_won) return result;
-    return advance_decision(state, scratch);
+    return advance_decision(state, scratch, false);
 }
 } // namespace sts2::engine

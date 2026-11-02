@@ -1,4 +1,5 @@
 #include "sts2/engine/rewards.hpp"
+#include "../transitions.hpp"
 #include <algorithm>
 #include <new>
 #include <stdexcept>
@@ -12,15 +13,21 @@ std::size_t index(GameRng& rng, std::size_t count) {
     return static_cast<std::size_t>(value);
 }
 }
-StepResult generate_combat_rewards(RunState& run) {
+namespace {
+template<bool CheckSupport>
+StepResult generate_combat_rewards_impl(RunState& run) {
     if (run.data.rewards) return {StepStatus::awaiting_input, {}};
     if (run.data.phase != RunPhase::combat_done || run.data.direct_combat || run.data.combat) return {StepStatus::invalid_action, {}, Restriction::wrong_phase};
-    if (run.data.ascension != 0 || run.data.act_index != 0) return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
+    if constexpr (CheckSupport) {
+        if (run.data.ascension != 0 || run.data.act_index != 0) return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
+    }
     const auto* character = SetupRules::character(run.data.character);
     if (!character) return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
-    for (auto id : run.relics()) if (SetupRules::name(id) != "RELIC.BURNING_BLOOD" && SetupRules::name(id) != "RELIC.GOLDEN_PEARL" &&
-        SetupRules::name(id) != "RELIC.CHARONS_ASHES" && SetupRules::name(id) != "RELIC.JOSS_PAPER")
-        return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
+    if constexpr (CheckSupport) {
+        for (auto id : run.relics()) if (SetupRules::name(id) != "RELIC.BURNING_BLOOD" && SetupRules::name(id) != "RELIC.GOLDEN_PEARL" &&
+            SetupRules::name(id) != "RELIC.CHARONS_ASHES" && SetupRules::name(id) != "RELIC.JOSS_PAPER")
+            return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
+    }
     try {
         auto rng = run.data.player_rng.streams[0]; RewardOffers rewards;
         if (std::holds_alternative<ParentInteractionState>(run.data.room)) rewards.return_to = RewardReturn::parent_room;
@@ -59,5 +66,12 @@ StepResult generate_combat_rewards(RunState& run) {
         return {StepStatus::awaiting_input, {}};
     } catch (const std::bad_alloc&) { return {StepStatus::resource_limit, {}, Restriction::capacity}; }
     catch (...) { return {StepStatus::engine_error, {}, Restriction::invalid_state}; }
+}
+} // namespace
+StepResult generate_combat_rewards(RunState& run) {
+    return generate_combat_rewards_impl<true>(run);
+}
+StepResult generate_combat_rewards_trusted(RunState& run) {
+    return generate_combat_rewards_impl<STS2_DEFENSIVE_VALIDATION>(run);
 }
 } // namespace sts2::engine

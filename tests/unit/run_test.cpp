@@ -46,7 +46,13 @@ void compare_action_paths(const RunState& root, bool compare_offered = true, uns
     }
     for (const auto& input : legal) {
         RunState checked = root, trusted = root; Scratch a, b;
-        const auto x = apply_action(checked, input, a), y = apply_action_trusted(trusted, input, b);
+        const auto x = apply_action(checked, input, a);
+#if !STS2_DEFENSIVE_VALIDATION
+        // Performance trusted execution assumes supported behavior. Do not
+        // submit unsupported branches to that contract; checked rejection stays tested.
+        if (x.status == StepStatus::unsupported_content) continue;
+#endif
+        const auto y = apply_action_trusted(trusted, input, b);
         EXPECT_EQ(x.status, y.status); EXPECT_EQ(x.reason, y.reason); EXPECT_EQ(x.boundary, y.boundary);
         if (x.status == StepStatus::awaiting_input || x.status == StepStatus::combat_won || x.status == StepStatus::player_died) {
             EXPECT_EQ(checked, trusted);
@@ -1368,9 +1374,12 @@ TEST(TrustedActions, UnsupportedCombatCapabilityRemainsAnExecutionResult) {
     for_each_legal_action(root, [&](const PlayerInput& input) { legal.push_back(input); });
     ASSERT_FALSE(legal.empty());
     RunState checked = root, trusted = root;
-    const auto a = apply_action(checked, legal.front(), scratch), b = apply_action_trusted(trusted, legal.front(), scratch);
+    const auto a = apply_action(checked, legal.front(), scratch);
     EXPECT_EQ(a.status, StepStatus::unsupported_content); EXPECT_EQ(a.reason, Restriction::unsupported_setup);
+#if STS2_DEFENSIVE_VALIDATION
+    const auto b = apply_action_trusted(trusted, legal.front(), scratch);
     EXPECT_EQ(a.status, b.status); EXPECT_EQ(a.reason, b.reason);
+#endif
 }
 TEST(TrustedActions, ResolvedRewardsHaveNoPlayerActionsBeforeAutomaticAdvance) {
     auto root = until(13).state(); Scratch scratch;
@@ -1395,6 +1404,20 @@ TEST(TrustedActions, CheckedRunInputsKeepInvalidStateClassification) {
         EXPECT_EQ(a.status, b.status); EXPECT_EQ(a.reason, b.reason);
         EXPECT_EQ(root, before);
     }
+}
+
+TEST(TrustedActions, CheckedAutomaticRewardsRetainContentSupportChecks) {
+    RunState state; Scratch scratch;
+    const std::array deck{CardSpec{CardId::strike}};
+    ASSERT_EQ(initialize_combat_scenario(state, {}, deck, {}, {}, 1).status, StepStatus::awaiting_input);
+    // This representation is valid, but its reward hooks are not implemented.
+    state.relics().push_back(SetupRules::find("RELIC.FRESNEL_LENS"));
+    ASSERT_TRUE(valid_run(state));
+    const auto result = apply_action(state, CombatInput{state.data.boundary,
+        CombatInputKind::play_card, state.zone(Zone::hand).front(), state.enemy_handle()}, scratch);
+    EXPECT_EQ(result.status, StepStatus::engine_error);
+    EXPECT_EQ(result.reason, Restriction::unsupported_setup);
+    EXPECT_EQ(state.data.phase, RunPhase::invalid);
 }
 
 }

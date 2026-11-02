@@ -151,7 +151,7 @@ int main(int argc, char** argv) try {
             legacy_legal += offered_legal(action.restriction);
         }
         require(legacy_legal == legal.size());
-        std::cout << " legal_actions=" << legal.size() << " offered_unrestricted_actions=" << supported << '\n';
+        std::cout << " legal_actions=" << legal.size() << " offered_unrestricted_actions=" << supported << " applied_actions=" << (workload == 5 ? 1 : legal.size()) << '\n';
         const PlayerInput step_input = workload < 5
             ? PlayerInput{workload == 3 ? CombatInput{baseline.data.boundary, CombatInputKind::select_card, baseline.selection_candidates().front(), {}, baseline.combat().selection.id}
                 : CombatInput{baseline.data.boundary, CombatInputKind::end_turn}}
@@ -172,6 +172,9 @@ int main(int argc, char** argv) try {
         for (bool trusted : {false, true}) {
             measure(trusted ? "branching_trusted" : "branching_checked", iterations, [&] {
                 const auto apply = [&](const PlayerInput& input) {
+                    // Only Golden Pearl is implemented in this seeded Neow fixture.
+                    // Performance trusted calls require supported reachable behavior.
+                    if (workload == 5 && std::get<RunInput>(input).option != 0) return;
                     require(clone_into(branch, baseline) == CloneStatus::cloned);
                     const auto result = trusted ? apply_action_trusted(branch, input, scratch) : apply_action(branch, input, scratch);
                     require(result.status == StepStatus::awaiting_input || result.status == StepStatus::unsupported_content || result.reason == Restriction::unsupported_setup);

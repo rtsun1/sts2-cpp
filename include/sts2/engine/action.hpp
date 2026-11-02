@@ -36,7 +36,10 @@ private:
 // Apply one player action and advance automatically to a decision or terminal result.
 [[nodiscard]] StepResult apply_action(RunState&, const PlayerInput&, Scratch&);
 // Preconditions: valid_run(state), and input is legal for this exact state or
-// an independent exact copy. Failure states must be discarded; no rollback.
+// an independent exact copy. Without STS2_DEFENSIVE_VALIDATION the caller also
+// guarantees supported content and reachable effects. Violations need not be
+// rejected. Defensive builds retain content-support checks. Execution limits and
+// allocation-failure handling remain active. Failure states must be discarded.
 [[nodiscard]] StepResult apply_action_trusted(RunState&, const PlayerInput&, Scratch&);
 
 // Sequential, allocation-free generation. The caller establishes valid_run once
