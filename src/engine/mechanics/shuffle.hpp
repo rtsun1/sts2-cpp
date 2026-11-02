@@ -1,6 +1,6 @@
 #pragma once
-#include "sts2/state/combat.hpp"
+#include "sts2/state/run.hpp"
 
 namespace sts2::engine::gameplay {
-StepResult resume_shuffle(CombatView, Scratch&, const Ruleset&);
+StepResult resume_shuffle(RunState&, Scratch&, const Ruleset&);
 }

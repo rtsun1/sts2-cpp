@@ -1,4 +1,4 @@
-#include "sts2/persistence/checkpoint.hpp"
+#include "combat_payload.hpp"
 #include "sts2/engine/run.hpp"
 #include <bit>
 #include <new>
@@ -112,51 +112,50 @@ std::uint64_t checksum(std::span<const std::byte> bytes) { return game_hash({rei
 }
 Checkpoint checkpoint(const RunState& run) {
     if (!valid_run(run)) throw std::invalid_argument("Cannot checkpoint invalid run");
-    auto run_view = run.view();
-    Writer w; w.text("STS2RUN1"); w.u32(16); w.u32(rules_revision); w.text(game_digest); w.text(SetupRules::fingerprint()); w.u64(content_fingerprint());
-    const auto s = run_view;
-    w.u32(s.creatures.data.highest_generation);
-    w.u32(static_cast<std::uint32_t>(s.creatures.slots().size()));
-    for (const auto& slot : s.creatures.slots()) { w.u32(slot.generation); w.u8(slot.live); w.creature(slot.value, s.overflow); }
-    w.u32(static_cast<std::uint32_t>(s.creatures.free_slots().size()));
-    for (auto index : s.creatures.free_slots()) w.u32(index);
-    w.u32(s.data.player.slot); w.u32(s.data.player.generation);
-    w.u32(static_cast<std::uint32_t>(s.combat.enemies.size()));
-    for (auto enemy : s.combat.enemies) { w.u32(enemy.slot); w.u32(enemy.generation); }
-    w.u32(static_cast<std::uint32_t>(s.seed.size())); w.text(s.seed); w.u64(s.numeric_seed); w.u32(s.character); w.u8(s.ascension);
-    w.i32(s.gold); w.i32(s.potion_slots); w.i32(s.orb_slots);
-    for (const auto& rng : s.rng.streams) w.rng(rng.state());
-    for (const auto& rng : s.player_rng.streams) w.rng(rng.state());
-    w.bag(s.shared_relics); w.bag(s.player_relics);
-    for (const auto& act : s.acts) {
+    Writer w; w.text("STS2RUN1"); w.u32(17); w.u32(rules_revision); w.text(game_digest); w.text(SetupRules::fingerprint()); w.u64(content_fingerprint());
+    w.u32(run.creatures().data.highest_generation);
+    w.u32(static_cast<std::uint32_t>(run.creatures().slots().size()));
+    for (const auto& slot : run.creatures().slots()) { w.u32(slot.generation); w.u8(slot.live); w.creature(slot.value, run.overflow); }
+    w.u32(static_cast<std::uint32_t>(run.creatures().free_slots().size()));
+    for (auto index : run.creatures().free_slots()) w.u32(index);
+    w.u32(run.data.player.slot); w.u32(run.data.player.generation);
+    w.u32(static_cast<std::uint32_t>(run.enemies().size()));
+    for (auto enemy : run.enemies()) { w.u32(enemy.slot); w.u32(enemy.generation); }
+    w.u32(static_cast<std::uint32_t>(run.seed().size())); w.text(run.seed()); w.u64(run.data.numeric_seed); w.u32(run.data.character); w.u8(run.data.ascension);
+    w.i32(run.data.gold); w.i32(run.data.potion_slots); w.i32(run.data.orb_slots);
+    for (const auto& rng : run.data.rng.streams) w.rng(rng.state());
+    for (const auto& rng : run.data.player_rng.streams) w.rng(rng.state());
+    w.bag(run.shared_relics()); w.bag(run.player_relics());
+    for (std::size_t act_index = 0; act_index < run.data.acts.size(); ++act_index) {
+        const auto act = run.act(act_index);
         w.u32(act.act); w.u32(act.ancient); w.u32(act.boss); w.u32(act.second_boss);
         w.ids(act.events); w.ids(act.normal); w.ids(act.elites); w.ids(act.shared_ancients);
         w.u32(act.events_visited); w.u32(act.normal_visited); w.u32(act.elites_visited); w.u32(act.bosses_visited);
     }
-    w.u32(s.deck.pool.data.highest_generation);
-    w.u32(static_cast<std::uint32_t>(s.deck.pool.slots().size()));
-    for (const auto& slot : s.deck.pool.slots()) { w.u32(slot.generation); w.u8(slot.live); w.card(slot.value); }
-    w.u32(static_cast<std::uint32_t>(s.deck.pool.free_slots().size()));
-    for (const auto slot : s.deck.pool.free_slots()) w.u32(slot);
-    w.u32(static_cast<std::uint32_t>(s.deck.size()));
-    for (const auto h : s.deck.handles()) { w.u32(h.slot); w.u32(h.generation); }
-    w.u32(static_cast<std::uint32_t>(s.card_extra.size()));
-    for (const auto& entry : s.card_extra) { w.u32(entry.card.slot); w.u32(entry.card.generation); w.card_extra(entry.data); }
-    w.ids(s.relics); w.u32(s.joss_paper_counter); w.ids(s.potions); w.u32(std::bit_cast<std::uint32_t>(s.card_rarity_offset)); w.u32(std::bit_cast<std::uint32_t>(s.potion_reward_odds));
-    const auto clock = run_view.clock.config(); w.u64(static_cast<std::uint64_t>(clock.epoch_seconds)); w.u64(static_cast<std::uint64_t>(clock.seconds_per_action)); w.u64(static_cast<std::uint64_t>(run_view.clock.elapsed_seconds()));
-    w.u32(run_view.boundary.value); w.u8(static_cast<std::uint8_t>(run_view.phase));
-    w.u8(static_cast<std::uint8_t>(run_view.room.index()));
-    if (const auto* parent = std::get_if<ParentInteractionState>(&run_view.room)) { w.u8(static_cast<std::uint8_t>(parent->stage)); w.i32(parent->pending_gold); }
-    w.u8(run_view.act_index);
-    for (const auto& map : run_view.maps) { w.u8(map.has_value()); if (map) w.map(*map); }
-    w.u32(run_view.current); w.ids(run_view.visited); w.rng(run_view.event_rng.state());
-    for (auto option : run_view.neow_options) w.u32(option);
-    w.u32(run_view.selected_neow); w.u8(run_view.direct_combat); w.u32(run_view.combat_generation);
-    w.u8(run_view.combat.has_value());
-    if (run_view.combat) { const auto combat = checkpoint(*run_view.combat); w.u32(static_cast<std::uint32_t>(combat.bytes.size())); w.bytes.insert(w.bytes.end(), combat.bytes.begin(), combat.bytes.end()); }
-    w.u8(run_view.rewards.has_value());
-    if (run_view.rewards) {
-        const auto& rewards = *run_view.rewards; w.i32(rewards.gold); w.u32(rewards.potion); for (const auto& card : rewards.cards) w.card(card);
+    w.u32(run.deck().pool.data.highest_generation);
+    w.u32(static_cast<std::uint32_t>(run.deck().pool.slots().size()));
+    for (const auto& slot : run.deck().pool.slots()) { w.u32(slot.generation); w.u8(slot.live); w.card(slot.value); }
+    w.u32(static_cast<std::uint32_t>(run.deck().pool.free_slots().size()));
+    for (const auto slot : run.deck().pool.free_slots()) w.u32(slot);
+    w.u32(static_cast<std::uint32_t>(run.deck().size()));
+    for (const auto h : run.deck().handles()) { w.u32(h.slot); w.u32(h.generation); }
+    w.u32(static_cast<std::uint32_t>(run.deck_extra().size()));
+    for (const auto& entry : run.deck_extra()) { w.u32(entry.card.slot); w.u32(entry.card.generation); w.card_extra(entry.data); }
+    w.ids(run.relics()); w.u32(run.data.joss_paper_counter); w.ids(run.potions()); w.u32(std::bit_cast<std::uint32_t>(run.data.card_rarity_offset)); w.u32(std::bit_cast<std::uint32_t>(run.data.potion_reward_odds));
+    const auto clock = run.data.clock.config(); w.u64(static_cast<std::uint64_t>(clock.epoch_seconds)); w.u64(static_cast<std::uint64_t>(clock.seconds_per_action)); w.u64(static_cast<std::uint64_t>(run.data.clock.elapsed_seconds()));
+    w.u32(run.data.boundary.value); w.u8(static_cast<std::uint8_t>(run.data.phase));
+    w.u8(static_cast<std::uint8_t>(run.data.room.index()));
+    if (const auto* parent = std::get_if<ParentInteractionState>(&run.data.room)) { w.u8(static_cast<std::uint8_t>(parent->stage)); w.i32(parent->pending_gold); }
+    w.u8(run.data.act_index);
+    for (const auto& map : run.data.maps) { w.u8(map.has_value()); if (map) w.map(*map); }
+    w.u32(run.data.current); w.ids(run.visited()); w.rng(run.data.event_rng.state());
+    for (auto option : run.data.neow_options) w.u32(option);
+    w.u32(run.data.selected_neow); w.u8(run.data.direct_combat); w.u32(run.data.combat_generation);
+    w.u8(run.has_combat());
+    if (run.data.combat) { const auto combat = persistence::encode_combat(run); w.u32(static_cast<std::uint32_t>(combat.bytes.size())); w.bytes.insert(w.bytes.end(), combat.bytes.begin(), combat.bytes.end()); }
+    w.u8(run.data.rewards.has_value());
+    if (run.data.rewards) {
+        const auto& rewards = *run.data.rewards; w.i32(rewards.gold); w.u32(rewards.potion); for (const auto& card : rewards.cards) w.card(card);
         w.u8(rewards.gold_taken); w.u8(rewards.potion_taken); w.u8(rewards.card_taken); w.u8(rewards.selecting_card); w.u8(rewards.resolved); w.u8(rewards.skipped); w.u8(rewards.selected_card); w.u8(static_cast<std::uint8_t>(rewards.return_to));
     }
     w.u64(checksum(w.bytes)); return {std::move(w.bytes)};
@@ -167,7 +166,7 @@ RestoreStatus restore(RunState& destination, std::span<const std::byte> bytes, S
         Reader trailer{bytes.last(8)}; if (trailer.u64() != checksum(bytes.first(bytes.size() - 8))) return RestoreStatus::malformed;
         Reader r{bytes.first(bytes.size() - 8)};
         for (char c : std::string_view("STS2RUN1")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
-        if (r.u32() != 16 || r.u32() != rules_revision) return RestoreStatus::incompatible;
+        if (r.u32() != 17 || r.u32() != rules_revision) return RestoreStatus::incompatible;
         for (const auto identity : {game_digest, SetupRules::fingerprint()}) for (char c : identity)
             if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
         if (r.u64() != content_fingerprint()) return RestoreStatus::incompatible;
@@ -188,14 +187,14 @@ RestoreStatus restore(RunState& destination, std::span<const std::byte> bytes, S
         for (std::size_t i = 0; i < enemy_count; ++i) run.data.enemies.push_back(run.overflow, {r.u32(), r.u32()});
         if (!creatures.get(run.data.player)) return RestoreStatus::malformed;
         for (auto enemy : run.data.enemies.values(run.overflow)) if (enemy == run.data.player || !creatures.get(enemy)) return RestoreStatus::malformed;
-        auto run_view = run.view(); auto s = run_view;
-        const auto seed_size = r.count(1, 4096); for (std::size_t i = 0; i < seed_size; ++i) s.seed.push_back(static_cast<char>(r.u8()));
-        s.numeric_seed = r.u64(); s.character = r.id(); s.ascension = r.u8();
-        s.gold = r.i32(); s.potion_slots = r.i32(); s.orb_slots = r.i32();
-        for (auto& rng : s.rng.streams) r.random(rng);
-        for (auto& rng : s.player_rng.streams) r.random(rng);
-        r.bag(s.shared_relics); r.bag(s.player_relics);
-        for (auto& act : s.acts) {
+        const auto seed_size = r.count(1, 4096); for (std::size_t i = 0; i < seed_size; ++i) run.seed().push_back(static_cast<char>(r.u8()));
+        run.data.numeric_seed = r.u64(); run.data.character = r.id(); run.data.ascension = r.u8();
+        run.data.gold = r.i32(); run.data.potion_slots = r.i32(); run.data.orb_slots = r.i32();
+        for (auto& rng : run.data.rng.streams) r.random(rng);
+        for (auto& rng : run.data.player_rng.streams) r.random(rng);
+        r.bag(run.shared_relics()); r.bag(run.player_relics());
+        for (std::size_t act_index = 0; act_index < run.data.acts.size(); ++act_index) {
+        auto act = run.act(act_index);
             act.act = r.id(); act.ancient = r.id(); act.boss = r.id(); act.second_boss = r.id();
             r.ids(act.events); r.ids(act.normal); r.ids(act.elites); r.ids(act.shared_ancients);
             act.events_visited = r.u32(); act.normal_visited = r.u32(); act.elites_visited = r.u32(); act.bosses_visited = r.u32();
@@ -207,55 +206,39 @@ RestoreStatus restore(RunState& destination, std::span<const std::byte> bytes, S
         const auto free_count = r.count(4, slot_count);
         std::vector<std::uint32_t> free(free_count);
         for (auto& slot : free) slot = r.u32();
-        if (!s.deck.pool.restore(std::move(slots), std::move(free)) || s.deck.pool.data.highest_generation > highest_generation) return RestoreStatus::malformed;
-        s.deck.pool.data.highest_generation = highest_generation;
+        if (!run.deck().pool.restore(std::move(slots), std::move(free)) || run.deck().pool.data.highest_generation > highest_generation) return RestoreStatus::malformed;
+        run.deck().pool.data.highest_generation = highest_generation;
         const auto cards = r.count(8, limits.cards);
-        s.deck.handles().reserve(cards);
-        for (std::size_t i = 0; i < cards; ++i) s.deck.handles().push_back({r.u32(), r.u32()});
+        run.deck().handles().reserve(cards);
+        for (std::size_t i = 0; i < cards; ++i) run.deck().handles().push_back({r.u32(), r.u32()});
         const auto extra_count = r.count(17, limits.cards);
         for (std::uint32_t i = 0; i < extra_count; ++i) {
             const PersistentCardHandle card{r.u32(), r.u32()}; auto data = r.card_extra();
-            s.card_extra.push_back({card, data});
+            run.deck_extra().push_back({card, data});
         }
-        r.ids(s.relics); s.joss_paper_counter = r.u32(); r.ids(s.potions); s.card_rarity_offset = std::bit_cast<float>(r.u32()); s.potion_reward_odds = std::bit_cast<float>(r.u32());
+        r.ids(run.relics()); run.data.joss_paper_counter = r.u32(); r.ids(run.potions()); run.data.card_rarity_offset = std::bit_cast<float>(r.u32()); run.data.potion_reward_odds = std::bit_cast<float>(r.u32());
         const auto epoch = r.u64(), step = r.u64(), elapsed = r.u64();
         if (epoch > RunClock::max_seconds || step > 86400 || elapsed > RunClock::max_seconds ||
-            !run_view.clock.restore({static_cast<std::int64_t>(epoch), static_cast<std::int64_t>(step)}, static_cast<std::int64_t>(elapsed))) return RestoreStatus::malformed;
-        run_view.boundary.value = r.u32(); run_view.phase = static_cast<RunPhase>(r.u8());
+            !run.data.clock.restore({static_cast<std::int64_t>(epoch), static_cast<std::int64_t>(step)}, static_cast<std::int64_t>(elapsed))) return RestoreStatus::malformed;
+        run.data.boundary.value = r.u32(); run.data.phase = static_cast<RunPhase>(r.u8());
         switch (r.u8()) {
         case 0: break;
-        case 1: run_view.room = ParentInteractionState{static_cast<ParentRoomStage>(r.u8()), r.i32()}; break;
+        case 1: run.data.room = ParentInteractionState{static_cast<ParentRoomStage>(r.u8()), r.i32()}; break;
         default: return RestoreStatus::malformed;
         }
-        run_view.act_index = r.u8();
-        for (auto& map : run_view.maps) if (r.boolean()) { map.emplace(); r.map(*map); }
-        run_view.current = r.id(); r.ids(run_view.visited); r.random(run_view.event_rng);
-        for (auto& option : run_view.neow_options) option = r.id();
-        run_view.selected_neow = r.id(); run_view.direct_combat = r.boolean(); run_view.combat_generation = r.u32();
-        Scratch temporary;
+        run.data.act_index = r.u8();
+        for (auto& map : run.data.maps) if (r.boolean()) { map.emplace(); r.map(*map); }
+        run.data.current = r.id(); r.ids(run.visited()); r.random(run.data.event_rng);
+        for (auto& option : run.data.neow_options) option = r.id();
+        run.data.selected_neow = r.id(); run.data.direct_combat = r.boolean(); run.data.combat_generation = r.u32();
         if (r.boolean()) {
-            const auto expected_hp = run_view.hp, expected_max_hp = run_view.max_hp;
-            const auto expected_joss = run_view.joss_paper_counter;
-            const auto expected_rng = run_view.rng; const auto expected_clock = run_view.clock; const auto expected_boundary = run_view.boundary;
             const auto size = r.count(1, 64 * 1024 * 1024);
-            if (run_view.combat.enemies.size() != 1) return RestoreStatus::malformed;
-            auto expected_player = *creatures.get(run.data.player);
-            auto expected_enemy = *creatures.get(run_view.combat.enemies.front());
-            OverflowStorage expected_owner;
-            expected_player.powers = {}; expected_enemy.powers = {};
-            for (const auto& power : creatures.get(run.data.player)->power_instances(run.overflow)) expected_player.power_instances(expected_owner).push_back(power);
-            for (const auto& power : creatures.get(run_view.combat.enemies.front())->power_instances(run.overflow)) expected_enemy.power_instances(expected_owner).push_back(power);
-            run.data.combat.emplace();
-            const auto status = restore(*run_view.combat, r.bytes.subspan(r.at, size), temporary, limits); if (status != RestoreStatus::restored) return status; r.at += size;
-            // Combat restore can replace run overflow, including creature slots.
-            // Reacquire borrowed creature references before comparing authority.
-            const auto restored_view = run.view();
-            if (!creatures.get(run.data.player)->equals(run.overflow, expected_player, expected_owner) || !creatures.get(run_view.combat.enemies.front())->equals(run.overflow, expected_enemy, expected_owner)) return RestoreStatus::malformed;
-            if (restored_view.joss_paper_counter != expected_joss || restored_view.hp != expected_hp || restored_view.max_hp != expected_max_hp || restored_view.rng != expected_rng ||
-                restored_view.clock != expected_clock || restored_view.boundary != expected_boundary) return RestoreStatus::malformed;
+            const auto status = persistence::decode_combat(run, r.bytes.subspan(r.at, size), limits);
+            if (status != RestoreStatus::restored) return status;
+            r.at += size;
         }
         if (r.boolean()) {
-            run_view.rewards.emplace(); auto& rewards = *run_view.rewards; rewards.gold = r.i32(); rewards.potion = r.id();
+            run.data.rewards.emplace(); auto& rewards = *run.data.rewards; rewards.gold = r.i32(); rewards.potion = r.id();
             for (auto& card : rewards.cards) card = r.card();
             rewards.gold_taken = r.boolean(); rewards.potion_taken = r.boolean(); rewards.card_taken = r.boolean(); rewards.selecting_card = r.boolean();
             rewards.resolved = r.boolean(); rewards.skipped = r.boolean(); rewards.selected_card = r.u8(); rewards.return_to = static_cast<RewardReturn>(r.u8());

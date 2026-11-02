@@ -6,14 +6,14 @@
 #include <algorithm>
 
 namespace sts2::engine::gameplay {
-HandlerResult dark_embrace_after_card_exhausted(CombatView state, HandlerProgress& progress, int amount) {
+HandlerResult dark_embrace_after_card_exhausted(RunState& state, HandlerProgress& progress, int amount) {
     if (progress.stage != 0) return HandlerResult::complete;
-    if (amount <= 0 || state.enemy.hp == 0 || state.player.hp == 0) return HandlerResult::complete;
+    if (amount <= 0 || state.enemy().hp == 0 || state.player().hp == 0) return HandlerResult::complete;
     progress.stage = 1;
-    state.execution.push_back(DrawFrame{.remaining = amount, .from_hand_draw = false});
+    state.execution().push_back(DrawFrame{.remaining = amount, .from_hand_draw = false});
     return HandlerResult::yield;
 }
-HandlerResult stratagem_after_shuffle(CombatView state, HandlerProgress& progress,
+HandlerResult stratagem_after_shuffle(RunState& state, HandlerProgress& progress,
     std::uint32_t& expected_selection_count, int amount) {
     if (progress.stage != 0) {
         expected_selection_count = 0;
@@ -36,8 +36,8 @@ PowerModifier artifact_before_power_application(const CreatureState& creature, c
     const auto artifact = creature.has_power(PowerId::artifact, owner) && debuff ? creature.find_power(PowerId::artifact, owner)->instance : UINT32_MAX;
     return {artifact == UINT32_MAX ? amount : 0, artifact};
 }
-void artifact_after_power_application(CombatView state, Scratch& scratch, CreatureState& creature, PowerModifier modifier, bool enemy, bool enemy_side, CreatureHandle target) {
-    if (modifier.artifact != UINT32_MAX && creature.has_power(PowerId::artifact, state.creature_overflow) && creature.find_power(PowerId::artifact, state.creature_overflow)->instance == modifier.artifact)
+void artifact_after_power_application(RunState& state, Scratch& scratch, CreatureState& creature, PowerModifier modifier, bool enemy, bool enemy_side, CreatureHandle target) {
+    if (modifier.artifact != UINT32_MAX && creature.has_power(PowerId::artifact, state.overflow) && creature.find_power(PowerId::artifact, state.overflow)->instance == modifier.artifact)
         (void)apply_power(state, scratch, PowerId::artifact, -1, enemy, enemy_side, {}, false, false, PowerInstance::Stacking::by_type, {}, target, modifier.artifact);
 }
 int modify_attack_damage(const CreatureState& target, int base, const CreatureState& source, const OverflowStorage& owner) noexcept {
@@ -50,11 +50,11 @@ int modify_attack_damage(const CreatureState& target, int base, const CreatureSt
 std::int64_t modify_block(const CreatureState& creature, const OverflowStorage& owner, int amount) noexcept {
     return std::max<std::int64_t>(0, std::int64_t(amount) + creature.power_amount(PowerId::dexterity, owner));
 }
-int preview_attack_damage(ConstCombatView s, int value, bool active_preview) noexcept {
-    return static_cast<int>(std::max<std::int64_t>(0, std::int64_t(value) + (active_preview ? s.player.power_amount(PowerId::strength, s.creature_overflow) : 0)) * (active_preview && s.player.has_power(PowerId::shrink, s.creature_overflow) ? 70 : 100) * (active_preview && s.player.power_amount(PowerId::weak, s.creature_overflow) > 0 ? 75 : 100) * (active_preview && s.enemy.power_amount(PowerId::vulnerable, s.creature_overflow) ? 150 : 100) / 1000000);
+int preview_attack_damage(const RunState& s, int value, bool active_preview) noexcept {
+    return static_cast<int>(std::max<std::int64_t>(0, std::int64_t(value) + (active_preview ? s.player().power_amount(PowerId::strength, s.overflow) : 0)) * (active_preview && s.player().has_power(PowerId::shrink, s.overflow) ? 70 : 100) * (active_preview && s.player().power_amount(PowerId::weak, s.overflow) > 0 ? 75 : 100) * (active_preview && s.enemy().power_amount(PowerId::vulnerable, s.overflow) ? 150 : 100) / 1000000);
 }
-int preview_block(ConstCombatView s, int value, bool active_preview) noexcept {
-    return static_cast<int>(std::max<std::int64_t>(0, std::int64_t(value) + (active_preview ? s.player.power_amount(PowerId::dexterity, s.creature_overflow) : 0)));
+int preview_block(const RunState& s, int value, bool active_preview) noexcept {
+    return static_cast<int>(std::max<std::int64_t>(0, std::int64_t(value) + (active_preview ? s.player().power_amount(PowerId::dexterity, s.overflow) : 0)));
 }
 bool skip_initial_power_tick(PowerId id, bool enemy_owner) noexcept {
     return !enemy_owner && (id == PowerId::weak || id == PowerId::vulnerable || id == PowerId::shrink);

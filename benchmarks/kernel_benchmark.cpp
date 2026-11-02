@@ -26,7 +26,7 @@ int main(int argc, char** argv) {
         char* end = nullptr; battles = std::strtoull(argv[1], &end, 10);
         if (!end || *end != '\0' || battles == 0 || battles > 100000000) return 1;
     } else if (argc > 2) return 1;
-    CombatState baseline, state; Scratch scratch;
+    RunState baseline, state; Scratch scratch;
     if (initialize_combat(baseline, {}, scratch).status != StepStatus::awaiting_input) return 1;
     if (clone_into(state, baseline) != CloneStatus::cloned) throw std::bad_alloc{};
     std::uint64_t transitions = 0, checksum = 0;
@@ -34,8 +34,8 @@ int main(int argc, char** argv) {
     count_allocations = true;
     for (std::uint64_t battle = 0; battle < battles; ++battle) {
         if (clone_into(state, baseline) != CloneStatus::cloned) throw std::bad_alloc{};
-        while (state.view().phase == CombatPhase::play) {
-            CombatInput input{state.view().boundary, CombatInputKind::end_turn};
+        while (state.combat().phase == CombatPhase::play) {
+            CombatInput input{state.data.boundary, CombatInputKind::end_turn};
             ActionSpaceView actions(state);
             for (std::size_t i = 0; i < state.zone(Zone::hand).size(); ++i) {
                 const auto action = *actions.at(i);
@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
             ++transitions;
             if (result.status == StepStatus::engine_error || result.status == StepStatus::invalid_action || result.status == StepStatus::resource_limit) return 2;
         }
-        checksum += std::uint64_t(state.view().player.hp) + state.view().counters.started_plays + state.view().counters.finished_plays;
+        checksum += std::uint64_t(state.player().hp) + state.combat().counters.started_plays + state.combat().counters.finished_plays;
     }
     count_allocations = false;
     const auto seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
               << "battles=" << battles << " transitions=" << transitions << " seconds=" << seconds
               << " transitions_per_second=" << static_cast<double>(transitions) / seconds
               << " battles_per_second=" << static_cast<double>(battles) / seconds << '\n'
-              << "state_root_bytes=" << sizeof(CombatState) << " retained_state_bytes=" << state.retained_bytes()
+              << "state_root_bytes=" << sizeof(RunState) << " retained_state_bytes=" << state.retained_bytes()
               << " warmed_allocations=" << allocations << " checksum=" << checksum << '\n';
     return allocations == 0 ? 0 : 3;
 }

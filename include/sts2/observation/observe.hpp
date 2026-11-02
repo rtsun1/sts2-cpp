@@ -26,7 +26,7 @@ struct CombatObservationView {
 };
 // Borrows hand storage; invalidated by state mutation. Hidden draw order, RNG,
 // execution frames and unrevealed data are never part of the public projection.
-[[nodiscard]] CombatObservationView observe(ConstCombatView) noexcept;
+[[nodiscard]] CombatObservationView observe_combat(const RunState&) noexcept;
 struct CardView {
     CardHandle handle;
     std::string_view model_id, name;
@@ -41,9 +41,9 @@ struct CardView {
     CardAffliction affliction {};
     std::int32_t base_replay_count = 0;
 };
-[[nodiscard]] std::optional<CardView> observe_card(ConstCombatView, CardHandle, const Ruleset& = Ruleset::pinned()) noexcept;
+[[nodiscard]] std::optional<CardView> observe_card(const RunState&, CardHandle, const Ruleset& = Ruleset::pinned()) noexcept;
 // Metadata for inspectable hand/draw/discard/exhaust cards; never pile position.
-[[nodiscard]] std::optional<CardView> inspect_card(ConstCombatView, CardHandle, const Ruleset& = Ruleset::pinned()) noexcept;
+[[nodiscard]] std::optional<CardView> inspect_card(const RunState&, CardHandle, const Ruleset& = Ruleset::pinned()) noexcept;
 // English rendering is outside the kernel; callers pay for it only on demand.
 [[nodiscard]] std::string describe(const CardView&);
 } // namespace sts2::engine

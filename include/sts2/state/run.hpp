@@ -83,50 +83,6 @@ struct RewardOffers {
 };
 using CombatRewards = RewardOffers;
 using CreaturePool = PoolData<CreatureState, CreatureTag, 8>;
-// Views borrow pool storage. Reacquire them after any pool mutation.
-template<bool Const> struct OptionalCombatView {
-    using Data = std::conditional_t<Const, const std::optional<CombatData>, std::optional<CombatData>>;
-    using Owner = std::conditional_t<Const, const OverflowStorage, OverflowStorage>;
-    Data& data;
-    Owner& overflow;
-    PoolView<CreatureState, CreatureTag, 8, Const> creatures;
-    std::conditional_t<Const, const CreatureHandle, CreatureHandle>& player;
-    SequenceView<CreatureHandle, 4, Const> enemies;
-    std::conditional_t<Const, const BoundaryId, BoundaryId>& boundary;
-    std::conditional_t<Const, const RunClock, RunClock>& clock;
-    std::conditional_t<Const, const RngBank, RngBank>& rng;
-    std::conditional_t<Const, const std::uint32_t, std::uint32_t>& joss_paper_counter;
-    bool has_value() const noexcept { return data.has_value(); }
-    explicit operator bool() const noexcept { return has_value(); }
-    auto operator*() const noexcept { return BasicCombatView<Const>(*data, overflow, creatures.owner, creatures.data, player, enemies.front(), boundary, clock, rng, joss_paper_counter); }
-    auto operator->() const noexcept { return ViewArrow<BasicCombatView<Const>>{**this}; }
-    auto emplace() requires (!Const) {
-        reset();
-        const auto enemy = creatures.create({}, UINT32_MAX);
-        if (!enemy.present()) throw std::length_error("Creature identity exhausted");
-        try { enemies.push_back(enemy); } catch (...) { (void)creatures.erase(enemy); throw; }
-        overflow.reset(); data.emplace(); return **this;
-    }
-    void reset() noexcept requires (!Const) {
-        // Combat execution and its captured operands are discarded before recycling.
-        data.reset(); overflow.reset();
-        for (auto enemy : enemies) {
-            if (auto* creature = creatures.get(enemy)) creature->clear();
-            (void)creatures.erase(enemy);
-        }
-        enemies.clear();
-    }
-    OptionalCombatView& operator=(CombatState&& state) requires (!Const) {
-        if (!data) emplace();
-        (**this).replace(std::move(state)); return *this;
-    }
-    OptionalCombatView& operator=(std::optional<CombatState>&& state) requires (!Const) {
-        if (state) *this = std::move(*state); else reset(); return *this;
-    }
-    template<bool Other> bool operator==(const OptionalCombatView<Other>& other) const {
-        return has_value() == other.has_value() && (!has_value() || **this == *other);
-    }
-};
 using PersistentCardPool = PoolData<PersistentCard, PersistentCardTag, 32>;
 template<bool Const> struct BasicDeckView {
     using Owner = std::conditional_t<Const, const OverflowStorage, OverflowStorage>;
@@ -229,75 +185,6 @@ struct RunData {
     }
 };
 static_assert(std::is_trivially_copyable_v<RunData>);
-// Internal borrowed view: storage and handles must be validated before construction.
-// Any mutation that can grow the creature pool invalidates existing views.
-template<bool Const> struct BasicRunView {
-    using Data = std::conditional_t<Const, const RunData, RunData>;
-    using Owner = std::conditional_t<Const, const OverflowStorage, OverflowStorage>;
-    template<class T> using Ref = std::conditional_t<Const, const T&, T&>;
-    Data& data;
-    Owner& overflow;
-    TextView<32, Const> seed{data.seed, overflow};
-    Ref<std::uint64_t> numeric_seed = data.numeric_seed;
-    Ref<ContentId> character = data.character;
-    Ref<std::uint8_t> ascension = data.ascension;
-    PoolView<CreatureState, CreatureTag, 8, Const> creatures{data.creatures, overflow};
-    Ref<std::int32_t> hp = creatures.get(data.player)->hp;
-    Ref<std::int32_t> max_hp = creatures.get(data.player)->max_hp;
-    Ref<std::int32_t> gold = data.gold;
-    Ref<std::int32_t> potion_slots = data.potion_slots;
-    Ref<std::int32_t> orb_slots = data.orb_slots;
-    Ref<RngBank> rng = data.rng;
-    Ref<PlayerRngBank> player_rng = data.player_rng;
-    BasicRelicBagView<Const> shared_relics{data.shared_relics, overflow};
-    BasicRelicBagView<Const> player_relics{data.player_relics, overflow};
-    std::array<BasicActRoomsView<Const>, 3> acts{{{data.acts[0], overflow}, {data.acts[1], overflow}, {data.acts[2], overflow}}};
-    SequenceView<PersistentCardExtra, 10, Const> card_extra{data.card_extra, overflow};
-    BasicDeckView<Const> deck{{data.persistent_cards, overflow}, data.deck, overflow, card_extra};
-    SequenceView<ContentId, 16, Const> relics{data.relics, overflow};
-    Ref<std::uint32_t> joss_paper_counter = data.joss_paper_counter;
-    SequenceView<ContentId, 4, Const> potions{data.potions, overflow};
-    Ref<float> card_rarity_offset = data.card_rarity_offset;
-    Ref<float> potion_reward_odds = data.potion_reward_odds;
-    OptionalCombatView<Const> combat;
-    Ref<bool> direct_combat = data.direct_combat;
-    Ref<std::uint32_t> combat_generation = data.combat_generation;
-    Ref<std::optional<CombatRewards>> rewards = data.rewards;
-    Ref<RunClock> clock = data.clock;
-    Ref<BoundaryId> boundary = data.boundary;
-    Ref<RunPhase> phase = data.phase;
-    Ref<RoomPayload> room = data.room;
-    Ref<std::uint8_t> act_index = data.act_index;
-    Ref<std::array<std::optional<MapState>, 3>> maps = data.maps;
-    Ref<MapNodeId> current = data.current;
-    SequenceView<MapNodeId, 64, Const> visited{data.visited, overflow};
-    Ref<GameRng> event_rng = data.event_rng;
-    Ref<std::array<ContentId, 3>> neow_options = data.neow_options;
-    Ref<ContentId> selected_neow = data.selected_neow;
-    BasicRunView(Data& r, Owner& run_owner, Owner& combat_owner) noexcept
-        : data(r), overflow(run_owner), combat{r.combat, combat_owner, {r.creatures, run_owner}, r.player, {r.enemies, run_owner}, r.boundary, r.clock, r.rng, r.joss_paper_counter} {}
-    BasicRunView view() const noexcept { return *this; }
-    operator BasicRunView<true>() const noexcept requires (!Const) { return {data, overflow, combat.overflow}; }
-    template<bool Other> bool operator==(const BasicRunView<Other>& other) const {
-        return seed == other.seed && numeric_seed == other.numeric_seed &&
-            character == other.character && ascension == other.ascension &&
-            data.player == other.data.player && creatures == other.creatures &&
-            combat.enemies == other.combat.enemies && gold == other.gold &&
-            potion_slots == other.potion_slots && orb_slots == other.orb_slots &&
-            rng == other.rng && player_rng == other.player_rng &&
-            shared_relics == other.shared_relics && player_relics == other.player_relics &&
-            acts == other.acts && deck == other.deck && card_extra == other.card_extra && relics == other.relics && joss_paper_counter == other.joss_paper_counter &&
-            potions == other.potions && card_rarity_offset == other.card_rarity_offset &&
-            potion_reward_odds == other.potion_reward_odds && combat == other.combat &&
-            direct_combat == other.direct_combat && combat_generation == other.combat_generation &&
-            rewards == other.rewards && clock == other.clock && boundary == other.boundary &&
-            phase == other.phase && room == other.room && act_index == other.act_index && maps == other.maps &&
-            current == other.current && visited == other.visited && event_rng == other.event_rng &&
-            neow_options == other.neow_options && selected_neow == other.selected_neow;
-    }
-};
-using RunView = BasicRunView<false>;
-using ConstRunView = BasicRunView<true>;
 inline bool valid_creature_storage(const RunData& data, const OverflowStorage& owner) noexcept {
     if (!valid_data_storage(data, owner)) return false;
     const PoolView<CreatureState, CreatureTag, 8, true> pool{data.creatures, owner};
@@ -332,8 +219,77 @@ struct RunState {
         data = RunData{}; overflow.reset(); combat_overflow.reset();
         data.player = PoolView<CreatureState, CreatureTag, 8>{data.creatures, overflow}.create({}, UINT32_MAX);
     }
-    RunView view() noexcept { return {data, overflow, combat_overflow}; }
-    ConstRunView view() const noexcept { return {data, overflow, combat_overflow}; }
+    bool has_combat() const noexcept { return data.combat.has_value(); }
+    CombatData& combat() noexcept { return *data.combat; }
+    const CombatData& combat() const noexcept { return *data.combat; }
+    auto creatures() noexcept { return PoolView<CreatureState, CreatureTag, 8>{data.creatures, overflow}; }
+    auto creatures() const noexcept { return PoolView<CreatureState, CreatureTag, 8, true>{data.creatures, overflow}; }
+    CreatureState* creature(CreatureHandle id) noexcept { return creatures().get(id); }
+    const CreatureState* creature(CreatureHandle id) const noexcept { return creatures().get(id); }
+    CreatureState& player() noexcept { return *creature(data.player); }
+    const CreatureState& player() const noexcept { return *creature(data.player); }
+    auto enemies() noexcept { return SequenceView(data.enemies, overflow); }
+    auto enemies() const noexcept { return SequenceView(data.enemies, overflow); }
+    CreatureHandle enemy_handle() const noexcept { return enemies().front(); }
+    CreatureState& enemy() noexcept { return *creature(enemy_handle()); }
+    const CreatureState& enemy() const noexcept { return *creature(enemy_handle()); }
+    auto seed() noexcept { return TextView<32, false>{data.seed, overflow}; }
+    auto seed() const noexcept { return TextView<32, true>{data.seed, overflow}; }
+    auto cards() noexcept { return PoolView<CombatCard, CombatCardTag, 32>{combat().cards, combat_overflow}; }
+    auto cards() const noexcept { return PoolView<CombatCard, CombatCardTag, 32, true>{combat().cards, combat_overflow}; }
+    auto zone(Zone id) noexcept { return SequenceView(combat().zones[static_cast<std::size_t>(id)], combat_overflow); }
+    auto zone(Zone id) const noexcept { return SequenceView(combat().zones[static_cast<std::size_t>(id)], combat_overflow); }
+    auto zone_views() noexcept { return std::array{zone(Zone::hand), zone(Zone::draw), zone(Zone::discard), zone(Zone::exhaust), zone(Zone::play)}; }
+    auto zone_views() const noexcept { return std::array{zone(Zone::hand), zone(Zone::draw), zone(Zone::discard), zone(Zone::exhaust), zone(Zone::play)}; }
+    void reserve_combat(std::size_t count) { cards().reserve(count); for (auto zone : zone_views()) zone.reserve(count); }
+    void reset_combat() noexcept {
+        data.combat.reset(); combat_overflow.reset();
+        for (auto enemy : enemies()) { if (auto* c = creature(enemy)) c->clear(); (void)creatures().erase(enemy); }
+        enemies().clear();
+    }
+    void emplace_combat() {
+        reset_combat();
+        const auto enemy = creatures().create({}, UINT32_MAX);
+        if (!enemy.present()) throw std::length_error("Creature identity exhausted");
+        try { enemies().push_back(enemy); } catch (...) { (void)creatures().erase(enemy); throw; }
+        data.combat.emplace();
+    }
+    bool valid_storage() const noexcept { return valid_creature_storage(data, overflow); }
+    bool valid_combat_storage() const noexcept { return has_combat() && valid_storage() && valid_data_storage(combat(), combat_overflow); }
+    std::size_t retained_bytes() const noexcept { return sizeof(*this) + overflow.retained_bytes() + combat_overflow.retained_bytes(); }
+    auto card_extra() noexcept { return SequenceView(combat().card_extra, combat_overflow); }
+    auto card_extra() const noexcept { return SequenceView(combat().card_extra, combat_overflow); }
+    auto enchantment_runtime() noexcept { return SequenceView(combat().enchantment_runtime, combat_overflow); }
+    auto enchantment_runtime() const noexcept { return SequenceView(combat().enchantment_runtime, combat_overflow); }
+    auto cost_modifiers() noexcept { return SequenceView(combat().cost_modifiers, combat_overflow); }
+    auto cost_modifiers() const noexcept { return SequenceView(combat().cost_modifiers, combat_overflow); }
+    auto execution() noexcept { return SequenceView(combat().execution, combat_overflow); }
+    auto execution() const noexcept { return SequenceView(combat().execution, combat_overflow); }
+    auto captured_hook_listeners() noexcept { return SequenceView(combat().captured_hook_listeners, combat_overflow); }
+    auto captured_hook_listeners() const noexcept { return SequenceView(combat().captured_hook_listeners, combat_overflow); }
+    auto continuation_cards() noexcept { return SequenceView(combat().continuation_cards, combat_overflow); }
+    auto continuation_cards() const noexcept { return SequenceView(combat().continuation_cards, combat_overflow); }
+    auto selection_candidates() noexcept { return SequenceView(combat().selection_candidates, combat_overflow); }
+    auto selection_candidates() const noexcept { return SequenceView(combat().selection_candidates, combat_overflow); }
+    auto selection_order() noexcept { return SequenceView(combat().selection_order, combat_overflow); }
+    auto selection_order() const noexcept { return SequenceView(combat().selection_order, combat_overflow); }
+    auto deck_extra() noexcept { return SequenceView(data.card_extra, overflow); }
+    auto deck_extra() const noexcept { return SequenceView(data.card_extra, overflow); }
+    auto relics() noexcept { return SequenceView(data.relics, overflow); }
+    auto relics() const noexcept { return SequenceView(data.relics, overflow); }
+    auto potions() noexcept { return SequenceView(data.potions, overflow); }
+    auto potions() const noexcept { return SequenceView(data.potions, overflow); }
+    auto visited() noexcept { return SequenceView(data.visited, overflow); }
+    auto visited() const noexcept { return SequenceView(data.visited, overflow); }
+    auto deck() noexcept { return BasicDeckView<false>{{data.persistent_cards, overflow}, data.deck, overflow, deck_extra()}; }
+    auto deck() const noexcept { return BasicDeckView<true>{{data.persistent_cards, overflow}, data.deck, overflow, deck_extra()}; }
+    auto shared_relics() noexcept { return RelicBag{data.shared_relics, overflow}; }
+    auto shared_relics() const noexcept { return ConstRelicBag{data.shared_relics, overflow}; }
+    auto player_relics() noexcept { return RelicBag{data.player_relics, overflow}; }
+    auto player_relics() const noexcept { return ConstRelicBag{data.player_relics, overflow}; }
+    auto act(std::size_t index) noexcept { return BasicActRoomsView<false>{data.acts[index], overflow}; }
+    auto act(std::size_t index) const noexcept { return BasicActRoomsView<true>{data.acts[index], overflow}; }
+    bool combat_equals(const RunState& other) const;
     friend CloneStatus clone_into(RunState& destination, const RunState& source) noexcept try {
         if (&destination == &source) return CloneStatus::cloned;
         // Prepare all ownership before publishing any part of the complete run.
@@ -344,6 +300,51 @@ struct RunState {
         return CloneStatus::cloned;
     } catch (const std::bad_alloc&) { return CloneStatus::resource_limit; }
       catch (const std::length_error&) { return CloneStatus::resource_limit; }
-    friend bool operator==(const RunState& a, const RunState& b) { return a.view() == b.view(); }
+    friend bool operator==(const RunState& a, const RunState& b);
 };
+inline bool RunState::combat_equals(const RunState& other) const {
+    if (has_combat() != other.has_combat()) return false;
+    if (!has_combat()) return true;
+    return combat().rules == other.combat().rules
+        && combat().phase == other.combat().phase
+        && combat().energy == other.combat().energy
+        && combat().turn == other.combat().turn
+        && combat().enemy_ai.selected == other.combat().enemy_ai.selected
+        && combat().burning_blood == other.combat().burning_blood
+        && combat().counters == other.combat().counters
+        && combat().exhaust_relics == other.combat().exhaust_relics
+        && combat().exhaust_relic_count == other.combat().exhaust_relic_count
+        && combat().selection == other.combat().selection
+        && combat().next_prompt == other.combat().next_prompt
+        && combat().next_power_instance == other.combat().next_power_instance
+        && combat().next_creation_order == other.combat().next_creation_order
+        && cards() == other.cards()
+        && zone_views() == other.zone_views()
+        && card_extra() == other.card_extra()
+        && enchantment_runtime() == other.enchantment_runtime()
+        && cost_modifiers() == other.cost_modifiers()
+        && execution() == other.execution()
+        && captured_hook_listeners() == other.captured_hook_listeners()
+        && continuation_cards() == other.continuation_cards()
+        && selection_candidates() == other.selection_candidates()
+        && selection_order() == other.selection_order();
+}
+inline bool operator==(const RunState& a, const RunState& b) {
+    for (std::size_t i = 0; i < a.data.acts.size(); ++i) if (!(a.act(i) == b.act(i))) return false;
+    return a.seed() == b.seed() && a.data.numeric_seed == b.data.numeric_seed &&
+        a.data.character == b.data.character && a.data.ascension == b.data.ascension &&
+        a.data.player == b.data.player && a.creatures() == b.creatures() &&
+        a.enemies() == b.enemies() && a.data.gold == b.data.gold &&
+        a.data.potion_slots == b.data.potion_slots && a.data.orb_slots == b.data.orb_slots &&
+        a.data.rng == b.data.rng && a.data.player_rng == b.data.player_rng &&
+        a.shared_relics() == b.shared_relics() && a.player_relics() == b.player_relics() &&
+        a.deck() == b.deck() && a.deck_extra() == b.deck_extra() && a.relics() == b.relics() && a.data.joss_paper_counter == b.data.joss_paper_counter &&
+        a.potions() == b.potions() && a.data.card_rarity_offset == b.data.card_rarity_offset &&
+        a.data.potion_reward_odds == b.data.potion_reward_odds && a.combat_equals(b) &&
+        a.data.direct_combat == b.data.direct_combat && a.data.combat_generation == b.data.combat_generation &&
+        a.data.rewards == b.data.rewards && a.data.clock == b.data.clock && a.data.boundary == b.data.boundary &&
+        a.data.phase == b.data.phase && a.data.room == b.data.room && a.data.act_index == b.data.act_index && a.data.maps == b.data.maps &&
+        a.data.current == b.data.current && a.visited() == b.visited() && a.data.event_rng == b.data.event_rng &&
+        a.data.neow_options == b.data.neow_options && a.data.selected_neow == b.data.selected_neow;
+}
 } // namespace sts2::engine

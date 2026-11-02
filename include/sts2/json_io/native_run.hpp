@@ -33,7 +33,7 @@ public:
 
     [[nodiscard]] nlohmann::json snapshot(const RunState&) const;
 private:
-    void record(ConstCombatView, const CombatEvent&);
+    void record(const RunState&, const CombatEvent&);
     RecordedCombat combat_;
     nlohmann::json defaults_;
 };

@@ -42,19 +42,19 @@ Json relic_bag(ConstRelicBag bag) {
 }
 NativeRunExporter::NativeRunExporter() : defaults_(Json::parse(SetupRules::native_defaults())) {}
 CombatTrace NativeRunExporter::trace() noexcept {
-    return {this, [](void* context, ConstCombatView state, const CombatEvent& event) {
+    return {this, [](void* context, const RunState& state, const CombatEvent& event) {
         static_cast<NativeRunExporter*>(context)->record(state, event);
     }};
 }
-void NativeRunExporter::record(ConstCombatView state, const CombatEvent& event) {
+void NativeRunExporter::record(const RunState& state, const CombatEvent& event) {
     if (event.kind == CombatEventKind::combat_started) {
         reset(); combat_.attached = true;
-        combat_.card_generation = state.cards.data.highest_generation;
+        combat_.card_generation = state.cards().data.highest_generation;
         return;
     }
     if (!combat_.attached) throw std::logic_error("Exporter must be attached at combat creation");
     if (event.kind == CombatEventKind::combat_updated) {
-        combat_.boundary = state.boundary;
+        combat_.boundary = state.data.boundary;
         return;
     }
     if (event.kind == CombatEventKind::combat_won) {
@@ -64,8 +64,8 @@ void NativeRunExporter::record(ConstCombatView state, const CombatEvent& event) 
     if (event.kind == CombatEventKind::combat_lost) return;
     if (event.kind == CombatEventKind::power_received || event.kind == CombatEventKind::power_changed) {
         const PowerInstance* found = nullptr;
-        for (const auto* creature : {&state.player, &state.enemy})
-            for (const auto& power : creature->power_instances(state.creature_overflow)) {
+        for (const auto* creature : {&state.player(), &state.enemy()})
+            for (const auto& power : creature->power_instances(state.overflow)) {
                 if (power.instance == event.object) found = &power;
             }
         if (!found || event.object > combat_.powers.size()) throw std::logic_error("Missing exported power identity");
@@ -74,103 +74,102 @@ void NativeRunExporter::record(ConstCombatView state, const CombatEvent& event) 
         if (event.kind == CombatEventKind::power_changed) return;
     }
     if (event.kind == CombatEventKind::play_started) {
-        const auto& frame = std::get<CardProgramFrame>(state.execution.back());
+        const auto& frame = std::get<CardProgramFrame>(state.execution().back());
         if (frame.play != combat_.plays.size()) throw std::logic_error("Missing exported play identity");
-        combat_.plays.push_back({frame.source, frame.energy, Ruleset::pinned().card(state.cards.get(frame.source)->definition)->enemy_target});
+        combat_.plays.push_back({frame.source, frame.energy, Ruleset::pinned().card(state.cards().get(frame.source)->definition)->enemy_target});
     }
     combat_.history.push_back(event);
 }
 Json NativeRunExporter::snapshot(const RunState& s) const {
     if (!valid_creature_storage(s.data, s.overflow)) throw std::invalid_argument("Invalid creature storage");
-    auto s_view = s.view();
     if (!valid_run(s))
         throw std::invalid_argument("Cannot export an uninitialized or invalid run");
-    if (!s_view.card_extra.empty() || (s_view.combat && !s_view.combat->card_extra.empty()))
+    if (!s.deck_extra().empty() || (s.data.combat && !s.card_extra().empty()))
         throw std::invalid_argument("Card side state has no native diagnostic mapping");
-    if (!std::holds_alternative<std::monostate>(s_view.room)) throw std::invalid_argument("Controlled parent rooms have no native diagnostic mapping");
-    if (!s_view.maps[0] || s_view.current == no_node) throw std::invalid_argument("Run has no initialized map");
-    const auto& setup = s_view; const auto& map = *s_view.maps[0];
-    const auto* character = SetupRules::character(setup.character);
+    if (!std::holds_alternative<std::monostate>(s.data.room)) throw std::invalid_argument("Controlled parent rooms have no native diagnostic mapping");
+    if (!s.data.maps[0] || s.data.current == no_node) throw std::invalid_argument("Run has no initialized map");
+     const auto& map = *s.data.maps[0];
+    const auto* character = SetupRules::character(s.data.character);
     if (!character) throw std::invalid_argument("Unknown run character");
     Json acts = Json::array();
-    for (std::size_t i = 0; i < setup.acts.size(); ++i) {
-        const auto& a = setup.acts[i];
+    for (std::size_t i = 0; i < s.data.acts.size(); ++i) {
+        const auto a = s.act(i);
         acts.push_back({{"id", SetupRules::name(a.act)}, {"rooms", {
             {"ancient_id", SetupRules::name(a.ancient)}, {"boss_encounters_visited", a.bosses_visited},
             {"boss_id", SetupRules::name(a.boss)}, {"elite_encounter_ids", names(a.elites)}, {"elite_encounters_visited", a.elites_visited},
             {"event_ids", names(a.events)}, {"events_visited", a.events_visited},
             {"normal_encounter_ids", names(a.normal)}, {"normal_encounters_visited", a.normal_visited},
             {"second_boss_id", a.second_boss == no_content ? Json(nullptr) : Json(SetupRules::name(a.second_boss))}}},
-            {"saved_map", s_view.maps[i] ? map_save(*s_view.maps[i]) : Json(nullptr)}});
+            {"saved_map", s.data.maps[i] ? map_save(*s.data.maps[i]) : Json(nullptr)}});
     }
     Json cards = Json::array(), relics = Json::array();
-    for (const auto& card : setup.deck) {
+    for (const auto& card : s.deck()) {
         auto value = defaults_.at("cards").at(std::string(SetupRules::name(card.definition)));
         value["current_upgrade_level"] = card.upgrade; value["floor_added_to_deck"] = card.floor_added < 0 ? Json(nullptr) : Json(card.floor_added);
         value["enchantment"] = saved_enchantment(card.enchantment);
         cards.push_back(std::move(value));
     }
-    for (auto id : setup.relics) {
+    for (auto id : s.relics()) {
         auto value = defaults_.at("relics").at(std::string(SetupRules::name(id)));
-        if (SetupRules::name(id) == "RELIC.JOSS_PAPER" && s_view.joss_paper_counter != 0)
+        if (SetupRules::name(id) == "RELIC.JOSS_PAPER" && s.data.joss_paper_counter != 0)
             value["props"] = {{"bools", nullptr}, {"card_arrays", nullptr}, {"cards", nullptr}, {"int_arrays", nullptr},
-                {"ints", Json::array({{{"name", "CardsExhausted"}, {"value", s_view.joss_paper_counter}}})},
+                {"ints", Json::array({{{"name", "CardsExhausted"}, {"value", s.data.joss_paper_counter}}})},
                 {"model_ids", nullptr}, {"strings", nullptr}};
         value["floor_added_to_deck"] = 1; relics.push_back(std::move(value));
     }
     Json player_streams = Json::object(), run_streams = Json::object();
     constexpr std::array<const char*, 3> player_names{"rewards", "shops", "transformations"};
-    for (std::size_t i = 0; i < player_names.size(); ++i) player_streams[player_names[i]] = rng(setup.player_rng.streams[i].state());
-    for (std::size_t i = 0; i < run_stream_names.size(); ++i) run_streams[std::string(run_stream_names[i])] = rng(setup.rng.streams[i].state());
+    for (std::size_t i = 0; i < player_names.size(); ++i) player_streams[player_names[i]] = rng(s.data.player_rng.streams[i].state());
+    for (std::size_t i = 0; i < run_stream_names.size(); ++i) run_streams[std::string(run_stream_names[i])] = rng(s.data.rng.streams[i].state());
     Json potions = Json::array();
-    for (std::size_t i = 0; i < setup.potions.size(); ++i) if (setup.potions[i] != no_content) {
-        auto value = defaults_.at("potions").at(std::string(SetupRules::name(setup.potions[i]))); value["slot_index"] = i; potions.push_back(value);
+    for (std::size_t i = 0; i < s.potions().size(); ++i) if (s.potions()[i] != no_content) {
+        auto value = defaults_.at("potions").at(std::string(SetupRules::name(s.potions()[i]))); value["slot_index"] = i; potions.push_back(value);
     }
-    Json player = {{"base_orb_slot_count", setup.orb_slots}, {"character_id", SetupRules::name(setup.character)},
-        {"current_hp", setup.hp}, {"deck", cards}, {"extra_fields", {{"card_shop_removals_used", 0}, {"ccccombo_badge_unlocked", false}, {"wongo_points", 0}}},
-        {"gold", setup.gold}, {"max_energy", character->energy}, {"max_hp", setup.max_hp}, {"max_potion_slot_count", setup.potion_slots},
-        {"net_id", 1}, {"odds", {{"card_rarity_odds_value", native_float(setup.card_rarity_offset)}, {"potion_reward_odds_value", native_float(setup.potion_reward_odds)}}},
-        {"potions", potions}, {"relic_grab_bag", relic_bag(setup.player_relics)}, {"relics", relics},
-        {"rng", {{"rngs", player_streams}, {"seed", game_hash(setup.seed)}}}, {"unlock_state", defaults_.at("unlock_state")}};
+    Json player = {{"base_orb_slot_count", s.data.orb_slots}, {"character_id", SetupRules::name(s.data.character)},
+        {"current_hp", s.player().hp}, {"deck", cards}, {"extra_fields", {{"card_shop_removals_used", 0}, {"ccccombo_badge_unlocked", false}, {"wongo_points", 0}}},
+        {"gold", s.data.gold}, {"max_energy", character->energy}, {"max_hp", s.player().max_hp}, {"max_potion_slot_count", s.data.potion_slots},
+        {"net_id", 1}, {"odds", {{"card_rarity_odds_value", native_float(s.data.card_rarity_offset)}, {"potion_reward_odds_value", native_float(s.data.potion_reward_odds)}}},
+        {"potions", potions}, {"relic_grab_bag", relic_bag(s.player_relics())}, {"relics", relics},
+        {"rng", {{"rngs", player_streams}, {"seed", game_hash(s.seed())}}}, {"unlock_state", defaults_.at("unlock_state")}};
     for (const char* field : {"discovered_cards", "discovered_epochs", "discovered_relics"}) player[field] = Json::array();
-    if (s_view.selected_neow != no_content) player["discovered_relics"].push_back(SetupRules::name(s_view.selected_neow));
+    if (s.data.selected_neow != no_content) player["discovered_relics"].push_back(SetupRules::name(s.data.selected_neow));
     Json room;
-    if (s_view.phase == RunPhase::map) {
+    if (s.data.phase == RunPhase::map) {
         Json choices = Json::array();
-        for (auto child : map.nodes[s_view.current].children.values()) {
+        for (auto child : map.nodes[s.data.current].children.values()) {
             const auto& n = map.nodes[child]; choices.push_back({{"col", n.col}, {"row", n.row}, {"point_type", map_display_names[static_cast<std::size_t>(n.kind)]}});
         }
-        room = {{"kind", "map"}, {"current_coord", coords(map.nodes[s_view.current])}, {"choices", choices}};
+        room = {{"kind", "map"}, {"current_coord", coords(map.nodes[s.data.current])}, {"choices", choices}};
     } else {
         Json options = Json::array();
-        if (s_view.phase == RunPhase::neow) for (auto id : s_view.neow_options) {
+        if (s.data.phase == RunPhase::neow) for (auto id : s.data.neow_options) {
             auto offered = defaults_.at("relics").at(std::string(SetupRules::name(id))); offered["floor_added_to_deck"] = 0;
             options.push_back({
             {"key", "NEOW.pages.INITIAL.options." + std::string(SetupRules::name(id).substr(6))},
             {"is_locked", false}, {"is_proceed", false}, {"was_chosen", false},
             {"relic", offered}});
         }
-        room = {{"kind", "event"}, {"id", "EVENT.NEOW"}, {"finished", s_view.phase == RunPhase::neow_done},
-            {"page", s_view.phase == RunPhase::neow ? "NEOW.pages.INITIAL.description" : "NEOW.pages.DONE.description"},
-            {"options", options}, {"dynamic_vars", Json::object()}, {"string_vars", Json::object()}, {"rng", rng(s_view.event_rng.state())}};
+        room = {{"kind", "event"}, {"id", "EVENT.NEOW"}, {"finished", s.data.phase == RunPhase::neow_done},
+            {"page", s.data.phase == RunPhase::neow ? "NEOW.pages.INITIAL.description" : "NEOW.pages.DONE.description"},
+            {"options", options}, {"dynamic_vars", Json::object()}, {"string_vars", Json::object()}, {"rng", rng(s.data.event_rng.state())}};
     }
-    Json visited = Json::array(); for (auto id : s_view.visited) visited.push_back(coords(map.nodes[id]));
+    Json visited = Json::array(); for (auto id : s.visited()) visited.push_back(coords(map.nodes[id]));
     const auto native_room = Json{{"encounter_id", nullptr}, {"encounter_state", Json::object()},
-        {"event_id", s_view.phase == RunPhase::map ? Json(nullptr) : Json("EVENT.NEOW")}, {"extra_rewards", Json::object()},
-        {"is_pre_finished", s_view.phase == RunPhase::neow_done}, {"parent_event_id", nullptr}, {"reward_proportion", 0},
-        {"room_type", s_view.phase == RunPhase::map ? "map" : "event"}, {"should_resume_parent_event", true}};
-    Json out = {{"acts", acts}, {"ascension", setup.ascension}, {"current_act_index", s_view.act_index}, {"dailyTime", nullptr},
+        {"event_id", s.data.phase == RunPhase::map ? Json(nullptr) : Json("EVENT.NEOW")}, {"extra_rewards", Json::object()},
+        {"is_pre_finished", s.data.phase == RunPhase::neow_done}, {"parent_event_id", nullptr}, {"reward_proportion", 0},
+        {"room_type", s.data.phase == RunPhase::map ? "map" : "event"}, {"should_resume_parent_event", true}};
+    Json out = {{"acts", acts}, {"ascension", s.data.ascension}, {"current_act_index", s.data.act_index}, {"dailyTime", nullptr},
         {"events_seen", Json::array()}, {"extra_fields", {{"freed_repy", false}, {"started_with_neow", true}, {"test_subject_kills", 0}}},
         {"game_mode", "standard"}, {"map_drawings", nullptr}, {"comparison_revision", 2},
         {"modifiers", Json::array()}, {"num_reloads", 0}, {"odds", {{"unknown_map_point_elite_odds_value", -1},
             {"unknown_map_point_monster_odds_value", 0.1}, {"unknown_map_point_shop_odds_value", 0.03}, {"unknown_map_point_treasure_odds_value", 0.02}}},
-        {"platform_type", "none"}, {"pre_finished_room", nullptr}, {"players", Json::array({player})}, {"rng", {{"rngs", run_streams}, {"seed", std::string_view(setup.seed)}}},
-        {"run_time", s_view.clock.elapsed_seconds()}, {"save_time", s_view.clock.now_seconds()}, {"schema_version", 20},
-        {"shared_relic_grab_bag", relic_bag(setup.shared_relics)}, {"start_time", s_view.clock.config().epoch_seconds},
+        {"platform_type", "none"}, {"pre_finished_room", nullptr}, {"players", Json::array({player})}, {"rng", {{"rngs", run_streams}, {"seed", std::string_view(s.seed())}}},
+        {"run_time", s.data.clock.elapsed_seconds()}, {"save_time", s.data.clock.now_seconds()}, {"schema_version", 20},
+        {"shared_relic_grab_bag", relic_bag(s.shared_relics())}, {"start_time", s.data.clock.config().epoch_seconds},
         {"visited_map_coords", visited}, {"win_time", 0}, {"boundary_kind", "awaiting_input"}, {"run_ending_reason", nullptr},
         {"current_room", native_room}, {"native_model_state", Json::object()}, {"combat", nullptr}, {"pending_choice", nullptr},
         {"run_flow", {{"room", room}, {"pending_choice", nullptr}, {"reward_sets", Json::array()}, {"operations", Json::array()}, {"combat_rewards_offered", false}}}};
-    if (s_view.combat || s_view.phase == RunPhase::combat_done || s_view.phase == RunPhase::rewards || s_view.phase == RunPhase::complete) export_native_combat(out, s, combat_);
+    if (s.data.combat || s.data.phase == RunPhase::combat_done || s.data.phase == RunPhase::rewards || s.data.phase == RunPhase::complete) export_native_combat(out, s, combat_);
     return out;
 }
 } // namespace sts2::engine

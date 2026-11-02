@@ -1,6 +1,6 @@
 #pragma once
-#include "sts2/state/combat.hpp"
+#include "sts2/state/run.hpp"
 
 namespace sts2::engine::gameplay {
-StepResult resume_frame(CombatView, Scratch&, const Ruleset&);
+StepResult resume_frame(RunState&, Scratch&, const Ruleset&);
 }

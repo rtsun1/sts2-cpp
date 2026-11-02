@@ -17,98 +17,98 @@
 namespace sts2::engine {
 using namespace gameplay;
 namespace {
-StepResult end_player_turn(CombatView state, Scratch& scratch, const Ruleset& rules) {
+StepResult end_player_turn(RunState& state, Scratch& scratch, const Ruleset& rules) {
     if (!consume(scratch)) return fail(state, Restriction::execution_budget);
     discard_hand_at_turn_end(state, rules);
-    state.enemy.block = 0;
-    snapshot_power_turn(state, scratch, state.enemy, true);
+    state.enemy().block = 0;
+    snapshot_power_turn(state, scratch, state.enemy(), true);
     execute_enemy_move(state, scratch);
-    if (state.player.hp == 0) end_combat(state, scratch, false);
+    if (state.player().hp == 0) end_combat(state, scratch, false);
     else {
         after_enemy_turn(state, scratch);
-        snapshot_power_turn(state, scratch, state.player, false);
-        state.counters.started_this_turn = state.counters.attacks_this_turn = 0;
-        state.counters.zero_energy_attacks_this_turn = state.counters.non_hand_draws_this_turn = 0;
-        state.player.block = 0;
-        if (state.turn == std::numeric_limits<int>::max()) return fail(state, Restriction::capacity);
-        for (auto it = state.cost_modifiers.begin(); it != state.cost_modifiers.end();) {
-            if ((static_cast<unsigned>(it->expiry) & 2U) != 0) it = state.cost_modifiers.erase(it);
+        snapshot_power_turn(state, scratch, state.player(), false);
+        state.combat().counters.started_this_turn = state.combat().counters.attacks_this_turn = 0;
+        state.combat().counters.zero_energy_attacks_this_turn = state.combat().counters.non_hand_draws_this_turn = 0;
+        state.player().block = 0;
+        if (state.combat().turn == std::numeric_limits<int>::max()) return fail(state, Restriction::capacity);
+        for (auto it = state.cost_modifiers().begin(); it != state.cost_modifiers().end();) {
+            if ((static_cast<unsigned>(it->expiry) & 2U) != 0) it = state.cost_modifiers().erase(it);
             else ++it;
         }
-        ++state.turn; refresh_energy(state, 3); state.execution.push_back(DrawFrame{.remaining = 5});
+        ++state.combat().turn; refresh_energy(state, 3); state.execution().push_back(DrawFrame{.remaining = 5});
     }
     return result(state);
 }
 
 } // namespace
-StepResult advance_combat(CombatView state, Scratch& scratch, const Ruleset& rules) noexcept try {
-    if (!state.valid_storage() || !valid_powers(state) || !valid_card_extra(state) || !valid_card_modifiers(state)) return fail(state, Restriction::invalid_state);
-    for (const auto& slot : state.cards.slots())
-        if (slot.live && !supported_card_modifiers(slot.value)) return {StepStatus::unsupported_content, state.boundary, Restriction::unsupported_setup};
-    if (state.phase != CombatPhase::play || state.execution.empty()) return result(state);
-    while (!state.execution.empty()) {
+StepResult advance_combat(RunState& state, Scratch& scratch, const Ruleset& rules) noexcept try {
+    if (!state.valid_combat_storage() || !valid_powers(state) || !valid_card_extra(state) || !valid_card_modifiers(state)) return fail(state, Restriction::invalid_state);
+    for (const auto& slot : state.cards().slots())
+        if (slot.live && !supported_card_modifiers(slot.value)) return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
+    if (state.combat().phase != CombatPhase::play || state.execution().empty()) return result(state);
+    while (!state.execution().empty()) {
         const auto step = resume_frame(state, scratch, rules);
-        if (step.status == StepStatus::engine_error || step.status == StepStatus::resource_limit || state.phase != CombatPhase::play) return step;
+        if (step.status == StepStatus::engine_error || step.status == StepStatus::resource_limit || state.combat().phase != CombatPhase::play) return step;
     }
-    if (state.enemy.hp == 0 && state.phase == CombatPhase::play) end_combat(state, scratch, true);
+    if (state.enemy().hp == 0 && state.combat().phase == CombatPhase::play) end_combat(state, scratch, true);
     return result(state);
-} catch (const std::bad_alloc&) { state.phase = CombatPhase::invalid; return {StepStatus::resource_limit, state.boundary, Restriction::capacity}; } catch (const std::length_error&) { state.phase = CombatPhase::invalid; return {StepStatus::resource_limit, state.boundary, Restriction::capacity}; }
+} catch (const std::bad_alloc&) { state.combat().phase = CombatPhase::invalid; return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; } catch (const std::length_error&) { state.combat().phase = CombatPhase::invalid; return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; }
 catch (...) { return fail(state, Restriction::invalid_state); }
-StepResult apply_combat(CombatView state, const CombatInput& input, Scratch& scratch, const Ruleset& rules) noexcept try {
+StepResult apply_combat(RunState& state, const CombatInput& input, Scratch& scratch, const Ruleset& rules) noexcept try {
     const auto restriction = validate_combat(state, input, rules);
     if (restriction != Restriction::none) return result(state, restriction);
-    if (state.boundary.value == std::numeric_limits<std::uint32_t>::max()) return fail(state, Restriction::capacity);
-    if (!state.clock.advance_action()) return fail(state, Restriction::clock_exhausted);
+    if (state.data.boundary.value == std::numeric_limits<std::uint32_t>::max()) return fail(state, Restriction::capacity);
+    if (!state.data.clock.advance_action()) return fail(state, Restriction::clock_exhausted);
     scratch.steps = 0;
-    if (state.phase == CombatPhase::card_choice) {
+    if (state.combat().phase == CombatPhase::card_choice) {
         const auto selected = apply_card_selection(state, input, scratch, rules);
         if (selected.status == StepStatus::engine_error || selected.status == StepStatus::resource_limit) return selected;
     } else if (input.kind == CombatInputKind::end_turn) {
         const auto ended = end_player_turn(state, scratch, rules);
         if (ended.status == StepStatus::engine_error || ended.status == StepStatus::resource_limit) return ended;
     } else if (input.kind == CombatInputKind::play_card) {
-        const auto* card = state.cards.get(input.card);
+        const auto* card = state.cards().get(input.card);
         const auto cost = effective_card_cost(state, input.card, rules);
         spend_energy(state, cost);
         move_card(state, Zone::hand, Zone::play, input.card);
-        if (state.counters.started_plays == UINT32_MAX) return fail(state, Restriction::capacity);
-        const auto play_id = state.counters.started_plays;
-        state.execution.push_back(CardProgramFrame{input.card, 0, play_id, cost, state.enemy_handle});
+        if (state.combat().counters.started_plays == UINT32_MAX) return fail(state, Restriction::capacity);
+        const auto play_id = state.combat().counters.started_plays;
+        state.execution().push_back(CardProgramFrame{input.card, 0, play_id, cost, state.enemy_handle()});
         if (cost > 0) emit(state, scratch, CombatEventKind::energy_spent, false, false, {}, 0, cost);
-        ++state.counters.started_plays; ++state.counters.started_this_turn;
+        ++state.combat().counters.started_plays; ++state.combat().counters.started_this_turn;
         if (rules.card(card->definition)->kind == CardKind::attack) {
-            ++state.counters.attacks_this_turn;
-            if (cost == 0) ++state.counters.zero_energy_attacks_this_turn;
+            ++state.combat().counters.attacks_this_turn;
+            if (cost == 0) ++state.combat().counters.zero_energy_attacks_this_turn;
         }
         emit(state, scratch, CombatEventKind::play_started, false, false, input.card, play_id);
         const auto advanced = advance_combat(state, scratch, rules);
         if (advanced.status == StepStatus::engine_error || advanced.status == StepStatus::resource_limit) return advanced;
     } else {
         discard_card(state, scratch, input.card);
-        state.phase = CombatPhase::play;
+        state.combat().phase = CombatPhase::play;
         const auto advanced = advance_combat(state, scratch, rules);
         if (advanced.status == StepStatus::engine_error || advanced.status == StepStatus::resource_limit) return advanced;
     }
-    if (state.phase == CombatPhase::play && !state.execution.empty()) {
+    if (state.combat().phase == CombatPhase::play && !state.execution().empty()) {
         const auto advanced = advance_combat(state, scratch, rules);
         if (advanced.status == StepStatus::engine_error || advanced.status == StepStatus::resource_limit) return advanced;
     }
-    if (state.phase == CombatPhase::invalid) return {StepStatus::engine_error, state.boundary, Restriction::execution_budget};
-    ++state.boundary.value;
+    if (state.combat().phase == CombatPhase::invalid) return {StepStatus::engine_error, state.data.boundary, Restriction::execution_budget};
+    ++state.data.boundary.value;
     emit(state, scratch, CombatEventKind::combat_updated);
     return result(state);
 } catch (const std::bad_alloc&) {
-    state.phase = CombatPhase::invalid;
-    return {StepStatus::resource_limit, state.boundary, Restriction::capacity};
+    state.combat().phase = CombatPhase::invalid;
+    return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity};
 } catch (const std::length_error&) {
-    state.phase = CombatPhase::invalid;
-    return {StepStatus::resource_limit, state.boundary, Restriction::capacity};
+    state.combat().phase = CombatPhase::invalid;
+    return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity};
 } catch (...) { return fail(state, Restriction::invalid_state); }
-StepResult apply_power_scenario(CombatView state, const PowerApplication& operation, Scratch& scratch) noexcept {
+StepResult apply_power_scenario(RunState& state, const PowerApplication& operation, Scratch& scratch) noexcept {
     if (!valid_combat(state)) return result(state, Restriction::invalid_state);
-    if (state.phase != CombatPhase::play || !state.execution.empty()) return result(state, Restriction::wrong_phase);
+    if (state.combat().phase != CombatPhase::play || !state.execution().empty()) return result(state, Restriction::wrong_phase);
     if (operation.definition >= PowerId::count || operation.amount < -999999999 || operation.amount > 999999999 ||
-        (operation.source.present() && !state.cards.get(operation.source))) return result(state, Restriction::malformed_action);
+        (operation.source.present() && !state.cards().get(operation.source))) return result(state, Restriction::malformed_action);
     try {
         (void)apply_power(state, scratch, operation.definition, operation.amount, operation.enemy_owner, false,
             operation.source, operation.has_applier, operation.applier_enemy);

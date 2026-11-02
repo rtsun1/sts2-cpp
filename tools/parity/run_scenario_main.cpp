@@ -35,7 +35,7 @@ int main() {
             }
             initialize_json_run(state, request.at("setup"), next_exporter.trace(), deck, relics,
                 request.value("scenario_enemy_hp", 0), request.value("scenario_joss_counter", 0u));
-            if (state.view().combat) state.view().combat->enemy.block = enemy_block;
+            if (state.data.combat) state.enemy().block = enemy_block;
             exporter = std::move(next_exporter); scratch.trace = exporter.trace();
         } else {
             const auto before = checkpoint(state).bytes;
@@ -46,13 +46,13 @@ int main() {
             RunState restored; if (restore(restored, before, scratch) != RestoreStatus::restored) throw std::runtime_error("Restore failed");
             auto cloned = state;
             auto apply = [&](RunState& run, Scratch& execution) {
-                if (command == "scenario_enter_combat") return enter_combat_scenario(run, run.view().boundary, request.at("encounter").get<std::string>(), execution.trace);
+                if (command == "scenario_enter_combat") return enter_combat_scenario(run, run.data.boundary, request.at("encounter").get<std::string>(), execution.trace);
                 if (command == "scenario_power") {
                     constexpr std::array names{"POWER.SHRINK_POWER", "POWER.VULNERABLE_POWER", "POWER.STRENGTH_POWER", "POWER.DEXTERITY_POWER", "POWER.WEAK_POWER", "POWER.ARTIFACT_POWER", "POWER.DARK_EMBRACE_POWER", "POWER.STRATAGEM_POWER"};
                     const auto id = request.at("id").get<std::string>();
                     const auto found = std::find(names.begin(), names.end(), id);
-                    if (found == names.end() || !run.view().combat) throw std::invalid_argument("Unsupported power scenario");
-                    return apply_power_scenario(*run.view().combat,
+                    if (found == names.end() || !run.data.combat) throw std::invalid_argument("Unsupported power scenario");
+                    return apply_power_scenario(run,
                         {static_cast<PowerId>(found - names.begin()), request.at("amount").get<std::int32_t>(),
                          request.value("enemy_owner", false), request.value("has_applier", true), request.value("applier_enemy", false)}, execution);
                 }
@@ -63,7 +63,7 @@ int main() {
                     const auto view = observe(run); const auto index = action.at("card_index").get<std::size_t>();
                     if (!view.combat || index >= view.combat->hand.size()) throw std::invalid_argument("Invalid hand index");
                     if (action.contains("target_index") && action.at("target_index") != 0) throw std::invalid_argument("Invalid target");
-                    input = CombatInput{run.view().boundary, CombatInputKind::play_card, view.combat->hand[index], action.contains("target_index")};
+                    input = CombatInput{run.data.boundary, CombatInputKind::play_card, view.combat->hand[index], action.contains("target_index")};
                 }
                 else if (kind == "select_card" || kind == "deselect_card" || kind == "confirm_selection") {
                     const auto view = observe(run);
@@ -77,11 +77,11 @@ int main() {
                     }
                     const auto prompt = action.contains("prompt") ? PromptId{action.at("prompt").get<std::uint32_t>()} : selection.id;
                     const auto input_kind = kind == "select_card" ? CombatInputKind::select_card : kind == "deselect_card" ? CombatInputKind::deselect_card : CombatInputKind::confirm_selection;
-                    input = CombatInput{run.view().boundary, input_kind, card, false, prompt};
+                    input = CombatInput{run.data.boundary, input_kind, card, false, prompt};
                 }
-                else if (kind == "end_turn") input = CombatInput{run.view().boundary, CombatInputKind::end_turn};
+                else if (kind == "end_turn") input = CombatInput{run.data.boundary, CombatInputKind::end_turn};
                 else {
-                    RunInput choice{run.view().boundary, RunInputKind::skip_rewards};
+                    RunInput choice{run.data.boundary, RunInputKind::skip_rewards};
                     if (kind == "choose_option") { choice.kind = RunInputKind::choose_option; choice.option = action.at("option_index"); }
                     else if (kind == "select_map_node") { choice.kind = RunInputKind::travel; choice.col = action.at("col"); choice.row = action.at("row"); }
                     else if (kind == "take_reward") { choice.kind = RunInputKind::take_reward; choice.option = action.at("index"); }
@@ -98,12 +98,12 @@ int main() {
             if (apply(restored, branch_scratch).status != result.status || apply(cloned, branch_scratch).status != result.status || restored != state || cloned != state)
                 throw std::runtime_error("Clone/restore future differs");
         }
-        Json response{{"ok", true}, {"state", exporter.snapshot(state)}, {"selection", nullptr}, {"boundary", state.view().boundary.value}};
+        Json response{{"ok", true}, {"state", exporter.snapshot(state)}, {"selection", nullptr}, {"boundary", state.data.boundary.value}};
         const auto view = observe(state);
         response["boundary"] = view.boundary.value;
         response["hand"] = Json::array();
         if (view.combat) for (auto handle : view.combat->hand) {
-            const auto card = observe_card(*state.view().combat, handle);
+            const auto card = observe_card(state, handle);
             if (!card) throw std::runtime_error("Unobservable public hand card");
             response["hand"].push_back({{"model_id", card->model_id}, {"upgraded", card->upgraded}});
         }
@@ -111,7 +111,7 @@ int main() {
             const auto& selection = *view.combat->selection;
             Json candidates = Json::array(), selected = Json::array();
             for (auto handle : selection.candidates) {
-                const auto card = inspect_card(*state.view().combat, handle);
+                const auto card = inspect_card(state, handle);
                 if (!card) throw std::runtime_error("Uninspectable public selection candidate");
                 candidates.push_back({{"slot", handle.slot}, {"generation", handle.generation},
                     {"model_id", card->model_id}, {"upgraded", card->upgraded}});

@@ -6,32 +6,32 @@
 #include <algorithm>
 
 namespace sts2::engine::gameplay {
-bool exhaust_one(CombatView state, Scratch& scratch, Zone from, CardHandle card) {
-    if (state.enemy.hp == 0 || state.player.hp == 0) return false;
+bool exhaust_one(RunState& state, Scratch& scratch, Zone from, CardHandle card) {
+    if (state.enemy().hp == 0 || state.player().hp == 0) return false;
     move_card(state, from, Zone::exhaust, card);
     emit(state, scratch, CombatEventKind::exhausted, false, false, card);
     return true;
 }
-RangeProgress capture_exhaust_cards(CombatView state, std::span<const CardHandle> cards) {
-    const auto begin = static_cast<std::uint32_t>(state.continuation_cards.size());
-    for (auto card : cards) state.continuation_cards.push_back(card);
+RangeProgress capture_exhaust_cards(RunState& state, std::span<const CardHandle> cards) {
+    const auto begin = static_cast<std::uint32_t>(state.continuation_cards().size());
+    for (auto card : cards) state.continuation_cards().push_back(card);
     return {begin, static_cast<std::uint32_t>(cards.size()), 0};
 }
-StepResult resume_exhaust_cards(CombatView state, Scratch& scratch, const Ruleset& rules) {
+StepResult resume_exhaust_cards(RunState& state, Scratch& scratch, const Ruleset& rules) {
     while (true) {
-        auto& frame = std::get<ExhaustCardsFrame>(state.execution.back());
+        auto& frame = std::get<ExhaustCardsFrame>(state.execution().back());
         if (frame.phase == ExhaustPhase::start_card) {
             if (frame.cards.cursor == frame.cards.count) {
                 if (frame.cards.count == 0 && frame.charge_card_step && !consume(scratch))
                     return fail(state, Restriction::execution_budget);
                 if (frame.cards.count != 0)
-                    while (state.continuation_cards.size() > frame.cards.begin) state.continuation_cards.pop_back();
-                state.execution.pop_back(); return result(state);
+                    while (state.continuation_cards().size() > frame.cards.begin) state.continuation_cards().pop_back();
+                state.execution().pop_back(); return result(state);
             }
             if (frame.charge_card_step && !consume(scratch)) return fail(state, Restriction::execution_budget);
-            const auto card = state.continuation_cards[frame.cards.begin + frame.cards.cursor];
-            if (!state.cards.get(card)) return fail(state, Restriction::invalid_state);
-            if (state.enemy.hp == 0 || state.player.hp == 0) {
+            const auto card = state.continuation_cards()[frame.cards.begin + frame.cards.cursor];
+            if (!state.cards().get(card)) return fail(state, Restriction::invalid_state);
+            if (state.enemy().hp == 0 || state.player().hp == 0) {
                 ++frame.cards.cursor; continue;
             }
             const auto zone = state.zone(frame.source_zone);

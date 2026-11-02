@@ -51,7 +51,7 @@ void fill_encounters(SequenceView<ContentId, 32> output, std::span<const Encount
         if (!selected) throw std::runtime_error("Encounter rejection sampler exceeded execution budget");
     }
 }
-StepResult initialize_run_inventory(RunView state_view, const SeededConfig& config) {
+StepResult initialize_run_inventory(RunState& state, const SeededConfig& config) {
     RunClock clock;
     const auto* character = SetupRules::character(SetupRules::find(config.character));
     std::array<const ActDefinition*, 3> definitions{};
@@ -63,24 +63,24 @@ StepResult initialize_run_inventory(RunView state_view, const SeededConfig& conf
         if (!definitions[i] || definitions[i]->index != i) return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
     }
     try {
-        state_view.seed = config.seed; state_view.numeric_seed = game_seed(config.seed);
-        state_view.character = character->id; state_view.ascension = config.ascension;
-        state_view.hp = state_view.max_hp = character->hp; state_view.gold = character->gold; state_view.orb_slots = character->orb_slots;
-        state_view.potion_slots = config.ascension >= 4 ? 2 : 3;
-        state_view.rng = RngBank(config.seed); state_view.player_rng = PlayerRngBank(config.seed);
-        for (auto id : character->deck) state_view.deck.push_back({id, static_cast<std::uint32_t>(state_view.deck.size()), 0, 1});
-        if (config.ascension >= 5) state_view.deck.push_back({SetupRules::find("CARD.ASCENDERS_BANE"), static_cast<std::uint32_t>(state_view.deck.size()), 0, 1});
-        state_view.relics.assign(character->relics.begin(), character->relics.end());
-        auto& rng = state_view.rng.get(RunStream::up_front);
-        populate(state_view.shared_relics, SetupRules::shared_relics(), {}, false, rng);
-        populate(state_view.player_relics, SetupRules::shared_relics(), character->relic_pool, true, rng);
+        state.seed() = config.seed; state.data.numeric_seed = game_seed(config.seed);
+        state.data.character = character->id; state.data.ascension = config.ascension;
+        state.player().hp = state.player().max_hp = character->hp; state.data.gold = character->gold; state.data.orb_slots = character->orb_slots;
+        state.data.potion_slots = config.ascension >= 4 ? 2 : 3;
+        state.data.rng = RngBank(config.seed); state.data.player_rng = PlayerRngBank(config.seed);
+        for (auto id : character->deck) state.deck().push_back({id, static_cast<std::uint32_t>(state.deck().size()), 0, 1});
+        if (config.ascension >= 5) state.deck().push_back({SetupRules::find("CARD.ASCENDERS_BANE"), static_cast<std::uint32_t>(state.deck().size()), 0, 1});
+        state.relics().assign(character->relics.begin(), character->relics.end());
+        auto& rng = state.data.rng.get(RunStream::up_front);
+        populate(state.shared_relics(), SetupRules::shared_relics(), {}, false, rng);
+        populate(state.player_relics(), SetupRules::shared_relics(), character->relic_pool, true, rng);
         std::vector<ContentId> shared(SetupRules::shared_ancients().begin(), SetupRules::shared_ancients().end()); rng.shuffle<ContentId>(shared);
-        for (std::size_t i = 1; i < state_view.acts.size(); ++i) {
+        for (std::size_t i = 1; i < state.data.acts.size(); ++i) {
             int count; (void)rng.next_int(0, static_cast<int>(shared.size() + 1), count);
-            state_view.acts[i].shared_ancients.assign(shared.begin(), shared.begin() + count); shared.erase(shared.begin(), shared.begin() + count);
+            state.act(i).shared_ancients.assign(shared.begin(), shared.begin() + count); shared.erase(shared.begin(), shared.begin() + count);
         }
-        for (std::size_t i = 0; i < state_view.acts.size(); ++i) {
-            auto act = state_view.acts[i]; const auto& def = *definitions[i]; act.act = def.id;
+        for (std::size_t i = 0; i < state.data.acts.size(); ++i) {
+            auto act = state.act(i); const auto& def = *definitions[i]; act.act = def.id;
             act.events.assign(def.events.begin(), def.events.end());
             act.events.insert(act.events.end(), SetupRules::shared_events().begin(), SetupRules::shared_events().end());
             rng.shuffle<ContentId>(act.events);
@@ -92,7 +92,7 @@ StepResult initialize_run_inventory(RunView state_view, const SeededConfig& conf
             std::vector<ContentId> ancients(def.ancients.begin(), def.ancients.end());
             ancients.insert(ancients.end(), act.shared_ancients.begin(), act.shared_ancients.end());
             act.ancient = select(ancients, rng);
-            if (i == state_view.acts.size() - 1 && config.ascension >= 10) act.second_boss = select(def.bosses, rng, act.boss);
+            if (i == state.data.acts.size() - 1 && config.ascension >= 10) act.second_boss = select(def.bosses, rng, act.boss);
         }
         return {StepStatus::awaiting_input, {1}};
     } catch (const std::bad_alloc&) { return {StepStatus::resource_limit, {}, Restriction::capacity}; }
@@ -120,22 +120,22 @@ std::array<ContentId, 3> neow_options(GameRng& rng) {
     return {positive[0], positive[1], curse};
 }
 }
-// Build combat from run inventory; callers own clock and boundary publication.
-StepResult flow::prepare_combat(CombatView destination, ConstRunView run, Scratch& scratch, BoundaryId rejection_boundary, std::int32_t enemy_hp) {
+// Initialize combat in a staged run without advancing its clock.
+StepResult flow::prepare_combat(RunState& run, Scratch& scratch, BoundaryId rejection_boundary, std::int32_t enemy_hp) {
     std::vector<CardSpec> deck;
-    for (std::size_t card_index = 0; card_index < run.deck.size(); ++card_index) {
-        const auto& card = run.deck[card_index];
+    for (std::size_t card_index = 0; card_index < run.deck().size(); ++card_index) {
+        const auto& card = run.deck()[card_index];
         CardId definition = CardId::count;
         for (unsigned i = 0; i < static_cast<unsigned>(CardId::count); ++i)
             if (Ruleset::pinned().card(static_cast<CardId>(i))->model_id == SetupRules::name(card.definition)) definition = static_cast<CardId>(i);
         if (definition == CardId::count || card.upgrade > 1)
             return {StepStatus::unsupported_content, rejection_boundary, Restriction::unsupported_setup};
-        deck.push_back({definition, card.upgrade == 1, run.deck.handles()[card_index], card.enchantment});
+        deck.push_back({definition, card.upgrade == 1, run.deck().handles()[card_index], card.enchantment});
     }
     CombatConfig config;
     std::array<ExhaustRelic, 2> listeners {}; std::size_t count = 0;
     config.burning_blood = false;
-    for (auto relic : run.relics) {
+    for (auto relic : run.relics()) {
         const auto name = SetupRules::name(relic);
         if (name == "RELIC.BURNING_BLOOD") config.burning_blood = true;
         if (name == "RELIC.CHARONS_ASHES" || name == "RELIC.JOSS_PAPER") {
@@ -143,80 +143,79 @@ StepResult flow::prepare_combat(CombatView destination, ConstRunView run, Scratc
             listeners[count++] = name == "RELIC.CHARONS_ASHES" ? ExhaustRelic::charons_ashes : ExhaustRelic::joss_paper;
         }
     }
-    config.exhaust_relics = std::span(listeners).first(count); config.joss_paper_counter = run.joss_paper_counter;
-    config.seed = run.seed; config.clock = run.clock.config(); config.initial_rng = &run.rng;
-    config.deck = deck; config.player_hp = run.hp; config.player_max_hp = run.max_hp;
+    config.exhaust_relics = std::span(listeners).first(count); config.joss_paper_counter = run.data.joss_paper_counter;
+    config.seed = run.seed(); config.clock = run.data.clock.config(); config.initial_rng = &run.data.rng;
+    config.deck = deck; config.player_hp = run.player().hp; config.player_max_hp = run.player().max_hp;
     config.card_generation = next_combat_generation(run);
-    const auto result = initialize_combat(destination, config, scratch);
+    const auto result = initialize_combat(run, config, scratch);
     if (result.status == StepStatus::awaiting_input) {
-        for (std::size_t i = 0; i < destination.cards.slots().size(); ++i) {
-            const auto& slot = destination.cards.slots()[i];
+        for (std::size_t i = 0; i < run.cards().slots().size(); ++i) {
+            const auto& slot = run.cards().slots()[i];
             if (!slot.live || !slot.value.origin.present()) continue;
             if (const auto* extra = gameplay::find_card_extra(run, slot.value.origin))
-                gameplay::set_card_extra(destination, CardHandle{static_cast<std::uint32_t>(i), slot.generation}, *extra);
+                gameplay::set_card_extra(run, CardHandle{static_cast<std::uint32_t>(i), slot.generation}, *extra);
         }
     }
     if (result.status == StepStatus::awaiting_input && enemy_hp != 0) {
         if (enemy_hp < 1 || enemy_hp > 40) return {StepStatus::unsupported_content, rejection_boundary, Restriction::unsupported_setup};
-        destination.enemy.hp = enemy_hp; destination.enemy.max_hp = enemy_hp;
+        run.enemy().hp = enemy_hp; run.enemy().max_hp = enemy_hp;
     }
     return result;
 }
 StepResult initialize_run(RunState& destination, const SeededConfig& config) {
     try {
-        RunState state(destination.overflow.allocator()); auto state_view = state.view();
-        const auto setup = initialize_run_inventory(state_view, config);
+        RunState state(destination.overflow.allocator());
+        const auto setup = initialize_run_inventory(state, config);
         if (setup.status != StepStatus::awaiting_input) return setup;
-        if (!state_view.clock.initialize(config.clock)) return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
+        if (!state.data.clock.initialize(config.clock)) return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
         MapState map;
-        if (!generate_map(map, config.acts[0], state_view.numeric_seed, config.ascension))
+        if (!generate_map(map, config.acts[0], state.data.numeric_seed, config.ascension))
             return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
-        state_view.current = map.start; state_view.visited.push_back(map.start); state_view.maps[0] = std::move(map);
-        state_view.hp = config.ascension >= 2 ? static_cast<int>(std::int64_t(state_view.max_hp) * 80 / 100) : state_view.max_hp;
-        state_view.acts[0].events_visited = 1; // Native RoomSet.MarkVisited counts the ancient as an event room.
-        state_view.event_rng = GameRng(state_view.numeric_seed + game_hash("NEOW"));
-        state_view.neow_options = neow_options(state_view.event_rng);
-        if (std::find(state_view.neow_options.begin(), state_view.neow_options.end(), no_content) != state_view.neow_options.end())
+        state.data.current = map.start; state.visited().push_back(map.start); state.data.maps[0] = std::move(map);
+        state.player().hp = config.ascension >= 2 ? static_cast<int>(std::int64_t(state.player().max_hp) * 80 / 100) : state.player().max_hp;
+        state.act(0).events_visited = 1; // Native RoomSet.MarkVisited counts the ancient as an event room.
+        state.data.event_rng = GameRng(state.data.numeric_seed + game_hash("NEOW"));
+        state.data.neow_options = neow_options(state.data.event_rng);
+        if (std::find(state.data.neow_options.begin(), state.data.neow_options.end(), no_content) != state.data.neow_options.end())
             return {StepStatus::engine_error, {}, Restriction::invalid_state};
-        state_view.phase = RunPhase::neow; state_view.boundary.value = 1;
+        state.data.phase = RunPhase::neow; state.data.boundary.value = 1;
         destination = std::move(state);
-        return {StepStatus::awaiting_input, destination.view().boundary};
+        return {StepStatus::awaiting_input, destination.data.boundary};
     } catch (const std::bad_alloc&) { return {StepStatus::resource_limit, {}, Restriction::capacity}; }
     catch (...) { return {StepStatus::engine_error, {}, Restriction::execution_budget}; }
 }
 StepResult initialize_seeded_combat(RunState& destination, const SeededConfig& config, CombatTrace trace) {
     const auto result = initialize_combat_scenario(destination, config, {}, trace);
-    if (result.status == StepStatus::awaiting_input) destination.view().direct_combat = true;
+    if (result.status == StepStatus::awaiting_input) destination.data.direct_combat = true;
     return result;
 }
 StepResult initialize_combat_scenario(RunState& destination, const SeededConfig& config, std::span<const CardSpec> scenario_deck, CombatTrace trace, std::span<const ContentId> scenario_relics, std::int32_t enemy_hp, std::uint32_t joss_counter) {
     if (config.character != "CHARACTER.IRONCLAD" || config.ascension != 0)
-        return {StepStatus::unsupported_content, destination.view().boundary, Restriction::unsupported_setup};
+        return {StepStatus::unsupported_content, destination.data.boundary, Restriction::unsupported_setup};
     try {
-        RunState next(destination.overflow.allocator()); auto next_view = next.view();
+        RunState next(destination.overflow.allocator());
         const auto result = initialize_run(next, config);
         if (result.status != StepStatus::awaiting_input) return result;
         if (!scenario_deck.empty()) {
-            if (scenario_deck.size() > 4096) return {StepStatus::resource_limit, destination.view().boundary, Restriction::capacity};
-            next_view.deck.clear();
+            if (scenario_deck.size() > 4096) return {StepStatus::resource_limit, destination.data.boundary, Restriction::capacity};
+            next.deck().clear();
             for (const auto& card : scenario_deck) {
                 const auto* definition = Ruleset::pinned().card(card.definition);
-                if (!definition) return {StepStatus::unsupported_content, destination.view().boundary, Restriction::unsupported_setup};
+                if (!definition) return {StepStatus::unsupported_content, destination.data.boundary, Restriction::unsupported_setup};
                 const auto id = SetupRules::find(definition->model_id);
-                if (id == no_content) return {StepStatus::unsupported_content, destination.view().boundary, Restriction::unsupported_setup};
-                next_view.deck.push_back({id, static_cast<std::uint32_t>(next_view.deck.size()), static_cast<std::uint32_t>(card.upgraded), -1, card.enchantment});
+                if (id == no_content) return {StepStatus::unsupported_content, destination.data.boundary, Restriction::unsupported_setup};
+                next.deck().push_back({id, static_cast<std::uint32_t>(next.deck().size()), static_cast<std::uint32_t>(card.upgraded), -1, card.enchantment});
             }
         }
-        if (!scenario_relics.empty()) { next_view.relics.clear(); next_view.relics.insert(next_view.relics.end(), scenario_relics.begin(), scenario_relics.end()); }
-        next_view.joss_paper_counter = joss_counter;
-        if (!supported_combat_inventory(next_view)) return {StepStatus::unsupported_content, destination.view().boundary, Restriction::unsupported_setup};
-        next_view.combat.emplace();
+        if (!scenario_relics.empty()) { next.relics().clear(); next.relics().insert(next.relics().end(), scenario_relics.begin(), scenario_relics.end()); }
+        next.data.joss_paper_counter = joss_counter;
+        if (!supported_combat_inventory(next)) return {StepStatus::unsupported_content, destination.data.boundary, Restriction::unsupported_setup};
         Scratch scratch; scratch.trace = trace;
-        const auto initialized = prepare_combat(*next_view.combat, next_view, scratch, destination.view().boundary, enemy_hp);
+        const auto initialized = prepare_combat(next, scratch, destination.data.boundary, enemy_hp);
         if (initialized.status != StepStatus::awaiting_input) return initialized;
-        next_view.acts[0].normal_visited = 1;
-        next_view.phase = RunPhase::combat; next_view.direct_combat = false; next_view.combat_generation = 1;
+        next.act(0).normal_visited = 1;
+        next.data.phase = RunPhase::combat; next.data.direct_combat = false; next.data.combat_generation = 1;
         destination = std::move(next); return initialized;
-    } catch (const std::bad_alloc&) { return {StepStatus::resource_limit, destination.view().boundary, Restriction::capacity}; } catch (const std::length_error&) { return {StepStatus::resource_limit, destination.view().boundary, Restriction::capacity}; }
+    } catch (const std::bad_alloc&) { return {StepStatus::resource_limit, destination.data.boundary, Restriction::capacity}; } catch (const std::length_error&) { return {StepStatus::resource_limit, destination.data.boundary, Restriction::capacity}; }
 }
 } // namespace sts2::engine

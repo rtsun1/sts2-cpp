@@ -12,19 +12,19 @@ std::size_t index(GameRng& rng, std::size_t count) {
     return static_cast<std::size_t>(value);
 }
 }
-StepResult generate_combat_rewards(RunView run) {
-    if (run.rewards) return {StepStatus::awaiting_input, {}};
-    if (run.phase != RunPhase::combat_done || run.direct_combat || run.combat) return {StepStatus::invalid_action, {}, Restriction::wrong_phase};
-    if (run.ascension != 0 || run.act_index != 0) return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
-    const auto* character = SetupRules::character(run.character);
+StepResult generate_combat_rewards(RunState& run) {
+    if (run.data.rewards) return {StepStatus::awaiting_input, {}};
+    if (run.data.phase != RunPhase::combat_done || run.data.direct_combat || run.data.combat) return {StepStatus::invalid_action, {}, Restriction::wrong_phase};
+    if (run.data.ascension != 0 || run.data.act_index != 0) return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
+    const auto* character = SetupRules::character(run.data.character);
     if (!character) return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
-    for (auto id : run.relics) if (SetupRules::name(id) != "RELIC.BURNING_BLOOD" && SetupRules::name(id) != "RELIC.GOLDEN_PEARL" &&
+    for (auto id : run.relics()) if (SetupRules::name(id) != "RELIC.BURNING_BLOOD" && SetupRules::name(id) != "RELIC.GOLDEN_PEARL" &&
         SetupRules::name(id) != "RELIC.CHARONS_ASHES" && SetupRules::name(id) != "RELIC.JOSS_PAPER")
         return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
     try {
-        auto rng = run.player_rng.streams[0]; RewardOffers rewards;
-        if (std::holds_alternative<ParentInteractionState>(run.room)) rewards.return_to = RewardReturn::parent_room;
-        auto rarity_offset = run.card_rarity_offset, potion_odds = run.potion_reward_odds;
+        auto rng = run.data.player_rng.streams[0]; RewardOffers rewards;
+        if (std::holds_alternative<ParentInteractionState>(run.data.room)) rewards.return_to = RewardReturn::parent_room;
+        auto rarity_offset = run.data.card_rarity_offset, potion_odds = run.data.potion_reward_odds;
         const auto has_potion = uniform(rng) < potion_odds;
         potion_odds += has_potion ? -0.1f : 0.1f;
         rewards.gold = 10 + static_cast<int>(index(rng, 11));
@@ -54,8 +54,8 @@ StepResult generate_combat_rewards(RunView run) {
             const auto upgrade_roll = uniform(rng); // Native consumes this even for non-upgradable cards.
             rewards.cards[i] = {card.id, 0, card.upgradable && upgrade_roll <= 0 ? 1u : 0u, -1};
         }
-        run.player_rng.streams[0] = rng; run.card_rarity_offset = rarity_offset; run.potion_reward_odds = potion_odds;
-        run.rewards = rewards;
+        run.data.player_rng.streams[0] = rng; run.data.card_rarity_offset = rarity_offset; run.data.potion_reward_odds = potion_odds;
+        run.data.rewards = rewards;
         return {StepStatus::awaiting_input, {}};
     } catch (const std::bad_alloc&) { return {StepStatus::resource_limit, {}, Restriction::capacity}; }
     catch (...) { return {StepStatus::engine_error, {}, Restriction::invalid_state}; }

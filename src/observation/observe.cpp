@@ -5,30 +5,30 @@
 #include <algorithm>
 
 namespace sts2::engine {
-CombatObservationView observe(ConstCombatView s) noexcept {
-    if (!s.valid_storage()) { CombatObservationView invalid{}; invalid.phase = CombatPhase::invalid; return invalid; }
+CombatObservationView observe_combat(const RunState& s) noexcept {
+    if (!s.valid_combat_storage()) { CombatObservationView invalid{}; invalid.phase = CombatPhase::invalid; return invalid; }
     const auto intent = gameplay::visible_enemy_intent(s);
-    CombatObservationView view{game_build, s.boundary, s.phase, s.player.hp, s.player.max_hp, s.player.block, s.energy,
-        s.turn, s.enemy.hp, s.enemy.max_hp, s.enemy.power_amount(PowerId::vulnerable, s.creature_overflow), intent.attack, s.player.has_power(PowerId::shrink, s.creature_overflow), intent.move,
-        s.zone(Zone::hand), s.zone(Zone::draw).size(), s.zone(Zone::discard).size(), s.zone(Zone::exhaust).size(), std::nullopt, s.player.power_amount(PowerId::strength, s.creature_overflow), s.player.power_amount(PowerId::dexterity, s.creature_overflow), s.player.power_amount(PowerId::weak, s.creature_overflow), s.enemy.power_amount(PowerId::weak, s.creature_overflow)};
-    if (s.phase == CombatPhase::card_choice) view.selection = CardSelectionView{s.selection.id, s.selection.effect, s.selection_candidates, s.selection_order, s.selection.minimum, s.selection.maximum, s.selection.automatic_at_maximum, !s.selection.automatic_at_maximum && s.selection_order.size() >= s.selection.minimum};
+    CombatObservationView view{game_build, s.data.boundary, s.combat().phase, s.player().hp, s.player().max_hp, s.player().block, s.combat().energy,
+        s.combat().turn, s.enemy().hp, s.enemy().max_hp, s.enemy().power_amount(PowerId::vulnerable, s.overflow), intent.attack, s.player().has_power(PowerId::shrink, s.overflow), intent.move,
+        s.zone(Zone::hand), s.zone(Zone::draw).size(), s.zone(Zone::discard).size(), s.zone(Zone::exhaust).size(), std::nullopt, s.player().power_amount(PowerId::strength, s.overflow), s.player().power_amount(PowerId::dexterity, s.overflow), s.player().power_amount(PowerId::weak, s.overflow), s.enemy().power_amount(PowerId::weak, s.overflow)};
+    if (s.combat().phase == CombatPhase::card_choice) view.selection = CardSelectionView{s.combat().selection.id, s.combat().selection.effect, s.selection_candidates(), s.selection_order(), s.combat().selection.minimum, s.combat().selection.maximum, s.combat().selection.automatic_at_maximum, !s.combat().selection.automatic_at_maximum && s.selection_order().size() >= s.combat().selection.minimum};
     return view;
 }
-std::optional<CardView> observe_card(ConstCombatView s, CardHandle h, const Ruleset& rules) noexcept {
-    if (!s.valid_storage()) return std::nullopt;
+std::optional<CardView> observe_card(const RunState& s, CardHandle h, const Ruleset& rules) noexcept {
+    if (!s.valid_combat_storage()) return std::nullopt;
     const auto& hand = s.zone(Zone::hand);
     if (std::find(hand.begin(), hand.end(), h) == hand.end()) return std::nullopt;
     return inspect_card(s, h, rules);
 }
-std::optional<CardView> inspect_card(ConstCombatView s, CardHandle h, const Ruleset& rules) noexcept {
-    if (!s.valid_storage()) return std::nullopt;
+std::optional<CardView> inspect_card(const RunState& s, CardHandle h, const Ruleset& rules) noexcept {
+    if (!s.valid_combat_storage()) return std::nullopt;
     bool visible = false;
     for (const auto zone : {Zone::hand, Zone::draw, Zone::discard, Zone::exhaust}) {
         const auto& cards = s.zone(zone);
         visible = visible || std::find(cards.begin(), cards.end(), h) != cards.end();
     }
     if (!visible) return std::nullopt;
-    const auto* instance = s.cards.get(h); if (!instance) return std::nullopt;
+    const auto* instance = s.cards().get(h); if (!instance) return std::nullopt;
     const auto* def = rules.card(instance->definition); if (!def) return std::nullopt;
     CardView view{h, def->model_id, def->name, effective_card_cost(s, h, rules), 0, 0, 0, instance->upgraded, def->enemy_target, def->rarity};
     // Native CardModel.UpdateDynamicVarPreview runs global combat hooks only

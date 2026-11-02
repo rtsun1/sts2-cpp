@@ -12,11 +12,11 @@ inline void prepare_exhaust_shuffle(RunState& state, bool large_deck = false,
     deck[0] = {CardId::burning_pact}; deck[1] = {CardId::defend}; deck[4] = {CardId::defend};
     if (initialize_combat_scenario(state, {}, deck, {}, relics, 0, joss_counter).status != StepStatus::awaiting_input)
         throw std::runtime_error("Exhaust/shuffle scenario initialization failed");
-    auto combat = *state.view().combat;
+    auto& combat = state;
     // Establish a deterministic hand and a nonempty discard pile, independent
     // of the setup shuffle. All cards are real supported combat instances.
     for (auto zone : combat.zone_views()) zone.clear();
-    const auto slots = combat.cards.slots();
+    const auto slots = combat.cards().slots();
     for (std::uint32_t i = 0; i < slots.size(); ++i) {
         if (slots[i].live) combat.zone(i < 5 ? Zone::hand : Zone::discard).push_back({i, slots[i].generation});
     }

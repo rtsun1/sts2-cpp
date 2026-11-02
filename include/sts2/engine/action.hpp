@@ -7,11 +7,11 @@ namespace sts2::engine {
 struct ActionView { CombatInput input; Restriction restriction; };
 class ActionSpaceView {
 public:
-    explicit ActionSpaceView(ConstCombatView state) noexcept : state_(state) {}
+    explicit ActionSpaceView(const RunState& state) noexcept : state_(state) {}
     [[nodiscard]] std::size_t size() const noexcept;
     [[nodiscard]] std::optional<ActionView> at(std::size_t index) const noexcept;
 private:
-    ConstCombatView state_;
+    const RunState& state_;
 };
 
 // Inputs retain the current boundary. Forced transport continues are omitted.

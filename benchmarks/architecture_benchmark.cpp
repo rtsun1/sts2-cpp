@@ -36,13 +36,13 @@ void nested(RunState& state) {
     scenario::prepare_exhaust_shuffle(state, true);
     for (auto definition : {CardId::defend, CardId::burning_pact}) {
         CardHandle selected{};
-        for (auto card : state.view().combat->zone(Zone::hand))
-            if (state.view().combat->cards.get(card)->definition == definition) { selected = card; break; }
+        for (auto card : state.zone(Zone::hand))
+            if (state.cards().get(card)->definition == definition) { selected = card; break; }
         require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, selected}, scratch).status == StepStatus::awaiting_input);
     }
-    const auto combat = *state.view().combat;
-    require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, combat.selection_candidates.front(), false, combat.selection.id}, scratch).status == StepStatus::awaiting_input);
-    require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, false, combat.selection.id}, scratch).status == StepStatus::awaiting_input);
+    auto& combat = state;
+    require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, combat.selection_candidates().front(), false, combat.combat().selection.id}, scratch).status == StepStatus::awaiting_input);
+    require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, false, combat.combat().selection.id}, scratch).status == StepStatus::awaiting_input);
     require(!state.combat_overflow.empty());
 }
 
@@ -66,15 +66,15 @@ int main(int argc, char** argv) try {
         RunState baseline, branch; Scratch scratch;
         if (workload == 4) {
             require(initialize_seeded_combat(baseline, {}).status == StepStatus::awaiting_input);
-            auto combat = *baseline.view().combat;
+            auto& combat = baseline;
             using Stacking = PowerInstance::Stacking;
             for (int i = 0; i < 9; ++i)
-                gameplay::apply_power(combat, scratch, PowerId::strength, 1, false, false, {}, true, false, Stacking::separate, combat.player_handle);
-            gameplay::apply_power(combat, scratch, PowerId::strength, 2, false, false, {}, true, false, Stacking::by_applier, combat.player_handle);
-            gameplay::apply_power(combat, scratch, PowerId::strength, 3, false, false, {}, true, true, Stacking::by_applier, combat.enemy_handle);
+                gameplay::apply_power(combat, scratch, PowerId::strength, 1, false, false, {}, true, false, Stacking::separate, combat.data.player);
+            gameplay::apply_power(combat, scratch, PowerId::strength, 2, false, false, {}, true, false, Stacking::by_applier, combat.data.player);
+            gameplay::apply_power(combat, scratch, PowerId::strength, 3, false, false, {}, true, true, Stacking::by_applier, combat.enemy_handle());
             gameplay::apply_power(combat, scratch, PowerId::strength, 4, false, false);
-            require(combat.player.powers.overflowed());
-            require(combat.player.power_instances(combat.creature_overflow).size() == 12);
+            require(combat.player().powers.overflowed());
+            require(combat.player().power_instances(combat.overflow).size() == 12);
         }
         else if (workload == 3) nested(baseline);
         else if (workload == 2) {
@@ -84,12 +84,12 @@ int main(int argc, char** argv) try {
         }
         else {
             require(initialize_seeded_combat(baseline, {}).status == StepStatus::awaiting_input);
-            if (workload == 1) for (int i = 0; i < 12; ++i) require(baseline.view().creatures.create({3, 3}, 4096).present());
+            if (workload == 1) for (int i = 0; i < 12; ++i) require(baseline.creatures().create({3, 3}, 4096).present());
         }
         require(valid_run(baseline));
         require(clone_into(branch, baseline) == CloneStatus::cloned);
         std::cout << "workload=" << (workload == 0 ? "supported_seeded_combat" : workload == 1 ? "controlled_creature_overflow" : workload == 2 ? "supported_cards_200_overflow" : workload == 3 ? "stratagem_pile_choice_overflow" : "controlled_power_instances_12_overflow")
-                  << " player_power_instances=" << baseline.view().combat->player.power_instances(baseline.overflow).size()
+                  << " player_power_instances=" << baseline.player().power_instances(baseline.overflow).size()
                   << " root_bytes=" << sizeof(RunState) << " retained_bytes=" << sizeof(RunState) + baseline.overflow.retained_bytes() + baseline.combat_overflow.retained_bytes() << '\n';
         measure("query_validate", iterations, [&] {
             RunActionSpaceView actions(baseline);
@@ -104,7 +104,7 @@ int main(int argc, char** argv) try {
         for (std::uint64_t i = 0; i < iterations; ++i) {
             require(clone_into(branch, baseline) == CloneStatus::cloned);
             auto input = workload == 3
-                ? CombatInput{branch.data.boundary, CombatInputKind::select_card, branch.view().combat->selection_candidates.front(), false, branch.view().combat->selection.id}
+                ? CombatInput{branch.data.boundary, CombatInputKind::select_card, branch.selection_candidates().front(), false, branch.combat().selection.id}
                 : CombatInput{branch.data.boundary, CombatInputKind::end_turn};
             allocations = 0; counting = true; const auto start = std::chrono::steady_clock::now();
             const auto result = apply_action(branch, input, scratch);

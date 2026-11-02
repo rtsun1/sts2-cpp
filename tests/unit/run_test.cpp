@@ -4,6 +4,8 @@
 #include "../support/continuation_fixture.hpp"
 #include "../support/parent_room_fixture.hpp"
 #include "storage_allocator.hpp"
+#include "../support/checkpoint_fixture.hpp"
+#include "../../src/persistence/combat_payload.hpp"
 #include "sts2/json_io/session.hpp"
 #include "sts2/observation/run.hpp"
 #include "sts2/persistence/checkpoint.hpp"
@@ -22,7 +24,7 @@ TEST(PublicRun, PermanentCreatureAttributesRemainVisibleAndSurviveCheckpoint) {
     RunState state; Scratch scratch;
     ASSERT_EQ(initialize_combat_scenario(state, {}, {}).status, StepStatus::awaiting_input);
     // Arrange a permanent maximum-HP effect until supported content exposes one.
-    state.view().combat->player.max_hp += 5;
+    state.player().max_hp += 5;
     EXPECT_EQ(observe(state).max_hp, 85);
     RunState restored;
     ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
@@ -47,9 +49,9 @@ TEST(PublicRun, StaleCreatureHandlesAreRejectedBeforeViewsAreRead) {
 TEST(PublicRun, CreatureOverflowCloneAndRestoreKeepIndependentBranches) {
     RunState state; Scratch scratch;
     ASSERT_EQ(initialize_combat_scenario(state, {}, {}).status, StepStatus::awaiting_input);
-    auto pool = state.view().creatures;
+    auto pool = state.creatures();
     const auto player = state.data.player;
-    const auto enemy = state.view().combat.enemies.front();
+    const auto enemy = state.enemies().front();
     // Controlled retained operands force the exceptional creature storage path.
     for (int i = 0; i < 12; ++i) ASSERT_TRUE(pool.create({3, 3}, 4096).present());
     ASSERT_TRUE(valid_run(state));
@@ -61,27 +63,27 @@ TEST(PublicRun, CreatureOverflowCloneAndRestoreKeepIndependentBranches) {
     EXPECT_EQ(cloned, restored);
     EXPECT_NE(cloned, state);
     EXPECT_EQ(state.data.player, player);
-    EXPECT_EQ(state.view().combat.enemies.front(), enemy);
+    EXPECT_EQ(state.enemies().front(), enemy);
 }
 TEST(PublicRun, DeadCreatureRemainsUntilCombatResolutionReleasesItsOperands) {
     RunState state; Scratch scratch;
     const std::array deck{CardSpec{CardId::strike}, CardSpec{CardId::strike}};
     ASSERT_EQ(initialize_combat_scenario(state, {}, deck, {}, {}, 1).status, StepStatus::awaiting_input);
-    const auto enemy = state.view().combat.enemies.front();
+    const auto enemy = state.enemies().front();
     const auto player = state.data.player;
-    auto terminal = state; terminal.view().direct_combat = true;
-    const auto strike = state.view().combat->zone(Zone::hand).front();
+    auto terminal = state; terminal.data.direct_combat = true;
+    const auto strike = state.zone(Zone::hand).front();
     ASSERT_EQ(apply_action(terminal, CombatInput{terminal.data.boundary, CombatInputKind::play_card, strike, true}, scratch).status, StepStatus::combat_won);
-    ASSERT_NE(terminal.view().creatures.get(enemy), nullptr);
-    EXPECT_EQ(terminal.view().creatures.get(enemy)->hp, 0);
+    ASSERT_NE(terminal.creatures().get(enemy), nullptr);
+    EXPECT_EQ(terminal.creatures().get(enemy)->hp, 0);
     RunState restored;
     ASSERT_EQ(restore(restored, checkpoint(terminal).bytes, scratch), RestoreStatus::restored);
     EXPECT_EQ(restored, terminal);
     ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, strike, true}, scratch).status, StepStatus::awaiting_input);
-    EXPECT_FALSE(state.view().combat);
-    EXPECT_FALSE(state.view().creatures.get(enemy));
+    EXPECT_FALSE(state.data.combat);
+    EXPECT_FALSE(state.creatures().get(enemy));
     EXPECT_EQ(state.data.player, player);
-    EXPECT_TRUE(state.view().creatures.slots()[enemy.slot].value.equals(state.overflow, CreatureState{}, state.overflow));
+    EXPECT_TRUE(state.creatures().slots()[enemy.slot].value.equals(state.overflow, CreatureState{}, state.overflow));
     ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
     EXPECT_EQ(restored, state);
 }
@@ -90,10 +92,10 @@ TEST(PublicRun, EachUnblockedAttackUpdatesTheCreatureHitCountOnce) {
     const std::array deck{CardSpec{CardId::strike}, CardSpec{CardId::strike}};
     ASSERT_EQ(initialize_combat_scenario(state, {}, deck, {}, {}, 40).status, StepStatus::awaiting_input);
     for (unsigned hits = 1; hits <= 2; ++hits) {
-        const auto card = state.view().combat->zone(Zone::hand).front();
+        const auto card = state.zone(Zone::hand).front();
         ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, card, true}, scratch).status, StepStatus::awaiting_input);
-        EXPECT_EQ(state.view().combat->enemy.hp, 40 - 6 * static_cast<int>(hits));
-        EXPECT_EQ(state.view().combat->enemy.positive_unblocked_hits, hits);
+        EXPECT_EQ(state.enemy().hp, 40 - 6 * static_cast<int>(hits));
+        EXPECT_EQ(state.enemy().positive_unblocked_hits, hits);
     }
 }
 struct NestedPromptInfo { PromptId previous; CardHandle source; };
@@ -101,30 +103,30 @@ void reach_nested_shuffle_prompt(RunState& state, NestedPromptInfo& info, std::s
     Scratch scratch;
     scenario::prepare_exhaust_shuffle(state, large_deck, relics, joss_counter);
     auto play = [&](CardId definition) {
-        for (auto card : state.view().combat->zone(Zone::hand)) {
-            if (state.view().combat->cards.get(card)->definition == definition)
+        for (auto card : state.zone(Zone::hand)) {
+            if (state.cards().get(card)->definition == definition)
                 return apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, card, false}, scratch).status;
         }
         return StepStatus::engine_error;
     };
     ASSERT_EQ(play(CardId::defend), StepStatus::awaiting_input);
     ASSERT_EQ(play(CardId::burning_pact), StepStatus::awaiting_input);
-    const auto exhaust_prompt = state.view().combat->selection.id;
-    info.previous = exhaust_prompt; info.source = state.view().combat->zone(Zone::play).front();
-    const auto exhausted = state.view().combat->selection_candidates.front();
+    const auto exhaust_prompt = state.combat().selection.id;
+    info.previous = exhaust_prompt; info.source = state.zone(Zone::play).front();
+    const auto exhausted = state.selection_candidates().front();
     ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, exhausted, false, exhaust_prompt}, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, false, exhaust_prompt}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(state.view().combat->phase, CombatPhase::card_choice);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
 }
 StepStatus choose_nested_card(RunState& branch, Scratch& scratch, std::size_t index = 0) {
-    const auto combat = *branch.view().combat;
-    return apply_action(branch, CombatInput{branch.data.boundary, CombatInputKind::select_card, combat.selection_candidates[index], false, combat.selection.id}, scratch).status;
+    auto& combat = branch;
+    return apply_action(branch, CombatInput{branch.data.boundary, CombatInputKind::select_card, combat.selection_candidates()[index], false, combat.combat().selection.id}, scratch).status;
 }
 TEST(PublicRun, ConcurrentOverflowBranchesOwnStateAndScratchIndependently) {
     RunState source; NestedPromptInfo info;
     reach_nested_shuffle_prompt(source, info, {}, 0, true);
     ASSERT_FALSE(source.combat_overflow.empty());
-    ASSERT_GT(source.view().combat->selection_candidates.size(), 1u);
+    ASSERT_GT(source.selection_candidates().size(), 1u);
     const auto before = checkpoint(source).bytes;
     // Each task receives an owning clone before launch, then creates local scratch.
     // Rules used by apply_action are immutable; no mutable engine object is shared.
@@ -174,11 +176,11 @@ TEST(PublicRun, CombinedCreatureAndPowerOverflowRestoreReacquiresCanonicalRecord
     } buffers;
     RunState source; Scratch scratch;
     ASSERT_EQ(initialize_combat_scenario(source, {}, {}).status, StepStatus::awaiting_input);
-    for (int i = 0; i < 12; ++i) ASSERT_TRUE(source.view().creatures.create({3, 3}, 4096).present());
+    for (int i = 0; i < 12; ++i) ASSERT_TRUE(source.creatures().create({3, 3}, 4096).present());
     for (int i = 0; i < 9; ++i)
-        gameplay::apply_power(*source.view().combat, scratch, PowerId::strength, 1, false, false, {}, true, false, PowerInstance::Stacking::separate);
+        gameplay::apply_power(source, scratch, PowerId::strength, 1, false, false, {}, true, false, PowerInstance::Stacking::separate);
     ASSERT_TRUE(source.data.creatures.slots.overflowed());
-    ASSERT_TRUE(source.view().combat->player.powers.overflowed());
+    ASSERT_TRUE(source.player().powers.overflowed());
     ASSERT_TRUE(valid_run(source));
     RunState restored(buffers.allocator());
     ASSERT_EQ(restore(restored, checkpoint(source).bytes, scratch), RestoreStatus::restored);
@@ -189,33 +191,33 @@ TEST(PublicRun, DistinctAndPerApplierPowersSurviveOverflowCloneAndRestore) {
     RunState state; Scratch scratch;
     const std::array deck{CardSpec{CardId::strike}, CardSpec{CardId::strike}, CardSpec{CardId::strike}, CardSpec{CardId::strike}, CardSpec{CardId::strike}};
     ASSERT_EQ(initialize_combat_scenario(state, {}, deck).status, StepStatus::awaiting_input);
-    auto combat = *state.view().combat;
+    auto& combat = state;
     using Stacking = PowerInstance::Stacking;
     std::array<std::uint32_t, 9> separate {};
-    for (auto& id : separate) id = gameplay::apply_power(combat, scratch, PowerId::strength, 1, false, false, {}, true, false, Stacking::separate, combat.player_handle);
-    const auto player = gameplay::apply_power(combat, scratch, PowerId::strength, 2, false, false, {}, true, false, Stacking::by_applier, combat.player_handle);
-    const auto enemy = gameplay::apply_power(combat, scratch, PowerId::strength, 3, false, false, {}, true, true, Stacking::by_applier, combat.enemy_handle);
+    for (auto& id : separate) id = gameplay::apply_power(combat, scratch, PowerId::strength, 1, false, false, {}, true, false, Stacking::separate, combat.data.player);
+    const auto player = gameplay::apply_power(combat, scratch, PowerId::strength, 2, false, false, {}, true, false, Stacking::by_applier, combat.data.player);
+    const auto enemy = gameplay::apply_power(combat, scratch, PowerId::strength, 3, false, false, {}, true, true, Stacking::by_applier, combat.enemy_handle());
     EXPECT_NE(player, enemy);
-    EXPECT_EQ(gameplay::apply_power(combat, scratch, PowerId::strength, 1, false, false, {}, true, false, Stacking::by_applier, combat.player_handle), player);
+    EXPECT_EQ(gameplay::apply_power(combat, scratch, PowerId::strength, 1, false, false, {}, true, false, Stacking::by_applier, combat.data.player), player);
     gameplay::apply_power(combat, scratch, PowerId::strength, 4, false, false);
-    ASSERT_TRUE(combat.player.powers.overflowed());
+    ASSERT_TRUE(combat.player().powers.overflowed());
     ASSERT_TRUE(valid_run(state));
-    EXPECT_EQ(combat.player.power_instances(combat.creature_overflow).size(), 12u);
-    EXPECT_EQ(combat.player.power_amount(PowerId::strength, combat.creature_overflow), 19);
+    EXPECT_EQ(combat.player().power_instances(combat.overflow).size(), 12u);
+    EXPECT_EQ(combat.player().power_amount(PowerId::strength, combat.overflow), 19);
     const auto saved = checkpoint(state).bytes;
     RunState clone = state, restored;
     ASSERT_EQ(restore(restored, saved, scratch), RestoreStatus::restored);
     EXPECT_EQ(restored, state);
-    CombatState extracted{ConstCombatView(combat)}, extracted_copy;
+    RunState extracted{std::as_const(combat)}, extracted_copy;
     ASSERT_TRUE(valid_combat(extracted));
     ASSERT_EQ(clone_into(extracted_copy, extracted), CloneStatus::cloned);
     EXPECT_EQ(extracted_copy, extracted);
     for (auto* branch : {&clone, &restored}) {
-        const auto view = *branch->view().combat;
+        auto& view = *branch;
         const auto card = view.zone(Zone::hand).front();
         ASSERT_EQ(apply_action(*branch, CombatInput{branch->data.boundary, CombatInputKind::play_card, card, true}, scratch).status, StepStatus::awaiting_input);
-        EXPECT_EQ(branch->view().combat->enemy.hp, combat.enemy.hp - 25);
-        branch->view().combat->player.find_power_instance(separate[0], branch->overflow)->amount = 2;
+        EXPECT_EQ(branch->enemy().hp, combat.enemy().hp - 25);
+        branch->player().find_power_instance(separate[0], branch->overflow)->amount = 2;
     }
     EXPECT_EQ(clone, restored);
     EXPECT_EQ(checkpoint(state).bytes, saved);
@@ -224,90 +226,90 @@ TEST(PublicRun, DistinctAndPerApplierPowersSurviveOverflowCloneAndRestore) {
 TEST(PublicRun, PerApplierIdentityAndArtifactRemainOnRetainedCreature) {
     RunState state; Scratch scratch;
     ASSERT_EQ(initialize_combat_scenario(state, {}, {}).status, StepStatus::awaiting_input);
-    auto combat = *state.view().combat;
-    const auto retained = combat.enemy_handle;
+    auto& combat = state;
+    const auto retained = combat.enemy_handle();
     gameplay::apply_power(combat, scratch, PowerId::strength, 2, false, false, {}, true, true, PowerInstance::Stacking::by_applier, retained);
     gameplay::apply_power(combat, scratch, PowerId::artifact, 1, true, false, {}, true, false, PowerInstance::Stacking::separate);
-    const auto replacement = state.view().creatures.create({40, 40}, 4096);
-    state.view().combat.enemies[0] = replacement;
-    gameplay::apply_power(*state.view().combat, scratch, PowerId::artifact, 2, true, false);
+    const auto replacement = state.creatures().create({40, 40}, 4096);
+    state.enemies()[0] = replacement;
+    gameplay::apply_power(state, scratch, PowerId::artifact, 2, true, false);
     ASSERT_TRUE(valid_run(state));
-    EXPECT_THROW(CombatState{ConstCombatView(*state.view().combat)}, std::invalid_argument);
+    EXPECT_NO_THROW(RunState{std::as_const(state)});
     RunState clone = state, restored;
     ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
     EXPECT_EQ(restored, state);
     for (auto* branch : {&clone, &restored}) {
-        gameplay::apply_power(*branch->view().combat, scratch, PowerId::weak, 2, true, false, {}, true, false, PowerInstance::Stacking::by_type, {}, retained);
-        EXPECT_EQ(branch->view().creatures.get(retained)->power_amount(PowerId::artifact, branch->overflow), 0);
-        EXPECT_EQ(branch->view().creatures.get(retained)->power_amount(PowerId::weak, branch->overflow), 0);
-        EXPECT_EQ(branch->view().creatures.get(replacement)->power_amount(PowerId::artifact, branch->overflow), 2);
+        gameplay::apply_power(*branch, scratch, PowerId::weak, 2, true, false, {}, true, false, PowerInstance::Stacking::by_type, {}, retained);
+        EXPECT_EQ(branch->creatures().get(retained)->power_amount(PowerId::artifact, branch->overflow), 0);
+        EXPECT_EQ(branch->creatures().get(retained)->power_amount(PowerId::weak, branch->overflow), 0);
+        EXPECT_EQ(branch->creatures().get(replacement)->power_amount(PowerId::artifact, branch->overflow), 2);
         EXPECT_EQ(advance_to_decision(*branch, scratch).status, StepStatus::awaiting_input);
     }
     EXPECT_EQ(clone, restored);
-    EXPECT_EQ(state.view().creatures.get(retained)->power_amount(PowerId::artifact, state.overflow), 1);
+    EXPECT_EQ(state.creatures().get(retained)->power_amount(PowerId::artifact, state.overflow), 1);
 }
 
 TEST(PublicRun, CapturedCreatureTargetSurvivesMembershipReplacementAcrossNestedPrompt) {
     RunState state; Scratch scratch; NestedPromptInfo info;
     reach_nested_shuffle_prompt(state, info);
-    const auto captured = state.view().combat.enemies.front();
-    const auto captured_hp = state.view().creatures.get(captured)->hp;
+    const auto captured = state.enemies().front();
+    const auto captured_hp = state.creatures().get(captured)->hp;
     // Resume an existing damage program after the controlled interruption.
-    auto combat = *state.view().combat;
-    combat.cards.get(info.source)->definition = CardId::strike;
-    combat.cards.get(info.source)->origin = {};
-    for (auto& frame : combat.execution) if (auto* program = std::get_if<CardProgramFrame>(&frame)) {
+    auto& combat = state;
+    combat.cards().get(info.source)->definition = CardId::strike;
+    combat.cards().get(info.source)->origin = {};
+    for (auto& frame : combat.execution()) if (auto* program = std::get_if<CardProgramFrame>(&frame)) {
         program->instruction = 0; program->target = captured;
     }
-    const auto replacement = state.view().creatures.create({40, 40}, 4096);
-    state.view().combat.enemies[0] = replacement;
+    const auto replacement = state.creatures().create({40, 40}, 4096);
+    state.enemies()[0] = replacement;
     ASSERT_TRUE(valid_run(state));
-    EXPECT_THROW(CombatState{ConstCombatView(*state.view().combat)}, std::invalid_argument);
+    EXPECT_NO_THROW(RunState{std::as_const(state)});
     const auto saved = checkpoint(state).bytes;
     RunState clone = state, restored;
     ASSERT_EQ(restore(restored, saved, scratch), RestoreStatus::restored);
     for (auto* branch : {&clone, &restored}) {
         ASSERT_EQ(choose_nested_card(*branch, scratch), StepStatus::awaiting_input);
-        EXPECT_EQ(branch->view().creatures.get(captured)->hp, captured_hp - 6);
-        EXPECT_EQ(branch->view().creatures.get(replacement)->hp, 40);
+        EXPECT_EQ(branch->creatures().get(captured)->hp, captured_hp - 6);
+        EXPECT_EQ(branch->creatures().get(replacement)->hp, 40);
     }
     EXPECT_EQ(clone, restored);
     EXPECT_EQ(checkpoint(state).bytes, saved);
     RunState stale = state;
-    ASSERT_TRUE(stale.view().creatures.erase(captured));
-    const auto reused = stale.view().creatures.create({40, 40}, 4096);
+    ASSERT_TRUE(stale.creatures().erase(captured));
+    const auto reused = stale.creatures().create({40, 40}, 4096);
     ASSERT_EQ(reused.slot, captured.slot); ASSERT_NE(reused.generation, captured.generation);
     EXPECT_FALSE(valid_run(stale));
     EXPECT_THROW(checkpoint(stale), std::invalid_argument);
     const auto unchanged = stale;
-    const auto stale_view = *stale.view().combat;
-    const CombatInput stale_input{stale.data.boundary, CombatInputKind::select_card, stale_view.selection_candidates.front(), false, stale_view.selection.id};
+    auto& stale_view = stale;
+    const CombatInput stale_input{stale.data.boundary, CombatInputKind::select_card, stale_view.selection_candidates().front(), false, stale_view.combat().selection.id};
     EXPECT_EQ(validate_action(stale, stale_input), Restriction::invalid_state);
     EXPECT_EQ(apply_action(stale, stale_input, scratch).reason, Restriction::invalid_state);
     EXPECT_EQ(stale, unchanged);
-    EXPECT_EQ(stale.view().creatures.get(reused)->hp, 40);
-    EXPECT_EQ(stale.view().creatures.get(replacement)->hp, 40);
+    EXPECT_EQ(stale.creatures().get(reused)->hp, 40);
+    EXPECT_EQ(stale.creatures().get(replacement)->hp, 40);
 }
 
-TEST(PublicRun, SuspendedCombatExtractionPreservesCapturedCreatureIdentities) {
+TEST(PublicRun, SuspendedRunClonePreservesCapturedCreatureIdentities) {
     RunState state; Scratch scratch; NestedPromptInfo info;
     reach_nested_shuffle_prompt(state, info);
-    const auto replacement = state.view().creatures.create({40, 40}, 4096);
-    state.view().combat.enemies[0] = replacement;
-    auto combat = *state.view().combat;
-    combat.cards.get(info.source)->definition = CardId::strike;
-    combat.cards.get(info.source)->origin = {};
-    for (auto& frame : combat.execution) if (auto* program = std::get_if<CardProgramFrame>(&frame)) { program->instruction = 0; program->target = replacement; }
-    CombatState extracted{ConstCombatView(combat)}, restored;
+    const auto replacement = state.creatures().create({40, 40}, 4096);
+    state.enemies()[0] = replacement;
+    auto& combat = state;
+    combat.cards().get(info.source)->definition = CardId::strike;
+    combat.cards().get(info.source)->origin = {};
+    for (auto& frame : combat.execution()) if (auto* program = std::get_if<CardProgramFrame>(&frame)) { program->instruction = 0; program->target = replacement; }
+    RunState extracted{std::as_const(combat)}, restored;
     ASSERT_TRUE(valid_combat(extracted));
     ASSERT_EQ(restore(restored, checkpoint(extracted).bytes, scratch), RestoreStatus::restored);
-    const auto choose = [&](CombatState& branch) {
-        const auto view = branch.view();
-        return apply_combat(branch, {view.boundary, CombatInputKind::select_card, view.selection_candidates.front(), false, view.selection.id}, scratch).status;
+    const auto choose = [&](RunState& branch) {
+        auto& view = branch;
+        return apply_combat(branch, {view.data.boundary, CombatInputKind::select_card, view.selection_candidates().front(), false, view.combat().selection.id}, scratch).status;
     };
     EXPECT_EQ(choose(extracted), StepStatus::awaiting_input);
     EXPECT_EQ(choose(restored), StepStatus::awaiting_input);
-    EXPECT_EQ(extracted.enemy.hp, 34);
+    EXPECT_EQ(extracted.enemy().hp, 34);
     EXPECT_EQ(extracted, restored);
 }
 
@@ -315,35 +317,35 @@ TEST(PublicRun, NestedShuffleChoiceResumesDrawAndParentExactlyOnceAfterRestore) 
     RunState state; Scratch scratch; NestedPromptInfo info;
     reach_nested_shuffle_prompt(state, info);
     const auto exhaust_prompt = info.previous;
-    ASSERT_EQ(state.view().combat->phase, CombatPhase::card_choice);
-    EXPECT_NE(state.view().combat->selection.id, exhaust_prompt);
-    EXPECT_EQ(state.view().combat->counters.finished_plays, 1u);
-    EXPECT_EQ(state.view().combat->counters.non_hand_draws_this_turn, 0u);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+    EXPECT_NE(state.combat().selection.id, exhaust_prompt);
+    EXPECT_EQ(state.combat().counters.finished_plays, 1u);
+    EXPECT_EQ(state.combat().counters.non_hand_draws_this_turn, 0u);
     const auto saved = checkpoint(state).bytes;
     RunState clone = state, restored;
     ASSERT_EQ(restore(restored, saved, scratch), RestoreStatus::restored);
     EXPECT_EQ(advance_to_decision(state, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(checkpoint(state).bytes, saved);
     auto choose = [&](RunState& branch, std::size_t index) {
-        const auto combat = *branch.view().combat;
-        return apply_action(branch, CombatInput{branch.data.boundary, CombatInputKind::select_card, combat.selection_candidates[index], false, combat.selection.id}, scratch).status;
+        auto& combat = branch;
+        return apply_action(branch, CombatInput{branch.data.boundary, CombatInputKind::select_card, combat.selection_candidates()[index], false, combat.combat().selection.id}, scratch).status;
     };
     ASSERT_EQ(choose(clone, 0), StepStatus::awaiting_input);
     ASSERT_EQ(choose(restored, 0), StepStatus::awaiting_input);
     EXPECT_EQ(clone, restored);
-    EXPECT_EQ(clone.view().combat->phase, CombatPhase::play);
-    EXPECT_EQ(clone.view().combat->counters.finished_plays, 2u);
-    EXPECT_EQ(clone.view().combat->counters.non_hand_draws_this_turn, 3u);
+    EXPECT_EQ(clone.combat().phase, CombatPhase::play);
+    EXPECT_EQ(clone.combat().counters.finished_plays, 2u);
+    EXPECT_EQ(clone.combat().counters.non_hand_draws_this_turn, 3u);
     EXPECT_EQ(checkpoint(state).bytes, saved);
     RunState alternate = state;
     ASSERT_EQ(choose(alternate, 1), StepStatus::awaiting_input);
     EXPECT_NE(alternate, clone);
-    EXPECT_EQ(alternate.view().rng, clone.view().rng);
+    EXPECT_EQ(alternate.data.rng, clone.data.rng);
 }
 TEST(PublicRun, LargeStratagemPileChoiceKeepsIndependentSameAndAlternativeFutures) {
     RunState state; Scratch scratch; NestedPromptInfo info;
     reach_nested_shuffle_prompt(state, info, {}, 0, true);
-    ASSERT_EQ(state.view().combat->phase, CombatPhase::card_choice);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
     ASSERT_FALSE(state.combat_overflow.empty());
     ASSERT_TRUE(valid_run(state));
     const auto saved = checkpoint(state).bytes;
@@ -352,34 +354,34 @@ TEST(PublicRun, LargeStratagemPileChoiceKeepsIndependentSameAndAlternativeFuture
     ASSERT_EQ(choose_nested_card(clone, scratch), StepStatus::awaiting_input);
     ASSERT_EQ(choose_nested_card(restored, scratch), StepStatus::awaiting_input);
     EXPECT_EQ(clone, restored);
-    EXPECT_EQ(clone.view().combat->phase, CombatPhase::play);
-    EXPECT_EQ(clone.view().combat->counters.finished_plays, 2u);
+    EXPECT_EQ(clone.combat().phase, CombatPhase::play);
+    EXPECT_EQ(clone.combat().counters.finished_plays, 2u);
     RunState alternate = state;
     ASSERT_EQ(choose_nested_card(alternate, scratch, 1), StepStatus::awaiting_input);
-    EXPECT_NE(alternate, clone); EXPECT_EQ(alternate.view().rng, clone.view().rng);
+    EXPECT_NE(alternate, clone); EXPECT_EQ(alternate.data.rng, clone.data.rng);
     EXPECT_EQ(checkpoint(state).bytes, saved);
 }
 TEST(PublicRun, NestedPromptRetainsSourceAfterItLeavesActiveCardMembership) {
     RunState state; Scratch scratch; NestedPromptInfo info;
     reach_nested_shuffle_prompt(state, info);
-    ASSERT_EQ(state.view().combat->phase, CombatPhase::card_choice);
-    auto play = state.view().combat->zone(Zone::play);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+    auto play = state.zone(Zone::play);
     play.erase(std::find(play.begin(), play.end(), info.source));
-    state.view().combat->cards.get(info.source)->removed = true;
+    state.cards().get(info.source)->removed = true;
     ASSERT_TRUE(valid_run(state));
     RunState restored;
     ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
     ASSERT_EQ(choose_nested_card(restored, scratch), StepStatus::awaiting_input);
-    EXPECT_EQ(restored.view().combat->counters.finished_plays, 2u);
-    EXPECT_NE(restored.view().combat->cards.get(info.source), nullptr);
-    EXPECT_TRUE(restored.view().combat->cards.get(info.source)->removed);
-    EXPECT_EQ(state.view().combat->phase, CombatPhase::card_choice);
+    EXPECT_EQ(restored.combat().counters.finished_plays, 2u);
+    EXPECT_NE(restored.cards().get(info.source), nullptr);
+    EXPECT_TRUE(restored.cards().get(info.source)->removed);
+    EXPECT_EQ(state.combat().phase, CombatPhase::card_choice);
 }
 TEST(PublicRun, CommonNestedPromptCloneUsesNoAllocationAndBudgetFailureIsOperational) {
     test::AllocationCounter allocation;
     RunState state(allocation.allocator()), clone(allocation.allocator()); Scratch scratch; NestedPromptInfo info;
     reach_nested_shuffle_prompt(state, info);
-    ASSERT_EQ(state.view().combat->phase, CombatPhase::card_choice);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
     ASSERT_TRUE(state.combat_overflow.empty());
     const auto saved = checkpoint(state).bytes;
     const auto allocations = allocation.allocations;
@@ -388,19 +390,19 @@ TEST(PublicRun, CommonNestedPromptCloneUsesNoAllocationAndBudgetFailureIsOperati
     EXPECT_EQ(allocation.allocations, allocations);
     scratch.step_limit = 1;
     EXPECT_EQ(choose_nested_card(clone, scratch), StepStatus::engine_error);
-    EXPECT_EQ(clone.view().phase, RunPhase::invalid);
+    EXPECT_EQ(clone.data.phase, RunPhase::invalid);
     EXPECT_FALSE(observe(clone).valid);
     EXPECT_EQ(checkpoint(state).bytes, saved);
 }
 TEST(PublicRun, NestedPromptRejectsMalformedResultDestinationBeforePublishingQueries) {
     RunState state; Scratch scratch; NestedPromptInfo info;
     reach_nested_shuffle_prompt(state, info);
-    ASSERT_EQ(state.view().combat->phase, CombatPhase::card_choice);
-    ++state.view().combat->selection.continuation_depth;
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+    ++state.combat().selection.continuation_depth;
     EXPECT_FALSE(valid_run(state));
     const auto boundary = state.data.boundary;
-    const auto candidate = state.view().combat->selection_candidates.front();
-    const PlayerInput input = CombatInput{boundary, CombatInputKind::select_card, candidate, false, state.view().combat->selection.id};
+    const auto candidate = state.selection_candidates().front();
+    const PlayerInput input = CombatInput{boundary, CombatInputKind::select_card, candidate, false, state.combat().selection.id};
     EXPECT_EQ(validate_action(state, input), Restriction::invalid_state);
     EXPECT_THROW(checkpoint(state), std::invalid_argument);
     EXPECT_TRUE(get_actions(state).empty());
@@ -412,7 +414,7 @@ TEST(PublicRun, OverflowingNestedCloneAndRestoreFailuresKeepDestinationTransacti
     {
         RunState state(allocation.allocator()), destination(allocation.allocator()); Scratch scratch; NestedPromptInfo info;
         reach_nested_shuffle_prompt(state, info, {}, 0, true);
-        ASSERT_EQ(state.view().combat->phase, CombatPhase::card_choice);
+        ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
         const auto encoded = checkpoint(state).bytes;
         ASSERT_EQ(initialize_seeded_combat(destination, {}).status, StepStatus::awaiting_input);
         const auto before = checkpoint(destination).bytes;
@@ -429,18 +431,18 @@ TEST(PublicRun, NestedRelicDrawDefersItsCounterResetUntilTheChildChoiceFinishes)
     RunState state; Scratch scratch; NestedPromptInfo info;
     const std::array relics{SetupRules::find("RELIC.JOSS_PAPER")};
     reach_nested_shuffle_prompt(state, info, relics, 4);
-    ASSERT_EQ(state.view().combat->phase, CombatPhase::card_choice);
-    EXPECT_EQ(state.view().combat->joss_paper_counter, 5u);
-    EXPECT_EQ(state.view().joss_paper_counter, 5u);
-    EXPECT_EQ(state.view().combat->counters.finished_plays, 1u);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+    EXPECT_EQ(state.data.joss_paper_counter, 5u);
+    EXPECT_EQ(state.data.joss_paper_counter, 5u);
+    EXPECT_EQ(state.combat().counters.finished_plays, 1u);
     const auto saved = checkpoint(state).bytes;
     RunState restored;
     ASSERT_EQ(restore(restored, saved, scratch), RestoreStatus::restored);
     ASSERT_EQ(choose_nested_card(restored, scratch), StepStatus::awaiting_input);
-    EXPECT_EQ(restored.view().combat->phase, CombatPhase::play);
-    EXPECT_EQ(restored.view().combat->joss_paper_counter, 0u);
-    EXPECT_EQ(restored.view().joss_paper_counter, 0u);
-    EXPECT_EQ(restored.view().combat->counters.finished_plays, 2u);
+    EXPECT_EQ(restored.combat().phase, CombatPhase::play);
+    EXPECT_EQ(restored.data.joss_paper_counter, 0u);
+    EXPECT_EQ(restored.data.joss_paper_counter, 0u);
+    EXPECT_EQ(restored.combat().counters.finished_plays, 2u);
     EXPECT_EQ(checkpoint(state).bytes, saved);
 }
 TEST(PublicRun, DirectActionValidationDoesNotCloneOverflowState) {
@@ -452,7 +454,7 @@ TEST(PublicRun, DirectActionValidationDoesNotCloneOverflowState) {
     const auto before = checkpoint(state).bytes;
     const auto allocations = allocation.allocations;
     allocation.fail_after = allocations;
-    const auto card = state.view().combat->zone(Zone::hand).front();
+    const auto card = state.zone(Zone::hand).front();
     const PlayerInput input = CombatInput{state.data.boundary, CombatInputKind::play_card, card, true};
     EXPECT_NO_THROW(EXPECT_EQ(validate_action(state, input), Restriction::none));
     EXPECT_EQ(allocation.allocations, allocations);
@@ -500,11 +502,11 @@ TEST(PublicRun, ParentInteractionReturnsAfterChildCombatAndRewardsExactlyOnce) {
     ASSERT_EQ(initialize_combat_scenario(state, {}, deck, {}, {}, 1).status, StepStatus::awaiting_input);
     scenario::configure_parent_return(state, 7);
     const auto gold = observe(state).gold;
-    const auto card = state.view().combat->zone(Zone::hand).front();
+    const auto card = state.zone(Zone::hand).front();
     ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, card, true}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(state.view().phase, RunPhase::rewards);
+    ASSERT_EQ(state.data.phase, RunPhase::rewards);
     const auto reward_boundary = state.data.boundary;
-    const auto reward_rng = state.view().player_rng;
+    const auto reward_rng = state.data.player_rng;
     const auto saved_rewards = checkpoint(state).bytes;
     ASSERT_EQ(apply_action(state, RunInput{state.data.boundary, RunInputKind::skip_rewards}, scratch).status, StepStatus::awaiting_input);
     const auto view = observe(state);
@@ -512,7 +514,7 @@ TEST(PublicRun, ParentInteractionReturnsAfterChildCombatAndRewardsExactlyOnce) {
     EXPECT_EQ(describe(view.options[0]).name, "Continue");
     EXPECT_EQ(view.options[0].gold_reward, 7);
     EXPECT_EQ(describe(view.options[0]).description, "Gain 7 Gold.");
-    EXPECT_FALSE(state.view().combat); EXPECT_FALSE(state.view().rewards);
+    EXPECT_FALSE(state.data.combat); EXPECT_FALSE(state.data.rewards);
     const RunActionSpaceView actions(state); ASSERT_EQ(actions.size(), 2u);
     const auto saved_parent = checkpoint(state).bytes;
     EXPECT_EQ(advance_to_decision(state, scratch).status, StepStatus::awaiting_input);
@@ -530,8 +532,8 @@ TEST(PublicRun, ParentInteractionReturnsAfterChildCombatAndRewardsExactlyOnce) {
     ASSERT_EQ(apply_action(parent_restored, actions.at(0)->input, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(parent_restored, clone);
     EXPECT_EQ(observe(clone).gold, gold + 7);
-    EXPECT_EQ(clone.view().phase, RunPhase::map);
-    EXPECT_EQ(clone.view().player_rng, reward_rng);
+    EXPECT_EQ(clone.data.phase, RunPhase::map);
+    EXPECT_EQ(clone.data.player_rng, reward_rng);
     const auto completed = checkpoint(clone).bytes;
     EXPECT_EQ(advance_to_decision(clone, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(checkpoint(clone).bytes, completed);
@@ -557,7 +559,7 @@ TEST(PublicRun, PreviousCheckpointFormatIsRejectedAtomically) {
 TEST(PublicRun, StratagemPilePromptRejectsUnimplementedNativeDiagnosticMapping) {
     RunState state; NestedPromptInfo info;
     reach_nested_shuffle_prompt(state, info);
-    ASSERT_EQ(state.view().combat->phase, CombatPhase::card_choice);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
     NativeRunExporter exporter;
     try {
         (void)exporter.snapshot(state);
@@ -581,64 +583,64 @@ Session until(std::size_t actions) {
 TEST(PublicRun, ConsecutiveScenarioCombatsReplaceGraphsAndRejectOldCards) {
     Scratch transition_scratch;
     auto state = until(13).state(); Scratch scratch;
-    ASSERT_EQ(apply_input(state, RunInput{state.view().boundary, RunInputKind::skip_rewards}, transition_scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(apply_input(state, RunInput{state.view().boundary, RunInputKind::proceed}, transition_scratch).status, StepStatus::awaiting_input);
-    EXPECT_FALSE(state.view().combat); EXPECT_TRUE(state.combat_overflow.empty());
-    const CardHandle old_card{0, state.view().combat_generation};
+    ASSERT_EQ(apply_input(state, RunInput{state.data.boundary, RunInputKind::skip_rewards}, transition_scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_input(state, RunInput{state.data.boundary, RunInputKind::proceed}, transition_scratch).status, StepStatus::awaiting_input);
+    EXPECT_FALSE(state.has_combat()); EXPECT_TRUE(state.combat_overflow.empty());
+    const CardHandle old_card{0, state.data.combat_generation};
     const auto saved = checkpoint(state).bytes;
     const auto player_identity = state.data.player;
     const auto retired_generation = state.data.creatures.highest_generation;
     NativeRunExporter exporter;
-    ASSERT_EQ(enter_combat_scenario(state, state.view().boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK", exporter.trace()).status, StepStatus::awaiting_input);
-    EXPECT_EQ(state.view().combat_generation, 2u);
+    ASSERT_EQ(enter_combat_scenario(state, state.data.boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK", exporter.trace()).status, StepStatus::awaiting_input);
+    EXPECT_EQ(state.data.combat_generation, 2u);
     EXPECT_EQ(state.data.player, player_identity);
-    EXPECT_GE(state.view().combat.enemies.front().generation, retired_generation);
-    EXPECT_FALSE(state.view().creatures.get({state.view().combat.enemies.front().slot, 1}));
-    EXPECT_EQ(state.view().deck.size(), 10u);
-    EXPECT_FALSE(state.view().combat->cards.get(old_card));
-    EXPECT_EQ(apply_action(state, CombatInput{state.view().boundary, CombatInputKind::play_card, old_card, true}, scratch).status, StepStatus::invalid_action);
+    EXPECT_GE(state.enemies().front().generation, retired_generation);
+    EXPECT_FALSE(state.creatures().get({state.enemies().front().slot, 1}));
+    EXPECT_EQ(state.deck().size(), 10u);
+    EXPECT_FALSE(state.cards().get(old_card));
+    EXPECT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, old_card, true}, scratch).status, StepStatus::invalid_action);
     RunState restored;
     ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
     EXPECT_EQ(restored, state);
-    EXPECT_EQ(apply_action(restored, CombatInput{restored.view().boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
+    EXPECT_EQ(apply_action(restored, CombatInput{restored.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
     EXPECT_NE(restored, state);
     RunState before;
     ASSERT_EQ(restore(before, saved, scratch), RestoreStatus::restored);
-    ASSERT_EQ(enter_combat_scenario(before, before.view().boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::awaiting_input);
+    ASSERT_EQ(enter_combat_scenario(before, before.data.boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::awaiting_input);
     EXPECT_EQ(before, state);
     const auto exported = exporter.snapshot(state);
     EXPECT_EQ(exported["comparison_revision"], 2);
     EXPECT_FALSE(exported.contains("map_point_history"));
     EXPECT_FALSE(exported["players"][0]["extra_fields"].contains("damage_dealt"));
-    for (unsigned turn = 0; turn < 50 && state.view().phase == RunPhase::combat; ++turn) {
+    for (unsigned turn = 0; turn < 50 && state.data.phase == RunPhase::combat; ++turn) {
         const auto offered = get_actions(state);
         const auto attack = std::find_if(offered.begin(), offered.end(), [&](const auto& a) {
             const auto* input = std::get_if<CombatInput>(&a.input);
             return a.restriction == Restriction::none && input && input->kind == CombatInputKind::play_card && input->target_enemy;
         });
         if (attack != offered.end()) (void)apply_action(state, attack->input, scratch);
-        else (void)apply_action(state, CombatInput{state.view().boundary, CombatInputKind::end_turn}, scratch);
+        else (void)apply_action(state, CombatInput{state.data.boundary, CombatInputKind::end_turn}, scratch);
     }
-    ASSERT_EQ(state.view().phase, RunPhase::rewards);
-    ASSERT_EQ(apply_action(state, RunInput{state.view().boundary, RunInputKind::skip_rewards}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(state.data.phase, RunPhase::rewards);
+    ASSERT_EQ(apply_action(state, RunInput{state.data.boundary, RunInputKind::skip_rewards}, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
     EXPECT_EQ(restored, state);
-    ASSERT_EQ(enter_combat_scenario(restored, restored.view().boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::awaiting_input);
-    EXPECT_EQ(restored.view().combat_generation, 3u);
-    EXPECT_EQ(state.view().combat_generation, 2u);
-    EXPECT_FALSE(restored.view().combat->cards.get(old_card));
-    EXPECT_FALSE(state.view().combat); EXPECT_TRUE(state.combat_overflow.empty());
+    ASSERT_EQ(enter_combat_scenario(restored, restored.data.boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::awaiting_input);
+    EXPECT_EQ(restored.data.combat_generation, 3u);
+    EXPECT_EQ(state.data.combat_generation, 2u);
+    EXPECT_FALSE(restored.cards().get(old_card));
+    EXPECT_FALSE(state.has_combat()); EXPECT_TRUE(state.combat_overflow.empty());
     // Retaining an older handle generation in an otherwise internally coherent
     // active combat must fail complete-run validation and transactional restore.
     const auto original = restored;
-    CombatState aliased(ConstCombatView(*original.view().combat));
-    std::vector<CardPool::Slot> slots(aliased.view().cards.slots().begin(), aliased.view().cards.slots().end());
+    RunState aliased(std::as_const(original));
+    std::vector<CardPool::Slot> slots(aliased.cards().slots().begin(), aliased.cards().slots().end());
     for (auto& slot : slots) slot.generation = 1;
-    ASSERT_TRUE(aliased.view().cards.restore(std::move(slots), {}));
-    for (auto zone : aliased.view().zone_views()) for (auto& card : zone) card.generation = 1;
+    ASSERT_TRUE(aliased.cards().restore(std::move(slots), {}));
+    for (auto zone : aliased.zone_views()) for (auto& card : zone) card.generation = 1;
     ASSERT_TRUE(valid_combat(aliased));
     auto bad = checkpoint(original).bytes;
-    const auto inner = checkpoint(aliased).bytes;
+    const auto inner = persistence::encode_combat(aliased).bytes;
     const std::vector<std::byte> magic(inner.begin(), inner.begin() + 8);
     const auto at = std::search(bad.begin(), bad.end(), magic.begin(), magic.end());
     ASSERT_NE(at, bad.end());
@@ -652,9 +654,9 @@ TEST(PublicRun, DiagnosticSnapshotKeepsOriginlessCombatCardIndependentOfDeck) {
     const std::array deck{CardSpec{CardId::strike}, CardSpec{CardId::defend}};
     RunState state; NativeRunExporter exporter;
     ASSERT_EQ(initialize_combat_scenario(state, {}, deck, exporter.trace()).status, StepStatus::awaiting_input);
-    auto combat = *state.view().combat;
+    auto& combat = state;
     const auto handle = combat.zone(Zone::hand).front();
-    auto* card = combat.cards.get(handle);
+    auto* card = combat.cards().get(handle);
     ASSERT_NE(card, nullptr);
     card->origin = {};
     ASSERT_TRUE(valid_run(state));
@@ -666,17 +668,17 @@ TEST(PublicRun, ReorderingDeckPreservesCombatOriginsThroughCheckpoint) {
     const std::array deck{CardSpec{CardId::strike}, CardSpec{CardId::defend}};
     RunState state; Scratch scratch; NativeRunExporter exporter;
     ASSERT_EQ(initialize_combat_scenario(state, {}, deck, exporter.trace()).status, StepStatus::awaiting_input);
-    std::swap(state.view().deck.handles()[0], state.view().deck.handles()[1]);
+    std::swap(state.deck().handles()[0], state.deck().handles()[1]);
     ASSERT_TRUE(valid_run(state));
     const auto saved = checkpoint(state).bytes;
     RunState restored;
     ASSERT_EQ(restore(restored, saved, scratch), RestoreStatus::restored);
     EXPECT_EQ(restored, state);
     const auto snapshot = exporter.snapshot(state);
-    for (std::size_t i = 0; i < state.view().combat->cards.slots().size(); ++i) {
-        const auto& slot = state.view().combat->cards.slots()[i];
+    for (std::size_t i = 0; i < state.cards().slots().size(); ++i) {
+        const auto& slot = state.cards().slots()[i];
         if (!slot.live) continue;
-        const auto index = slot.value.origin == state.view().deck.handles()[0] ? 0 : 1;
+        const auto index = slot.value.origin == state.deck().handles()[0] ? 0 : 1;
         EXPECT_EQ(snapshot["combat"]["cards"]["card_" + std::to_string(i)]["deck_version"], "/players/0/deck/" + std::to_string(index));
     }
 }
@@ -685,10 +687,10 @@ TEST(PublicRun, OrderedCostChangesSurviveRestorationAndExpireAtTurnEnd) {
     RunState state; Scratch scratch; NativeRunExporter exporter;
     ASSERT_EQ(initialize_combat_scenario(state, {}, deck, exporter.trace()).status, StepStatus::awaiting_input);
     const auto card = observe(state).hand_cards.front().handle;
-    auto combat = *state.view().combat;
-    combat.cost_modifiers.push_back({card, CostModifierKind::absolute, CostExpiry::combat, 3});
-    combat.cost_modifiers.push_back({card, CostModifierKind::relative, CostExpiry::turn, -2});
-    combat.cost_modifiers.push_back({card, CostModifierKind::relative, CostExpiry::combat, 1});
+    auto& combat = state;
+    combat.cost_modifiers().push_back({card, CostModifierKind::absolute, CostExpiry::combat, 3});
+    combat.cost_modifiers().push_back({card, CostModifierKind::relative, CostExpiry::turn, -2});
+    combat.cost_modifiers().push_back({card, CostModifierKind::relative, CostExpiry::combat, 1});
     EXPECT_EQ(observe(state).hand_cards.front().cost, 2);
     const auto snapshot = exporter.snapshot(state);
     const auto& modifiers = snapshot["combat"]["cards"]["card_" + std::to_string(card.slot)]["energy_cost"]["local_modifiers"];
@@ -698,10 +700,10 @@ TEST(PublicRun, OrderedCostChangesSurviveRestorationAndExpireAtTurnEnd) {
     RunState restored;
     ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
     EXPECT_EQ(observe(restored).hand_cards.front().cost, 2);
-    ASSERT_EQ(apply_action(restored, CombatInput{restored.view().boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(restored, CombatInput{restored.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(observe(restored).hand_cards.front().cost, 4);
     EXPECT_EQ(observe(state).hand_cards.front().cost, 2);
-    ASSERT_EQ(apply_action(state, CombatInput{state.view().boundary, CombatInputKind::play_card, card, true}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, card, true}, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(observe(state).combat->energy, 1);
 }
 TEST(PublicRun, CostModifiersClampAfterAllLayers) {
@@ -709,9 +711,9 @@ TEST(PublicRun, CostModifiersClampAfterAllLayers) {
     RunState state;
     ASSERT_EQ(initialize_combat_scenario(state, {}, deck).status, StepStatus::awaiting_input);
     const auto card = observe(state).hand_cards.front().handle;
-    auto combat = *state.view().combat;
-    combat.cost_modifiers.push_back({card, CostModifierKind::relative, CostExpiry::combat, -3});
-    combat.cost_modifiers.push_back({card, CostModifierKind::relative, CostExpiry::combat, 3});
+    auto& combat = state;
+    combat.cost_modifiers().push_back({card, CostModifierKind::relative, CostExpiry::combat, -3});
+    combat.cost_modifiers().push_back({card, CostModifierKind::relative, CostExpiry::combat, 3});
     EXPECT_EQ(observe(state).hand_cards.front().cost, 1);
 }
 TEST(PublicRun, ReduceOnlyCostExpiresWhenCardIsPlayed) {
@@ -719,14 +721,14 @@ TEST(PublicRun, ReduceOnlyCostExpiresWhenCardIsPlayed) {
     RunState state; Scratch scratch;
     ASSERT_EQ(initialize_combat_scenario(state, {}, deck).status, StepStatus::awaiting_input);
     const auto card = observe(state).hand_cards.front().handle;
-    auto combat = *state.view().combat;
-    combat.cost_modifiers.push_back({card, CostModifierKind::absolute, CostExpiry::turn_or_played, 3, true});
-    combat.cost_modifiers.push_back({card, CostModifierKind::relative, CostExpiry::turn_or_played, -1, true});
+    auto& combat = state;
+    combat.cost_modifiers().push_back({card, CostModifierKind::absolute, CostExpiry::turn_or_played, 3, true});
+    combat.cost_modifiers().push_back({card, CostModifierKind::relative, CostExpiry::turn_or_played, -1, true});
     EXPECT_EQ(observe(state).hand_cards.front().cost, 0);
-    ASSERT_EQ(apply_action(state, CombatInput{state.view().boundary, CombatInputKind::play_card, card, true}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, card, true}, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(observe(state).discard.size(), 1u);
     EXPECT_EQ(observe(state).discard.front().cost, 1);
-    ASSERT_EQ(apply_action(state, CombatInput{state.view().boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(observe(state).hand_cards.front().cost, 1);
 }
 TEST(PublicRun, PlayedCostExpiresAfterSuspendedCardResumes) {
@@ -736,16 +738,16 @@ TEST(PublicRun, PlayedCostExpiresAfterSuspendedCardResumes) {
     const auto hand = observe(state).hand_cards;
     const auto survivor = std::find_if(hand.begin(), hand.end(), [](const auto& c) { return c.model_id == "CARD.SURVIVOR"; });
     ASSERT_NE(survivor, hand.end());
-    state.view().combat->cost_modifiers.push_back({survivor->handle, CostModifierKind::absolute, CostExpiry::played, 0});
-    ASSERT_EQ(apply_action(state, CombatInput{state.view().boundary, CombatInputKind::play_card, survivor->handle, false}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(state.view().combat->phase, CombatPhase::discard_choice);
-    EXPECT_EQ(state.view().combat->cost_modifiers.size(), 1u);
+    state.cost_modifiers().push_back({survivor->handle, CostModifierKind::absolute, CostExpiry::played, 0});
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, survivor->handle, false}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(state.combat().phase, CombatPhase::discard_choice);
+    EXPECT_EQ(state.cost_modifiers().size(), 1u);
     RunState restored;
     ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
     const auto discarded = observe(restored).hand_cards.front().handle;
-    ASSERT_EQ(apply_action(restored, CombatInput{restored.view().boundary, CombatInputKind::select_card, discarded, false}, scratch).status, StepStatus::awaiting_input);
-    EXPECT_TRUE(restored.view().combat->cost_modifiers.empty());
-    EXPECT_EQ(state.view().combat->cost_modifiers.size(), 1u);
+    ASSERT_EQ(apply_action(restored, CombatInput{restored.data.boundary, CombatInputKind::select_card, discarded, false}, scratch).status, StepStatus::awaiting_input);
+    EXPECT_TRUE(restored.cost_modifiers().empty());
+    EXPECT_EQ(state.cost_modifiers().size(), 1u);
 }
 TEST(PublicRun, CostLayerOverflowClonesIndependently) {
     const std::array deck{CardSpec{CardId::strike}};
@@ -753,12 +755,12 @@ TEST(PublicRun, CostLayerOverflowClonesIndependently) {
     ASSERT_EQ(initialize_combat_scenario(state, {}, deck).status, StepStatus::awaiting_input);
     const auto card = observe(state).hand_cards.front().handle;
     for (int i = 0; i < 12; ++i)
-        state.view().combat->cost_modifiers.push_back({card, CostModifierKind::relative, CostExpiry::turn, 1});
+        state.cost_modifiers().push_back({card, CostModifierKind::relative, CostExpiry::turn, 1});
     ASSERT_EQ(observe(state).hand_cards.front().cost, 13);
     RunState copy = state, restored;
     ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
-    ASSERT_EQ(apply_action(copy, CombatInput{copy.view().boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(apply_action(restored, CombatInput{restored.view().boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(copy, CombatInput{copy.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(restored, CombatInput{restored.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(observe(copy).hand_cards.front().cost, 1);
     EXPECT_EQ(restored, copy);
     EXPECT_EQ(observe(state).hand_cards.front().cost, 13);
@@ -771,10 +773,10 @@ TEST(PublicRun, CombatUpgradeDoesNotChangePersistentDeck) {
     const auto source = std::find_if(hand.begin(), hand.end(), [](const auto& c) { return c.model_id == "CARD.ARMAMENTS"; });
     const auto target = std::find_if(hand.begin(), hand.end(), [](const auto& c) { return c.model_id == "CARD.STRIKE_IRONCLAD"; });
     ASSERT_NE(source, hand.end()); ASSERT_NE(target, hand.end());
-    ASSERT_EQ(apply_action(state, CombatInput{state.view().boundary, CombatInputKind::play_card, source->handle}, scratch).status, StepStatus::awaiting_input);
-    const auto prompt = state.view().combat->selection.id;
-    ASSERT_EQ(apply_action(state, CombatInput{state.view().boundary, CombatInputKind::select_card, target->handle, false, prompt}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(apply_action(state, CombatInput{state.view().boundary, CombatInputKind::confirm_selection, {}, false, prompt}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, source->handle}, scratch).status, StepStatus::awaiting_input);
+    const auto prompt = state.combat().selection.id;
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, target->handle, false, prompt}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, false, prompt}, scratch).status, StepStatus::awaiting_input);
     const auto after = observe(state);
     const auto changed = std::find_if(after.hand_cards.begin(), after.hand_cards.end(), [](const auto& c) { return c.model_id == "CARD.STRIKE_IRONCLAD"; });
     ASSERT_NE(changed, after.hand_cards.end()); EXPECT_TRUE(changed->upgraded);
@@ -790,7 +792,7 @@ TEST(PublicRun, PermanentUpgradeTargetsOriginAcrossDeckReorderingAndBranches) {
     const auto hand = observe(state).hand_cards;
     const auto strike = std::find_if(hand.begin(), hand.end(), [](const auto& c) { return c.model_id == "CARD.STRIKE_IRONCLAD"; });
     ASSERT_NE(strike, hand.end());
-    std::swap(state.view().deck.handles()[0], state.view().deck.handles()[1]);
+    std::swap(state.deck().handles()[0], state.deck().handles()[1]);
     RunState original = state, restored;
     ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
     ASSERT_EQ(detail::upgrade_card_permanently(restored, strike->handle), Restriction::none);
@@ -802,36 +804,36 @@ TEST(PublicRun, PermanentUpgradeTargetsOriginAcrossDeckReorderingAndBranches) {
     EXPECT_TRUE(valid_run(restored));
     RunState clone = restored, reloaded;
     ASSERT_EQ(restore(reloaded, checkpoint(restored).bytes, scratch), RestoreStatus::restored);
-    ASSERT_EQ(apply_action(clone, CombatInput{clone.view().boundary, CombatInputKind::play_card, strike->handle, true}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(apply_action(reloaded, CombatInput{reloaded.view().boundary, CombatInputKind::play_card, strike->handle, true}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(clone, CombatInput{clone.data.boundary, CombatInputKind::play_card, strike->handle, true}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(reloaded, CombatInput{reloaded.data.boundary, CombatInputKind::play_card, strike->handle, true}, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(clone, reloaded);
-    ASSERT_EQ(apply_action(restored, CombatInput{restored.view().boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(restored, CombatInput{restored.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
     EXPECT_NE(clone, restored);
     EXPECT_EQ(state, original);
 }
 TEST(PublicRun, RemovedPersistentSlotStaysStaleAfterCheckpointRestore) {
     RunState state; Scratch scratch;
     ASSERT_EQ(initialize_run(state, {}).status, StepStatus::awaiting_input);
-    auto deck = state.view().deck;
+    auto deck = state.deck();
     const auto old = deck.handles()[0];
     const auto card = deck[0];
     ASSERT_TRUE(deck.erase(old));
     ASSERT_TRUE(valid_run(state));
     RunState restored;
     ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
-    restored.view().deck.push_back(card);
-    const auto replacement = restored.view().deck.handles().back();
+    restored.deck().push_back(card);
+    const auto replacement = restored.deck().handles().back();
     EXPECT_EQ(replacement.slot, old.slot);
     EXPECT_NE(replacement.generation, old.generation);
-    EXPECT_EQ(restored.view().deck.get(old), nullptr);
+    EXPECT_EQ(restored.deck().get(old), nullptr);
     EXPECT_TRUE(valid_run(restored));
-    EXPECT_EQ(state.view().deck.get(old), nullptr);
+    EXPECT_EQ(state.deck().get(old), nullptr);
 }
 TEST(PublicRun, RemovedPersistentCardHandleRejectsReusedSlot) {
     const std::array deck{CardSpec{CardId::strike}, CardSpec{CardId::defend}};
     RunState state;
     ASSERT_EQ(initialize_combat_scenario(state, {}, deck).status, StepStatus::awaiting_input);
-    auto cards = state.view().deck;
+    auto cards = state.deck();
     const auto old = cards.handles()[0];
     const auto removed = cards[0];
     ASSERT_TRUE(cards.erase(old));
@@ -847,17 +849,17 @@ TEST(PublicRun, ExhaustRelicCounterSurvivesCombatCleanupAndRestoredNextEncounter
     RunState state; Scratch scratch;
     ASSERT_EQ(initialize_combat_scenario(state, {}, deck, {}, relics, 3).status, StepStatus::awaiting_input);
     const auto source = observe(state).combat->hand.front();
-    ASSERT_EQ(apply_action(state, CombatInput{state.view().boundary, CombatInputKind::play_card, source, true}, scratch).status, StepStatus::awaiting_input);
-    EXPECT_FALSE(state.view().combat);
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, source, true}, scratch).status, StepStatus::awaiting_input);
+    EXPECT_FALSE(state.data.combat);
     ASSERT_EQ(observe(state).relics.size(), 2u);
     EXPECT_EQ(observe(state).relics[1].counter, 1u);
     RunState restored; ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
     for (auto* branch : {&state, &restored}) {
-        ASSERT_EQ(apply_action(*branch, RunInput{branch->view().boundary, RunInputKind::skip_rewards}, scratch).status, StepStatus::awaiting_input);
-        ASSERT_EQ(enter_combat_scenario(*branch, branch->view().boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::awaiting_input);
+        ASSERT_EQ(apply_action(*branch, RunInput{branch->data.boundary, RunInputKind::skip_rewards}, scratch).status, StepStatus::awaiting_input);
+        ASSERT_EQ(enter_combat_scenario(*branch, branch->data.boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::awaiting_input);
         EXPECT_EQ(observe(*branch).relics[1].counter, 1u);
-        EXPECT_EQ(branch->view().combat->joss_paper_counter, 1u);
-        EXPECT_FALSE(branch->view().combat->cards.get(source));
+        EXPECT_EQ(branch->data.joss_paper_counter, 1u);
+        EXPECT_FALSE(branch->cards().get(source));
     }
     EXPECT_EQ(restored, state);
 }
@@ -883,38 +885,38 @@ TEST(PublicRun, RestoreRejectsReorderedRunRelicsThatDisagreeWithCapturedCombatIn
 }
 TEST(PublicRun, RecycledGenerationsAndExhaustionRemainSafeAcrossCombats) {
     auto state = until(3).state(); Scratch scratch;
-    auto combat = *state.view().combat;
-    auto card = combat.cards.slots()[0].value;
-    card.creation_order = combat.next_creation_order++;
-    const auto old = combat.cards.create(card, 4096, 1);
-    ASSERT_TRUE(combat.cards.erase(old));
-    card.creation_order = combat.next_creation_order++;
-    const auto recycled = combat.cards.create(card, 4096, 1);
+    auto& combat = state;
+    auto card = combat.cards().slots()[0].value;
+    card.creation_order = combat.combat().next_creation_order++;
+    const auto old = combat.cards().create(card, 4096, 1);
+    ASSERT_TRUE(combat.cards().erase(old));
+    card.creation_order = combat.combat().next_creation_order++;
+    const auto recycled = combat.cards().create(card, 4096, 1);
     combat.zone(Zone::exhaust).push_back(recycled);
     ASSERT_GT(recycled.generation, old.generation);
     ASSERT_TRUE(valid_run(state));
-    for (unsigned step = 0; step < 100 && state.view().phase == RunPhase::combat; ++step) {
+    for (unsigned step = 0; step < 100 && state.data.phase == RunPhase::combat; ++step) {
         const auto offered = get_actions(state);
         const auto attack = std::find_if(offered.begin(), offered.end(), [](const auto& a) {
             const auto* input = std::get_if<CombatInput>(&a.input);
             return a.restriction == Restriction::none && input && input->kind == CombatInputKind::play_card && input->target_enemy;
         });
         if (attack != offered.end()) (void)apply_action(state, attack->input, scratch);
-        else (void)apply_action(state, CombatInput{state.view().boundary, CombatInputKind::end_turn}, scratch);
+        else (void)apply_action(state, CombatInput{state.data.boundary, CombatInputKind::end_turn}, scratch);
     }
-    ASSERT_EQ(state.view().phase, RunPhase::rewards);
-    EXPECT_FALSE(state.view().combat); EXPECT_TRUE(state.combat_overflow.empty());
-    EXPECT_EQ(state.view().combat_generation, recycled.generation);
-    ASSERT_EQ(apply_action(state, RunInput{state.view().boundary, RunInputKind::skip_rewards}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(state.data.phase, RunPhase::rewards);
+    EXPECT_FALSE(state.has_combat()); EXPECT_TRUE(state.combat_overflow.empty());
+    EXPECT_EQ(state.data.combat_generation, recycled.generation);
+    ASSERT_EQ(apply_action(state, RunInput{state.data.boundary, RunInputKind::skip_rewards}, scratch).status, StepStatus::awaiting_input);
     auto exhausted = state;
-    exhausted.view().combat_generation = UINT32_MAX;
+    exhausted.data.combat_generation = UINT32_MAX;
     ASSERT_TRUE(valid_run(exhausted));
     const auto before = checkpoint(exhausted).bytes;
-    EXPECT_EQ(enter_combat_scenario(exhausted, exhausted.view().boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::resource_limit);
+    EXPECT_EQ(enter_combat_scenario(exhausted, exhausted.data.boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::resource_limit);
     EXPECT_EQ(checkpoint(exhausted).bytes, before);
-    ASSERT_EQ(enter_combat_scenario(state, state.view().boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::awaiting_input);
-    EXPECT_GT(state.view().combat_generation, recycled.generation);
-    EXPECT_FALSE(state.view().combat->cards.get(old)); EXPECT_FALSE(state.view().combat->cards.get(recycled));
+    ASSERT_EQ(enter_combat_scenario(state, state.data.boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::awaiting_input);
+    EXPECT_GT(state.data.combat_generation, recycled.generation);
+    EXPECT_FALSE(state.cards().get(old)); EXPECT_FALSE(state.cards().get(recycled));
 }
 TEST(PublicRun, PermanentCardLinksSurviveDeckReordering) {
     NativeRunExporter exporter; Scratch scratch; scratch.trace = exporter.trace();
@@ -923,7 +925,7 @@ TEST(PublicRun, PermanentCardLinksSurviveDeckReordering) {
     RunState state; ASSERT_EQ(initialize_seeded_combat(state, config, exporter.trace()).status, StepStatus::awaiting_input);
     // Declared scenario permutation of existing permanent objects; combat
     // aliases still point at those objects, not at their old deck indices.
-    std::swap(state.view().deck.handles().front(), state.view().deck.handles().back());
+    std::swap(state.deck().handles().front(), state.deck().handles().back());
     ASSERT_TRUE(valid_run(state));
     const auto native = exporter.snapshot(state);
     EXPECT_EQ(native["combat"]["cards"]["card_0"]["deck_version"], "/players/0/deck/9");
@@ -935,13 +937,13 @@ TEST(PublicRun, PermanentCardLinksSurviveDeckReordering) {
 }
 TEST(PublicRun, ScenarioEntryRejectsUnsupportedAndPrematureRequestsWithoutMutation) {
     auto before_combat = until(2).state(); const auto unchanged = before_combat;
-    EXPECT_EQ(enter_combat_scenario(before_combat, before_combat.view().boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::invalid_action);
+    EXPECT_EQ(enter_combat_scenario(before_combat, before_combat.data.boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::invalid_action);
     EXPECT_EQ(before_combat, unchanged);
     auto state = until(recording()["actions"].size()).state(); const auto before = state;
-    EXPECT_EQ(enter_combat_scenario(state, state.view().boundary, "ENCOUNTER.UNSUPPORTED").status, StepStatus::unsupported_content);
+    EXPECT_EQ(enter_combat_scenario(state, state.data.boundary, "ENCOUNTER.UNSUPPORTED").status, StepStatus::unsupported_content);
     EXPECT_EQ(state, before);
     // Acquired True Grit now participates in ordinary consecutive combat setup.
-    EXPECT_EQ(enter_combat_scenario(state, state.view().boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::awaiting_input);
+    EXPECT_EQ(enter_combat_scenario(state, state.data.boundary, "ENCOUNTER.SHRINKER_BEETLE_WEAK").status, StepStatus::awaiting_input);
     EXPECT_TRUE(valid_run(state));
 }
 TEST(PublicRun, StartingChoicesAreVisiblePureAndForcedProgressIsAutomatic) {
@@ -960,11 +962,11 @@ TEST(PublicRun, StartingChoicesAreVisiblePureAndForcedProgressIsAutomatic) {
     EXPECT_FALSE(describe(view).empty());
     EXPECT_EQ(checkpoint(state).bytes, before);
     Scratch scratch;
-    EXPECT_EQ(advance_to_decision(state, scratch).boundary, state.view().boundary);
+    EXPECT_EQ(advance_to_decision(state, scratch).boundary, state.data.boundary);
     EXPECT_EQ(checkpoint(state).bytes, before);
     ASSERT_EQ(apply_action(state, offered[0].input, scratch).status, StepStatus::awaiting_input);
-    EXPECT_EQ(state.view().phase, RunPhase::map);
-    EXPECT_EQ(state.view().clock.elapsed_seconds(), 2);
+    EXPECT_EQ(state.data.phase, RunPhase::map);
+    EXPECT_EQ(state.data.clock.elapsed_seconds(), 2);
     EXPECT_EQ(observe(state).gold, 249);
     EXPECT_EQ(apply_action(state, offered[0].input, scratch).reason, Restriction::stale_boundary);
 }
@@ -974,7 +976,7 @@ TEST(PublicRun, RewardsRevealOnlyTheActiveOffersAndResumeIndependentAlternatives
     ASSERT_EQ(rewards.rewards.size(), 3u);
     EXPECT_EQ(rewards.rewards[0].gold, 17);
     EXPECT_TRUE(rewards.reward_cards.empty());
-    ASSERT_EQ(apply_action(state, RunInput{state.view().boundary, RunInputKind::take_reward, 2}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, RunInput{state.data.boundary, RunInputKind::take_reward, 2}, scratch).status, StepStatus::awaiting_input);
     const auto selection = observe(state);
     ASSERT_TRUE(selection.selecting_reward_card);
     ASSERT_EQ(selection.reward_cards.size(), 3u);
@@ -985,22 +987,22 @@ TEST(PublicRun, RewardsRevealOnlyTheActiveOffersAndResumeIndependentAlternatives
     const auto saved = checkpoint(state).bytes;
     RunState restored; ASSERT_EQ(restore(restored, saved, scratch), RestoreStatus::restored);
     auto branch = state;
-    ASSERT_EQ(apply_action(branch, RunInput{branch.view().boundary, RunInputKind::choose_reward_card, 0}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(apply_action(restored, RunInput{restored.view().boundary, RunInputKind::reward_alternative}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(branch, RunInput{branch.data.boundary, RunInputKind::choose_reward_card, 0}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(restored, RunInput{restored.data.boundary, RunInputKind::reward_alternative}, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(observe(branch).deck.size(), observe(restored).deck.size() + 1);
     EXPECT_EQ(checkpoint(state).bytes, saved);
     EXPECT_TRUE(observe(restored).reward_cards.empty());
-    EXPECT_EQ(restored.view().player_rng, state.view().player_rng);
+    EXPECT_EQ(restored.data.player_rng, state.data.player_rng);
 }
 TEST(PublicRun, HiddenQueuesAndDrawOrderDoNotAffectVisibleChoicesOrIds) {
     auto session = until(4); auto a = session.state(), b = a;
-    std::reverse(b.view().combat->zone(Zone::draw).begin(), b.view().combat->zone(Zone::draw).end());
-    std::reverse(b.view().acts[0].events.begin(), b.view().acts[0].events.end());
-    (void)b.view().event_rng.next_bool();
+    std::reverse(b.zone(Zone::draw).begin(), b.zone(Zone::draw).end());
+    std::reverse(b.act(0).events.begin(), b.act(0).events.end());
+    (void)b.data.event_rng.next_bool();
     const auto av = observe(a), bv = observe(b);
     EXPECT_EQ(av.deck, bv.deck); EXPECT_EQ(av.map, bv.map);
     ASSERT_TRUE(av.combat); ASSERT_TRUE(bv.combat);
-    EXPECT_EQ(av.combat->hand.data(), a.view().combat->zone(Zone::hand).data());
+    EXPECT_EQ(av.combat->hand.data(), a.zone(Zone::hand).data());
     EXPECT_TRUE(std::equal(av.combat->hand.begin(), av.combat->hand.end(), bv.combat->hand.begin(), bv.combat->hand.end()));
     EXPECT_EQ(av.combat->draw_count, bv.combat->draw_count);
     const auto aa = get_actions(a), ba = get_actions(b);
@@ -1013,22 +1015,22 @@ TEST(PublicRun, HiddenQueuesAndDrawOrderDoNotAffectVisibleChoicesOrIds) {
 }
 TEST(PublicRun, MalformedUnsupportedAndStaleActionsArePureAndFailuresInvalidate) {
     auto session = until(2); auto state = session.state(); const auto before = state; Scratch scratch;
-    for (const PlayerInput input : {PlayerInput{RunInput{state.view().boundary, RunInputKind::travel, 99, 2, 1}},
-            PlayerInput{RunInput{state.view().boundary, RunInputKind::choose_option, 0, 1, 0}},
+    for (const PlayerInput input : {PlayerInput{RunInput{state.data.boundary, RunInputKind::travel, 99, 2, 1}},
+            PlayerInput{RunInput{state.data.boundary, RunInputKind::choose_option, 0, 1, 0}},
             PlayerInput{RunInput{{0}, RunInputKind::travel, 0, 2, 1}},
-            PlayerInput{RunInput{state.view().boundary, RunInputKind::travel, 0, 99, 99}}}) {
+            PlayerInput{RunInput{state.data.boundary, RunInputKind::travel, 0, 99, 99}}}) {
         EXPECT_EQ(apply_action(state, input, scratch).status, StepStatus::invalid_action);
         EXPECT_EQ(state, before);
     }
     auto map_return = until(recording()["actions"].size()).state(); const auto at_map = map_return;
-    EXPECT_EQ(apply_action(map_return, RunInput{map_return.view().boundary, RunInputKind::travel, 0, 2, 2}, scratch).status, StepStatus::unsupported_content);
+    EXPECT_EQ(apply_action(map_return, RunInput{map_return.data.boundary, RunInputKind::travel, 0, 2, 2}, scratch).status, StepStatus::unsupported_content);
     EXPECT_EQ(map_return, at_map);
     auto combat = until(3).state(); scratch.step_limit = 0;
     const auto offered = get_actions(combat);
     const auto playable = std::find_if(offered.begin(), offered.end(), [](const auto& action) { return action.restriction == Restriction::none; });
     ASSERT_NE(playable, offered.end());
     EXPECT_EQ(apply_action(combat, playable->input, scratch).status, StepStatus::engine_error);
-    EXPECT_EQ(combat.view().phase, RunPhase::invalid);
+    EXPECT_EQ(combat.data.phase, RunPhase::invalid);
     EXPECT_FALSE(observe(combat).valid); EXPECT_TRUE(get_actions(combat).empty());
 }
 TEST(PublicRun, StarterVariantsExposeAndExecuteSourceBackedPreviews) {
@@ -1037,11 +1039,10 @@ TEST(PublicRun, StarterVariantsExposeAndExecuteSourceBackedPreviews) {
         // Declared isolated scenario: three authored starter cards, upgrade all
         // or none, fixed 40-HP enemy. This does not import an expected checkpoint.
         const std::array deck{CardSpec{CardId::bash, upgraded}, CardSpec{CardId::defend, upgraded}, CardSpec{CardId::strike, upgraded}};
-        CombatConfig config; config.deck = deck; config.enemy_hp = 40; config.initial_rng = &state.view().rng;
-        state.view().combat.emplace(); Scratch scratch;
-        ASSERT_EQ(initialize_combat(*state.view().combat, config, scratch).status, StepStatus::awaiting_input);
-        state.view().rng = state.view().combat->rng;
-        state.view().phase = RunPhase::combat; state.view().direct_combat = true; state.view().combat_generation = 1;
+        CombatConfig config; config.deck = deck; config.enemy_hp = 40; config.initial_rng = &state.data.rng;
+        Scratch scratch;
+        ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
+        state.data.phase = RunPhase::combat; state.data.direct_combat = true; state.data.combat_generation = 1;
         const auto play = [&](std::string_view model) {
             const auto view = observe(state);
             const auto card = std::find_if(view.hand_cards.begin(), view.hand_cards.end(), [&](const auto& c) { return c.model_id == model; });
@@ -1060,7 +1061,7 @@ TEST(PublicRun, StarterVariantsExposeAndExecuteSourceBackedPreviews) {
         play("CARD.DEFEND_IRONCLAD"); EXPECT_EQ(observe(state).combat->block, upgraded ? 8 : 5);
         play("CARD.BASH"); EXPECT_EQ(observe(state).combat->enemy_hp, upgraded ? 30 : 32);
         EXPECT_EQ(observe(state).combat->enemy_vulnerable, upgraded ? 3 : 2);
-        EXPECT_EQ(apply_action(state, CombatInput{state.view().boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
+        EXPECT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
         EXPECT_TRUE(observe(state).combat->shrunk);
         const auto hp = observe(state).combat->enemy_hp;
         play("CARD.STRIKE_IRONCLAD"); EXPECT_EQ(observe(state).combat->enemy_hp, hp - (upgraded ? 9 : 6));
@@ -1075,8 +1076,8 @@ TEST(PublicRun, InactivePilePreviewsKeepBaseDamageAfterShrink) {
         return card.model_id == "CARD.STRIKE_IRONCLAD";
     });
     ASSERT_NE(strike, initial.hand_cards.end());
-    ASSERT_EQ(apply_action(state, CombatInput{state.view().boundary, CombatInputKind::play_card, strike->handle, true}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(apply_action(state, CombatInput{state.view().boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, strike->handle, true}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
     const auto before = checkpoint(state).bytes;
     const auto view = observe(state);
     ASSERT_TRUE(view.combat->shrunk);
@@ -1098,7 +1099,7 @@ TEST(PublicRun, InspectablePilesExposeMetadataAndDrawInspectionHidesSequence) {
     for (const auto& card : view.discard) EXPECT_FALSE(card.model_id.empty());
     EXPECT_EQ(checkpoint(state).bytes, before);
     auto other = state;
-    std::reverse(other.view().combat->zone(Zone::draw).begin(), other.view().combat->zone(Zone::draw).end());
+    std::reverse(other.zone(Zone::draw).begin(), other.zone(Zone::draw).end());
     const auto reversed = observe(other);
     ASSERT_EQ(view.draw.size(), reversed.draw.size());
     for (std::size_t i = 0; i < view.draw.size(); ++i) EXPECT_EQ(view.draw[i].model_id, reversed.draw[i].model_id);
@@ -1110,10 +1111,10 @@ TEST(PublicRun, InspectablePilesExposeMetadataAndDrawInspectionHidesSequence) {
 }
 TEST(PublicRun, HiddenEncounterSupportIsNotDisclosedByTravelQueries) {
     auto a = until(2).state(), b = a;
-    const auto different = std::find_if(b.view().acts[0].normal.begin(), b.view().acts[0].normal.end(),
-        [&](auto encounter) { return encounter != b.view().acts[0].normal[0]; });
-    ASSERT_NE(different, b.view().acts[0].normal.end());
-    b.view().acts[0].normal[0] = *different;
+    const auto different = std::find_if(b.act(0).normal.begin(), b.act(0).normal.end(),
+        [&](auto encounter) { return encounter != b.act(0).normal[0]; });
+    ASSERT_NE(different, b.act(0).normal.end());
+    b.act(0).normal[0] = *different;
     ASSERT_TRUE(valid_run(b));
     const auto aa = get_actions(a), ba = get_actions(b);
     ASSERT_FALSE(aa.empty()); ASSERT_EQ(aa.size(), ba.size());
@@ -1131,7 +1132,7 @@ TEST(RunCheckpoint, EveryLifecycleBoundaryRoundTripsCompleteGameplayState) {
         ASSERT_TRUE(valid_run(session.state())); const auto encoded = checkpoint(session.state()); RunState restored;
         ASSERT_EQ(restore(restored, encoded.bytes, scratch), RestoreStatus::restored);
         EXPECT_EQ(restored, session.state()); EXPECT_EQ(checkpoint(restored).bytes, encoded.bytes);
-        if (restored.view().combat) EXPECT_THROW((void)NativeRunExporter{}.snapshot(restored), std::invalid_argument);
+        if (restored.data.combat) EXPECT_THROW((void)NativeRunExporter{}.snapshot(restored), std::invalid_argument);
         else EXPECT_EQ(NativeRunExporter{}.snapshot(restored), session.snapshot());
     };
     check();
@@ -1144,21 +1145,21 @@ TEST(RunCheckpoint, EveryLifecycleBoundaryRoundTripsCompleteGameplayState) {
 }
 TEST(RunCheckpoint, RestoredRewardSelectionBranchesIndependentlyAndKeepsRandomPositions) {
     Scratch transition_scratch;
-    const auto session = until(16); ASSERT_TRUE(session.state().view().rewards->selecting_card);
+    const auto session = until(16); ASSERT_TRUE(session.state().data.rewards->selecting_card);
     const auto encoded = checkpoint(session.state()); RunState a, b; Scratch scratch;
     ASSERT_EQ(restore(a, encoded.bytes, scratch), RestoreStatus::restored);
     ASSERT_EQ(restore(b, encoded.bytes, scratch), RestoreStatus::restored);
-    const auto random = a.view().player_rng;
-    EXPECT_EQ(apply_input(a, RunInput{a.view().boundary, RunInputKind::choose_reward_card, 0}, transition_scratch).status, StepStatus::awaiting_input);
-    EXPECT_EQ(apply_input(b, RunInput{b.view().boundary, RunInputKind::reward_alternative, 0}, transition_scratch).status, StepStatus::awaiting_input);
-    EXPECT_EQ(SetupRules::name(a.view().deck.back().definition), "CARD.TRUE_GRIT");
-    EXPECT_EQ(a.view().deck.size(), b.view().deck.size() + 1); EXPECT_EQ(a.view().player_rng, random); EXPECT_EQ(b.view().player_rng, random);
+    const auto random = a.data.player_rng;
+    EXPECT_EQ(apply_input(a, RunInput{a.data.boundary, RunInputKind::choose_reward_card, 0}, transition_scratch).status, StepStatus::awaiting_input);
+    EXPECT_EQ(apply_input(b, RunInput{b.data.boundary, RunInputKind::reward_alternative, 0}, transition_scratch).status, StepStatus::awaiting_input);
+    EXPECT_EQ(SetupRules::name(a.deck().back().definition), "CARD.TRUE_GRIT");
+    EXPECT_EQ(a.deck().size(), b.deck().size() + 1); EXPECT_EQ(a.data.player_rng, random); EXPECT_EQ(b.data.player_rng, random);
     EXPECT_EQ(checkpoint(session.state()).bytes, encoded.bytes); EXPECT_TRUE(valid_run(a)); EXPECT_TRUE(valid_run(b));
-    auto sparse_ids = session.state(); sparse_ids.view().deck[0].instance = 100;
-    EXPECT_FALSE(sparse_ids.view().combat); // Completed graphs no longer impose stale deck links.
+    auto sparse_ids = session.state(); sparse_ids.deck()[0].instance = 100;
+    EXPECT_FALSE(sparse_ids.data.combat); // Completed graphs no longer impose stale deck links.
     ASSERT_TRUE(valid_run(sparse_ids));
-    EXPECT_EQ(apply_input(sparse_ids, RunInput{sparse_ids.view().boundary, RunInputKind::choose_reward_card, 0}, transition_scratch).status, StepStatus::awaiting_input);
-    EXPECT_EQ(sparse_ids.view().deck.back().instance, 101u); EXPECT_TRUE(valid_run(sparse_ids));
+    EXPECT_EQ(apply_input(sparse_ids, RunInput{sparse_ids.data.boundary, RunInputKind::choose_reward_card, 0}, transition_scratch).status, StepStatus::awaiting_input);
+    EXPECT_EQ(sparse_ids.deck().back().instance, 101u); EXPECT_TRUE(valid_run(sparse_ids));
 }
 TEST(RunCheckpoint, CorruptionCompatibilityAndMalformedPayloadsAreTransactional) {
     const auto session = until(16); const auto saved = checkpoint(session.state()); auto target = session.state(); Scratch scratch;
@@ -1199,26 +1200,26 @@ TEST(RunDecisions, RejectedRewardAndTravelActionsPreserveInventoryAndClock) {
 }
 TEST(RunDecisions, ExhaustedClockDoesNotPublishRewardRandomnessOrOffers) {
     auto state = until(12).state();
-    ASSERT_EQ(state.view().phase, RunPhase::combat_done);
-    const auto elapsed = static_cast<std::int64_t>(state.view().boundary.value - 1);
-    ASSERT_TRUE(state.view().clock.restore({RunClock::max_seconds - elapsed, 1}, elapsed));
+    ASSERT_EQ(state.data.phase, RunPhase::combat_done);
+    const auto elapsed = static_cast<std::int64_t>(state.data.boundary.value - 1);
+    ASSERT_TRUE(state.data.clock.restore({RunClock::max_seconds - elapsed, 1}, elapsed));
     ASSERT_TRUE(valid_run(state));
     auto expected = state;
-    expected.view().phase = RunPhase::invalid;
+    expected.data.phase = RunPhase::invalid;
     Scratch scratch;
-    const auto result = apply_input(state, RunInput{state.view().boundary, RunInputKind::proceed}, scratch);
+    const auto result = apply_input(state, RunInput{state.data.boundary, RunInputKind::proceed}, scratch);
     EXPECT_EQ(result.status, StepStatus::engine_error);
     EXPECT_EQ(result.reason, Restriction::clock_exhausted);
     EXPECT_EQ(state, expected);
 }
 TEST(RunValidation, CorruptMapEdgeMetadataAndRewardFlagsAreRejected) {
     auto session = until(16); auto state = session.state();
-    state.view().maps[0]->nodes[state.view().current].children.used = UINT8_MAX; EXPECT_FALSE(valid_run(state));
+    state.data.maps[0]->nodes[state.data.current].children.used = UINT8_MAX; EXPECT_FALSE(valid_run(state));
     EXPECT_THROW((void)checkpoint(state), std::invalid_argument);
-    state = session.state(); state.view().maps[0]->nodes[state.view().maps[0]->start].children.used = UINT8_MAX; EXPECT_FALSE(valid_run(state));
-    state = session.state(); state.view().maps[0]->starts.free_count = UINT8_MAX; EXPECT_FALSE(valid_run(state));
-    state = session.state(); state.view().card_rarity_offset = std::numeric_limits<float>::quiet_NaN(); EXPECT_FALSE(valid_run(state));
-    state = session.state(); state.view().rewards->selected_card = 200; EXPECT_FALSE(valid_run(state));
+    state = session.state(); state.data.maps[0]->nodes[state.data.maps[0]->start].children.used = UINT8_MAX; EXPECT_FALSE(valid_run(state));
+    state = session.state(); state.data.maps[0]->starts.free_count = UINT8_MAX; EXPECT_FALSE(valid_run(state));
+    state = session.state(); state.data.card_rarity_offset = std::numeric_limits<float>::quiet_NaN(); EXPECT_FALSE(valid_run(state));
+    state = session.state(); state.data.rewards->selected_card = 200; EXPECT_FALSE(valid_run(state));
 }
 }
 } // namespace sts2::engine

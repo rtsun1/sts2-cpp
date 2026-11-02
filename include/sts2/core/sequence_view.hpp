@@ -48,7 +48,7 @@ public:
     }
     auto erase(typename std::span<element_type>::iterator at) noexcept requires (!Const) { return erase(at, at + 1); }
     template<std::forward_iterator Iterator> void assign(Iterator first, Iterator last) requires (!Const) {
-        // CombatState transitions use distinct collections. Preserve an aliased input
+        // RunState transitions use distinct collections. Preserve an aliased input
         // explicitly before a mutation that might invalidate its iterators.
         std::vector<T> alias;
         if constexpr (std::contiguous_iterator<Iterator>) {
@@ -113,11 +113,5 @@ template<std::size_t N, bool Const = false> struct TextView {
     bool operator==(std::string_view other) const noexcept { return std::string_view(*this) == other; }
 };
 
-// Allows optional-data views to support ordinary arrow expressions without
-// persisting a view (or a pointer) in the complete-state sequence_data.
-template<class View> struct ViewArrow {
-    View value;
-    View* operator->() noexcept { return &value; }
-    const View* operator->() const noexcept { return &value; }
-};
+
 } // namespace sts2::engine

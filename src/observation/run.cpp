@@ -16,29 +16,28 @@ RunObservation observe(const RunState& state) {
     RunObservation view{};
     view.boundary = state.data.boundary; view.phase = state.data.phase;
     if (!valid_creature_storage(state.data, state.overflow)) return view;
-    auto state_view = state.view();
-    view.boundary = state_view.boundary; view.phase = state_view.phase;
-    view.valid = state_view.phase != RunPhase::invalid && state_view.phase != RunPhase::uninitialized;
-    if (!view.valid || (state_view.combat && !valid_combat(*state_view.combat))) { view.valid = false; return view; }
-    view.character = SetupRules::name(state_view.character); view.seed = state_view.seed;
-    view.ascension = state_view.ascension; view.act = state_view.act_index + 1;
-    view.hp = state_view.hp; view.max_hp = state_view.max_hp; view.gold = state_view.gold;
-    view.potion_capacity = state_view.potion_slots;
-    for (const auto& card : state_view.deck) view.deck.push_back({card.instance, SetupRules::name(card.definition), card.upgrade, card_cost(SetupRules::name(card.definition)), card.enchantment});
-    for (std::size_t i = 0; i < state_view.relics.size(); ++i) {
-        const auto name = SetupRules::name(state_view.relics[i]);
-        view.relics.push_back({static_cast<std::uint32_t>(i), name, name == "RELIC.JOSS_PAPER" ? std::optional(state_view.joss_paper_counter) : std::nullopt});
+    view.boundary = state.data.boundary; view.phase = state.data.phase;
+    view.valid = state.data.phase != RunPhase::invalid && state.data.phase != RunPhase::uninitialized;
+    if (!view.valid || (state.has_combat() && !valid_combat(state))) { view.valid = false; return view; }
+    view.character = SetupRules::name(state.data.character); view.seed = state.seed();
+    view.ascension = state.data.ascension; view.act = state.data.act_index + 1;
+    view.hp = state.player().hp; view.max_hp = state.player().max_hp; view.gold = state.data.gold;
+    view.potion_capacity = state.data.potion_slots;
+    for (const auto& card : state.deck()) view.deck.push_back({card.instance, SetupRules::name(card.definition), card.upgrade, card_cost(SetupRules::name(card.definition)), card.enchantment});
+    for (std::size_t i = 0; i < state.relics().size(); ++i) {
+        const auto name = SetupRules::name(state.relics()[i]);
+        view.relics.push_back({static_cast<std::uint32_t>(i), name, name == "RELIC.JOSS_PAPER" ? std::optional(state.data.joss_paper_counter) : std::nullopt});
     }
-    for (std::size_t i = 0; i < state_view.potions.size(); ++i) view.potions.push_back({static_cast<std::uint32_t>(i), SetupRules::name(state_view.potions[i])});
-    if (state_view.phase == RunPhase::neow)
-        for (std::size_t i = 0; i < state_view.neow_options.size(); ++i) view.options.push_back({static_cast<std::uint32_t>(i), SetupRules::name(state_view.neow_options[i])});
-    if (state_view.phase == RunPhase::room) {
-        const auto* parent = std::get_if<ParentInteractionState>(&state_view.room);
+    for (std::size_t i = 0; i < state.potions().size(); ++i) view.potions.push_back({static_cast<std::uint32_t>(i), SetupRules::name(state.potions()[i])});
+    if (state.data.phase == RunPhase::neow)
+        for (std::size_t i = 0; i < state.data.neow_options.size(); ++i) view.options.push_back({static_cast<std::uint32_t>(i), SetupRules::name(state.data.neow_options[i])});
+    if (state.data.phase == RunPhase::room) {
+        const auto* parent = std::get_if<ParentInteractionState>(&state.data.room);
         if (!parent || parent->stage != ParentRoomStage::choosing) { view.valid = false; return view; }
         view.options.push_back({0, {}, std::nullopt, "Continue", parent->pending_gold});
         view.options.push_back({1, {}, std::nullopt, "Leave"});
     }
-    switch (state_view.phase) {
+    switch (state.data.phase) {
     case RunPhase::neow: view.prompt = PublicPrompt::neow; break;
     case RunPhase::map: view.prompt = PublicPrompt::map; break;
     case RunPhase::combat: view.prompt = PublicPrompt::combat; break;
@@ -47,8 +46,8 @@ RunObservation observe(const RunState& state) {
     default: break;
     }
     // Only the generated current map is public. No room assignment or RNG fields.
-    if (state_view.maps[state_view.act_index]) {
-        const auto& map = *state_view.maps[state_view.act_index];
+    if (state.data.maps[state.data.act_index]) {
+        const auto& map = *state.data.maps[state.data.act_index];
         auto nodes = map.points();
         nodes.insert(nodes.begin(), map.start);
         if (map.boss != no_node) nodes.push_back(map.boss);
@@ -56,13 +55,13 @@ RunObservation observe(const RunState& state) {
         for (const auto id : nodes) {
             const auto& node = map.nodes[id];
             view.map.push_back({id, node.col, node.row, node.kind, node.children.values(),
-                std::find(state_view.visited.begin(), state_view.visited.end(), id) != state_view.visited.end(),
-                id == state_view.current, state_view.phase == RunPhase::map && map.nodes[state_view.current].children.contains(id)});
+                std::find(state.visited().begin(), state.visited().end(), id) != state.visited().end(),
+                id == state.data.current, state.data.phase == RunPhase::map && map.nodes[state.data.current].children.contains(id)});
         }
-        view.path.assign(state_view.visited.begin(), state_view.visited.end());
+        view.path.assign(state.visited().begin(), state.visited().end());
     }
-    if (state_view.phase == RunPhase::rewards && state_view.rewards) {
-        const auto& rewards = *state_view.rewards;
+    if (state.data.phase == RunPhase::rewards && state.data.rewards) {
+        const auto& rewards = *state.data.rewards;
         view.selecting_reward_card = rewards.selecting_card;
         view.can_skip_rewards = !rewards.selecting_card && !rewards.resolved;
         view.can_skip_card_reward = rewards.selecting_card;
@@ -76,12 +75,12 @@ RunObservation observe(const RunState& state) {
         if (rewards.selecting_card)
             for (std::size_t i = 0; i < rewards.cards.size(); ++i) view.reward_cards.push_back({static_cast<std::uint32_t>(i), SetupRules::name(rewards.cards[i].definition), rewards.cards[i].upgrade, card_cost(SetupRules::name(rewards.cards[i].definition)), rewards.cards[i].enchantment});
     }
-    if (state_view.phase == RunPhase::combat && state_view.combat) {
-        view.combat = observe(*state_view.combat);
+    if (state.data.phase == RunPhase::combat && state.has_combat()) {
+        view.combat = observe_combat(state);
         for (auto handle : view.combat->hand) {
-            if (auto card = observe_card(*state_view.combat, handle)) view.hand_cards.push_back(*card);
+            if (auto card = observe_card(state, handle)) view.hand_cards.push_back(*card);
         }
-        if (state_view.combat->phase == CombatPhase::discard_choice) {
+        if (state.combat().phase == CombatPhase::discard_choice) {
             view.prompt = PublicPrompt::discard;
             view.minimum_selection = view.maximum_selection = 1;
         }
@@ -92,8 +91,8 @@ RunObservation observe(const RunState& state) {
             view.submits_immediately = view.combat->selection->submits_immediately;
         }
         const auto project_pile = [&](Zone zone, std::vector<CardView>& pile) {
-            for (const auto handle : state_view.combat->zone(zone))
-                if (const auto card = inspect_card(*state_view.combat, handle)) pile.push_back(*card);
+            for (const auto handle : state.zone(zone))
+                if (const auto card = inspect_card(state, handle)) pile.push_back(*card);
         };
         project_pile(Zone::draw, view.draw); project_pile(Zone::discard, view.discard); project_pile(Zone::exhaust, view.exhaust);
         // NCardPileScreen: raw rarity then ordinal model entry. All four

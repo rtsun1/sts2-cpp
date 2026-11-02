@@ -5,7 +5,7 @@
 #include "../mechanics/shuffle.hpp"
 
 namespace sts2::engine::gameplay {
-StepResult resume_frame(CombatView state, Scratch& scratch, const Ruleset& rules) {
+StepResult resume_frame(RunState& state, Scratch& scratch, const Ruleset& rules) {
     return std::visit([&](const auto& frame) -> StepResult {
         using Frame = std::decay_t<decltype(frame)>;
         if constexpr (std::is_same_v<Frame, CardProgramFrame>) return resume_card_program(state, scratch, rules);
@@ -15,6 +15,6 @@ StepResult resume_frame(CombatView state, Scratch& scratch, const Ruleset& rules
             static_assert(std::is_same_v<Frame, ShuffleFrame>);
             return resume_shuffle(state, scratch, rules);
         }
-    }, state.execution.back());
+    }, state.execution().back());
 }
 }

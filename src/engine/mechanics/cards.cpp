@@ -26,20 +26,20 @@ template<class View, class Pool> bool valid_extra(View entries, Pool pool) noexc
 }
 }
 
-CardExtraData* find_card_extra(CombatView state, CardHandle card) noexcept { return state.cards.get(card) ? find_extra(state.card_extra, card) : nullptr; }
-const CardExtraData* find_card_extra(ConstCombatView state, CardHandle card) noexcept { return state.cards.get(card) ? find_extra(state.card_extra, card) : nullptr; }
-CardExtraData* find_card_extra(RunView state, PersistentCardHandle card) noexcept { return state.deck.get(card) ? find_extra(state.card_extra, card) : nullptr; }
-const CardExtraData* find_card_extra(ConstRunView state, PersistentCardHandle card) noexcept { return state.deck.get(card) ? find_extra(state.card_extra, card) : nullptr; }
-void set_card_extra(CombatView state, CardHandle card, CardExtraData data) {
-    if (!state.cards.get(card)) throw std::invalid_argument("Stale combat card");
-    set_extra(state.card_extra, card, data);
+CardExtraData* find_card_extra(RunState& state, CardHandle card) noexcept { return state.cards().get(card) ? find_extra(state.card_extra(), card) : nullptr; }
+const CardExtraData* find_card_extra(const RunState& state, CardHandle card) noexcept { return state.cards().get(card) ? find_extra(state.card_extra(), card) : nullptr; }
+CardExtraData* find_card_extra(RunState& state, PersistentCardHandle card) noexcept { return state.deck().get(card) ? find_extra(state.deck_extra(), card) : nullptr; }
+const CardExtraData* find_card_extra(const RunState& state, PersistentCardHandle card) noexcept { return state.deck().get(card) ? find_extra(state.deck_extra(), card) : nullptr; }
+void set_card_extra(RunState& state, CardHandle card, CardExtraData data) {
+    if (!state.cards().get(card)) throw std::invalid_argument("Stale combat card");
+    set_extra(state.card_extra(), card, data);
 }
-void set_card_extra(RunView state, PersistentCardHandle card, CardExtraData data) {
-    if (!state.deck.get(card)) throw std::invalid_argument("Stale persistent card");
-    set_extra(state.card_extra, card, data);
+void set_card_extra(RunState& state, PersistentCardHandle card, CardExtraData data) {
+    if (!state.deck().get(card)) throw std::invalid_argument("Stale persistent card");
+    set_extra(state.deck_extra(), card, data);
 }
-bool valid_card_extra(ConstCombatView state) noexcept { return valid_extra(state.card_extra, state.cards); }
-bool valid_card_extra(ConstRunView state) noexcept { return valid_extra(state.card_extra, state.deck); }
+bool valid_card_extra(const RunState& state) noexcept { return valid_extra(state.card_extra(), state.cards()); }
+bool valid_persistent_card_extra(const RunState& state) noexcept { return valid_extra(state.deck_extra(), state.deck()); }
 bool valid_enchantment(CardEnchantment value) noexcept {
     return value.definition < EnchantmentId::count &&
         (value.definition != EnchantmentId::none || value.amount == 0);
@@ -54,29 +54,29 @@ bool valid_runtime(EnchantmentId enchantment, const EnchantmentRuntimeData& data
     }
 }
 }
-const EnchantmentRuntimeData* find_enchantment_runtime(ConstCombatView state, CardHandle card) noexcept {
-    return state.cards.get(card) ? find_extra(state.enchantment_runtime, card) : nullptr;
+const EnchantmentRuntimeData* find_enchantment_runtime(const RunState& state, CardHandle card) noexcept {
+    return state.cards().get(card) ? find_extra(state.enchantment_runtime(), card) : nullptr;
 }
-void set_enchantment_runtime(CombatView state, CardHandle card, EnchantmentRuntimeData data) {
-    const auto* instance = state.cards.get(card);
+void set_enchantment_runtime(RunState& state, CardHandle card, EnchantmentRuntimeData data) {
+    const auto* instance = state.cards().get(card);
     if (!instance || !valid_runtime(instance->enchantment.definition, data))
         throw std::invalid_argument("Invalid enchantment runtime attachment");
-    if (auto* existing = find_extra(state.enchantment_runtime, card)) *existing = data;
-    else state.enchantment_runtime.push_back({card, data});
+    if (auto* existing = find_extra(state.enchantment_runtime(), card)) *existing = data;
+    else state.enchantment_runtime().push_back({card, data});
 }
-bool valid_card_modifiers(ConstCombatView state) noexcept {
-    for (const auto& slot : state.cards.slots()) {
+bool valid_card_modifiers(const RunState& state) noexcept {
+    for (const auto& slot : state.cards().slots()) {
         const auto& card = slot.value;
         if (!valid_enchantment(card.enchantment) || card.affliction.definition >= AfflictionId::count ||
             (card.affliction.definition == AfflictionId::none && card.affliction.amount != 0) ||
             (card.keyword_mask & ~127U) != 0 || card.base_replay_count < 0) return false;
     }
-    for (std::size_t i = 0; i < state.enchantment_runtime.size(); ++i) {
-        const auto& entry = state.enchantment_runtime[i];
-        const auto* card = state.cards.get(entry.card);
+    for (std::size_t i = 0; i < state.enchantment_runtime().size(); ++i) {
+        const auto& entry = state.enchantment_runtime()[i];
+        const auto* card = state.cards().get(entry.card);
         if (!card || !valid_runtime(card->enchantment.definition, entry.data)) return false;
         for (std::size_t j = 0; j < i; ++j)
-            if (state.enchantment_runtime[j].card == entry.card) return false;
+            if (state.enchantment_runtime()[j].card == entry.card) return false;
     }
     return true;
 }
@@ -86,24 +86,24 @@ bool supported_card_modifiers(const CombatCard& card) noexcept {
         card.affliction.definition == AfflictionId::none && card.base_replay_count == 0 &&
         (card.keyword_mask & ~3U) == 0 && !card.single_turn_sly;
 }
-void move_card(CombatView state, Zone from, Zone to, CardHandle card) {
+void move_card(RunState& state, Zone from, Zone to, CardHandle card) {
     auto source = state.zone(from);
     source.erase(std::find(source.begin(), source.end(), card));
     state.zone(to).push_back(card);
 }
-void add_to_hand(CombatView state, Zone from, CardHandle card) {
+void add_to_hand(RunState& state, Zone from, CardHandle card) {
     // Native CardPileCmd.Add redirects hand overflow into discard; this is not a draw.
     move_card(state, from, state.zone(Zone::hand).size() < 10 ? Zone::hand : Zone::discard, card);
 }
-void discard_card(CombatView state, Scratch& scratch, CardHandle card) {
+void discard_card(RunState& state, Scratch& scratch, CardHandle card) {
     move_card(state, Zone::hand, Zone::discard, card);
     emit(state, scratch, CombatEventKind::discarded, false, false, card);
 }
-void discard_hand_at_turn_end(CombatView state, const Ruleset&) {
+void discard_hand_at_turn_end(RunState& state, const Ruleset&) {
     auto hand = state.zone(Zone::hand); auto discard = state.zone(Zone::discard);
-    for (auto card : hand) if (!state.cards.get(card)->single_turn_retain && !has_keyword(state.cards.get(card)->keyword_mask, CardKeyword::retain)) discard.push_back(card);
-    hand.erase(std::remove_if(hand.begin(), hand.end(), [&](auto card) { return !state.cards.get(card)->single_turn_retain && !has_keyword(state.cards.get(card)->keyword_mask, CardKeyword::retain); }), hand.end());
-    for (auto& slot : state.cards.slots()) {
+    for (auto card : hand) if (!state.cards().get(card)->single_turn_retain && !has_keyword(state.cards().get(card)->keyword_mask, CardKeyword::retain)) discard.push_back(card);
+    hand.erase(std::remove_if(hand.begin(), hand.end(), [&](auto card) { return !state.cards().get(card)->single_turn_retain && !has_keyword(state.cards().get(card)->keyword_mask, CardKeyword::retain); }), hand.end());
+    for (auto& slot : state.cards().slots()) {
         slot.value.single_turn_retain = false;
         slot.value.single_turn_sly = false;
     }
@@ -114,13 +114,13 @@ void discard_hand_at_turn_end(CombatView state, const Ruleset&) {
 }
 
 namespace sts2::engine {
-std::int32_t effective_card_cost(ConstCombatView state, CardHandle handle, const Ruleset& rules) noexcept {
-    const auto* card = state.cards.get(handle);
+std::int32_t effective_card_cost(const RunState& state, CardHandle handle, const Ruleset& rules) noexcept {
+    const auto* card = state.cards().get(handle);
     if (!card) return 0;
     const auto* definition = rules.card(card->definition);
     if (!definition) return 0;
     std::int64_t cost = definition->cost;
-    for (const auto& modifier : state.cost_modifiers) {
+    for (const auto& modifier : state.cost_modifiers()) {
         if (modifier.card != handle) continue;
         const auto previous = cost;
         cost = modifier.kind == CostModifierKind::absolute ? modifier.amount : cost + modifier.amount;
@@ -131,11 +131,11 @@ std::int32_t effective_card_cost(ConstCombatView state, CardHandle handle, const
 }
 Restriction detail::upgrade_card_permanently(RunState& state, CardHandle handle) noexcept {
     if (!valid_run(state)) return Restriction::invalid_state;
-    auto run = state.view();
-    if (run.phase != RunPhase::combat || !run.combat) return Restriction::wrong_phase;
-    auto* instance = run.combat->cards.get(handle);
+    auto& run = state;
+    if (run.data.phase != RunPhase::combat || !run.data.combat) return Restriction::wrong_phase;
+    auto* instance = run.cards().get(handle);
     if (!instance || !instance->origin.present()) return Restriction::stale_card;
-    auto* permanent = run.deck.get(instance->origin);
+    auto* permanent = run.deck().get(instance->origin);
     if (!permanent) return Restriction::stale_card;
     permanent->upgrade = 1;
     instance->upgraded = true;

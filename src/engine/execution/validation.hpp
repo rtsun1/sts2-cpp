@@ -1,6 +1,6 @@
 #pragma once
-#include "sts2/state/combat.hpp"
+#include "sts2/state/run.hpp"
 
 namespace sts2::engine::gameplay {
-bool valid_continuations(ConstCombatView, const Ruleset&) noexcept;
+bool valid_continuations(const RunState&, const Ruleset&) noexcept;
 }
