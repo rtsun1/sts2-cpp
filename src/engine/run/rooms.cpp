@@ -21,91 +21,95 @@ bool supported_combat_inventory(const RunState& state) {
             SetupRules::name(relic) != "RELIC.CHARONS_ASHES" && SetupRules::name(relic) != "RELIC.JOSS_PAPER") return false;
     return true;
 }
-StepResult plan_run_input(const RunState& state_view, const RunInput& input, RunActionPlan& plan, ValidationMode mode) {
-    if (!valid_room_context(state_view)) return {StepStatus::engine_error, state_view.data.boundary, Restriction::invalid_state};
-    if (state_view.data.phase == RunPhase::uninitialized || state_view.data.phase == RunPhase::invalid)
-        return {StepStatus::engine_error, state_view.data.boundary, Restriction::invalid_state};
-    if (input.expected_boundary != state_view.data.boundary) return {StepStatus::invalid_action, state_view.data.boundary, Restriction::stale_boundary};
-    auto& entering_generation = plan.entering_generation;
-    auto& generate_rewards = plan.generate_rewards;
-    auto& destination = plan.destination;
-    auto& potion_slot = plan.potion_slot; potion_slot = state_view.potions().size();
-    auto& next_card_instance = plan.next_card_instance;
-    const auto reward_kind = plan.reward_kind = input.kind == RunInputKind::take_reward || input.kind == RunInputKind::skip_rewards ||
+Restriction legal_run_input(const RunState& state, const RunInput& input) noexcept {
+    if (input.expected_boundary != state.data.boundary) return Restriction::stale_boundary;
+    const bool reward = input.kind == RunInputKind::take_reward || input.kind == RunInputKind::skip_rewards ||
         input.kind == RunInputKind::choose_reward_card || input.kind == RunInputKind::reward_alternative;
-    if (reward_kind) {
-        if (state_view.data.phase != RunPhase::rewards || !state_view.data.rewards || state_view.data.rewards->resolved)
-            return {StepStatus::invalid_action, state_view.data.boundary, Restriction::wrong_phase};
-        const auto& rewards = *state_view.data.rewards;
+    if (reward) {
+        if (state.data.phase != RunPhase::rewards || !state.data.rewards || state.data.rewards->resolved) return Restriction::wrong_phase;
+        const auto& rewards = *state.data.rewards;
         if (rewards.selecting_card) {
-            if (input.kind == RunInputKind::choose_reward_card) {
-                if (input.option >= rewards.cards.size()) return {StepStatus::invalid_action, state_view.data.boundary, Restriction::invalid_selection};
-                const auto id = SetupRules::name(rewards.cards[input.option].definition);
-                if (id != "CARD.TRUE_GRIT" && id != "CARD.JUGGLING" && id != "CARD.RAGE")
-                    return {StepStatus::unsupported_content, state_view.data.boundary, Restriction::unsupported_setup};
-                if (state_view.deck().size() >= 4096) return {StepStatus::resource_limit, state_view.data.boundary, Restriction::capacity};
-                for (const auto& existing : state_view.deck()) {
-                    if (existing.instance == UINT32_MAX) return {StepStatus::resource_limit, state_view.data.boundary, Restriction::capacity};
-                    next_card_instance = std::max(next_card_instance, existing.instance + 1);
-                }
-            } else if (input.kind != RunInputKind::reward_alternative || input.option != 0)
-                return {StepStatus::invalid_action, state_view.data.boundary, Restriction::invalid_selection};
-        } else if (input.kind == RunInputKind::take_reward) {
+            if (input.kind == RunInputKind::choose_reward_card) return input.option < rewards.cards.size() ? Restriction::none : Restriction::invalid_selection;
+            return input.kind == RunInputKind::reward_alternative && input.option == 0 ? Restriction::none : Restriction::invalid_selection;
+        }
+        if (input.kind == RunInputKind::take_reward) {
             const auto card_index = rewards.potion == no_content ? 1u : 2u;
             if (input.option > card_index || (input.option == 0 && rewards.gold_taken) ||
-                (input.option == 1 && card_index == 2 && rewards.potion_taken) || (input.option == card_index && rewards.card_taken))
-                return {StepStatus::invalid_action, state_view.data.boundary, Restriction::invalid_selection};
-            if (input.option == 0 && state_view.data.gold > INT32_MAX - rewards.gold)
-                return {StepStatus::resource_limit, state_view.data.boundary, Restriction::capacity};
-            if (input.option == 1 && card_index == 2) {
-                for (std::size_t i = 0; i < state_view.potions().size(); ++i) if (state_view.potions()[i] == no_content) { potion_slot = i; break; }
-            }
-        } else if (input.kind != RunInputKind::skip_rewards)
-            return {StepStatus::invalid_action, state_view.data.boundary, Restriction::wrong_phase};
-    } else if (input.kind == RunInputKind::discard_potion) {
-        if (state_view.data.phase != RunPhase::rewards && state_view.data.phase != RunPhase::map)
-            return {StepStatus::unsupported_content, state_view.data.boundary, Restriction::unsupported_setup};
-        if (state_view.data.rewards && state_view.data.rewards->selecting_card) return {StepStatus::invalid_action, state_view.data.boundary, Restriction::wrong_phase};
-        if (input.option >= state_view.potions().size() || state_view.potions()[input.option] == no_content)
-            return {StepStatus::invalid_action, state_view.data.boundary, Restriction::invalid_selection};
-    } else
-    if (input.kind == RunInputKind::choose_option) {
-        if (state_view.data.phase == RunPhase::room) {
-            const auto* parent = std::get_if<ParentInteractionState>(&state_view.data.room);
-            if (!parent || parent->stage != ParentRoomStage::choosing || parent->pending_gold < 0) return {StepStatus::engine_error, state_view.data.boundary, Restriction::invalid_state};
-            if (input.option >= 2) return {StepStatus::invalid_action, state_view.data.boundary, Restriction::invalid_selection};
-            if (input.option == 0 && state_view.data.gold > INT32_MAX - parent->pending_gold) return {StepStatus::resource_limit, state_view.data.boundary, Restriction::capacity};
-            return {StepStatus::awaiting_input, state_view.data.boundary};
+                (input.option == 1 && card_index == 2 && rewards.potion_taken) || (input.option == card_index && rewards.card_taken)) return Restriction::invalid_selection;
+            return Restriction::none;
         }
-        if (state_view.data.phase != RunPhase::neow) return {StepStatus::invalid_action, state_view.data.boundary, Restriction::wrong_phase};
-        if (input.option >= state_view.data.neow_options.size()) return {StepStatus::invalid_action, state_view.data.boundary, Restriction::invalid_selection};
-        if (state_view.data.gold > INT32_MAX - 150)
-            return {StepStatus::resource_limit, state_view.data.boundary, Restriction::capacity};
-        if (SetupRules::name(state_view.data.neow_options[input.option]) != "RELIC.GOLDEN_PEARL")
-            return {StepStatus::unsupported_content, state_view.data.boundary, Restriction::unsupported_setup};
+        return input.kind == RunInputKind::skip_rewards ? Restriction::none : Restriction::wrong_phase;
+    }
+    switch (input.kind) {
+    case RunInputKind::discard_potion:
+        if (state.data.phase != RunPhase::rewards && state.data.phase != RunPhase::map) return Restriction::unsupported_setup;
+        if (state.data.rewards && state.data.rewards->selecting_card) return Restriction::wrong_phase;
+        return input.option < state.potions().size() && state.potions()[input.option] != no_content ? Restriction::none : Restriction::invalid_selection;
+    case RunInputKind::choose_option:
+        if (state.data.phase == RunPhase::room) return input.option < 2 ? Restriction::none : Restriction::invalid_selection;
+        if (state.data.phase != RunPhase::neow) return Restriction::wrong_phase;
+        return input.option < state.data.neow_options.size() ? Restriction::none : Restriction::invalid_selection;
+    case RunInputKind::proceed:
+        return (state.data.phase == RunPhase::combat_done && !state.data.direct_combat) || state.data.phase == RunPhase::neow_done ||
+            (state.data.phase == RunPhase::rewards && state.data.rewards && state.data.rewards->resolved) ? Restriction::none : Restriction::wrong_phase;
+    case RunInputKind::travel: {
+        if (state.data.phase != RunPhase::map) return Restriction::wrong_phase;
+        const auto& map = *state.data.maps[state.data.act_index]; const auto next = map.at(input.col, input.row);
+        return next != no_node && map.nodes[state.data.current].children.contains(next) ? Restriction::none : Restriction::invalid_selection;
+    }
+    default: return Restriction::unsupported_setup;
+    }
+}
+// Legal inputs still need execution operands, capability and resource checks.
+StepResult prepare_run_input(const RunState& state, const RunInput& input, RunActionPlan& plan, ValidationMode mode) {
+    const auto reject = [&](StepStatus status, Restriction reason) { return StepResult{status, state.data.boundary, reason}; };
+    plan.potion_slot = state.potions().size();
+    plan.reward_kind = input.kind == RunInputKind::take_reward || input.kind == RunInputKind::skip_rewards ||
+        input.kind == RunInputKind::choose_reward_card || input.kind == RunInputKind::reward_alternative;
+    if (input.kind == RunInputKind::choose_reward_card) {
+        const auto id = SetupRules::name(state.data.rewards->cards[input.option].definition);
+        if (id != "CARD.TRUE_GRIT" && id != "CARD.JUGGLING" && id != "CARD.RAGE") return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
+        if (state.deck().size() >= 4096) return reject(StepStatus::resource_limit, Restriction::capacity);
+        for (const auto& card : state.deck()) {
+            if (card.instance == UINT32_MAX) return reject(StepStatus::resource_limit, Restriction::capacity);
+            plan.next_card_instance = std::max(plan.next_card_instance, card.instance + 1);
+        }
+    } else if (input.kind == RunInputKind::take_reward) {
+        const auto& rewards = *state.data.rewards;
+        if (input.option == 0 && state.data.gold > INT32_MAX - rewards.gold) return reject(StepStatus::resource_limit, Restriction::capacity);
+        if (input.option == 1 && rewards.potion != no_content)
+            for (std::size_t i = 0; i < state.potions().size(); ++i) if (state.potions()[i] == no_content) { plan.potion_slot = i; break; }
+    } else if (input.kind == RunInputKind::choose_option) {
+        if (state.data.phase == RunPhase::room) {
+            const auto gold = std::get<ParentInteractionState>(state.data.room).pending_gold;
+            if (input.option == 0 && state.data.gold > INT32_MAX - gold) return reject(StepStatus::resource_limit, Restriction::capacity);
+        } else {
+            if (state.data.gold > INT32_MAX - 150) return reject(StepStatus::resource_limit, Restriction::capacity);
+            if (SetupRules::name(state.data.neow_options[input.option]) != "RELIC.GOLDEN_PEARL") return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
+        }
     } else if (input.kind == RunInputKind::proceed) {
-        if (state_view.data.phase == RunPhase::combat_done && !state_view.data.direct_combat) {
-            generate_rewards = true;
-        } else if (state_view.data.phase != RunPhase::neow_done && !(state_view.data.phase == RunPhase::rewards && state_view.data.rewards && state_view.data.rewards->resolved)) return {StepStatus::invalid_action, state_view.data.boundary, Restriction::wrong_phase};
+        plan.generate_rewards = state.data.phase == RunPhase::combat_done && !state.data.direct_combat;
     } else if (input.kind == RunInputKind::travel) {
-        if (state_view.data.phase != RunPhase::map) return {StepStatus::invalid_action, state_view.data.boundary, Restriction::wrong_phase};
-        const auto& map = *state_view.data.maps[state_view.data.act_index]; const auto next = map.at(input.col, input.row);
-        if (next == no_node || !map.nodes[state_view.data.current].children.contains(next)) return {StepStatus::invalid_action, state_view.data.boundary, Restriction::invalid_selection};
-        if (mode == ValidationMode::visible) { destination = next; return {StepStatus::awaiting_input, state_view.data.boundary}; }
-        if (map.nodes[next].kind != MapKind::monster || state_view.data.ascension != 0 ||
-            SetupRules::name(state_view.data.character) != "CHARACTER.IRONCLAD")
-            return {StepStatus::unsupported_content, state_view.data.boundary, Restriction::unsupported_setup};
-        if (next_combat_generation(state_view) == 0)
-            return {StepStatus::resource_limit, state_view.data.boundary, Restriction::capacity};
-        const auto rooms = state_view.act(state_view.data.act_index);
-        if (rooms.normal_visited >= rooms.normal.size() || SetupRules::name(rooms.normal[rooms.normal_visited]) != "ENCOUNTER.SHRINKER_BEETLE_WEAK")
-            return {StepStatus::unsupported_content, state_view.data.boundary, Restriction::unsupported_setup};
-        if (!supported_combat_inventory(state_view))
-            return {StepStatus::unsupported_content, state_view.data.boundary, Restriction::unsupported_setup};
-        entering_generation = next_combat_generation(state_view);
-        destination = next;
-    } else return {StepStatus::unsupported_content, state_view.data.boundary, Restriction::unsupported_setup};
-    return {StepStatus::awaiting_input, state_view.data.boundary};
+        const auto& map = *state.data.maps[state.data.act_index]; const auto next = map.at(input.col, input.row);
+        plan.destination = next;
+        if (mode == ValidationMode::visible) return reject(StepStatus::awaiting_input, Restriction::none);
+        if (map.nodes[next].kind != MapKind::monster || state.data.ascension != 0 || SetupRules::name(state.data.character) != "CHARACTER.IRONCLAD")
+            return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
+        plan.entering_generation = next_combat_generation(state);
+        if (plan.entering_generation == 0) return reject(StepStatus::resource_limit, Restriction::capacity);
+        const auto rooms = state.act(state.data.act_index);
+        if (rooms.normal_visited >= rooms.normal.size() || SetupRules::name(rooms.normal[rooms.normal_visited]) != "ENCOUNTER.SHRINKER_BEETLE_WEAK" || !supported_combat_inventory(state))
+            return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
+    }
+    return reject(StepStatus::awaiting_input, Restriction::none);
+}
+StepResult plan_run_input(const RunState& state, const RunInput& input, RunActionPlan& plan, ValidationMode mode) {
+    if (!valid_room_context(state) || state.data.phase == RunPhase::uninitialized || state.data.phase == RunPhase::invalid)
+        return {StepStatus::engine_error, state.data.boundary, Restriction::invalid_state};
+    const auto restriction = legal_run_input(state, input);
+    if (restriction != Restriction::none)
+        return {restriction == Restriction::unsupported_setup ? StepStatus::unsupported_content : StepStatus::invalid_action, state.data.boundary, restriction};
+    return prepare_run_input(state, input, plan, mode);
 }
 bool valid_room_context(const RunState& state) noexcept {
     if (state.data.rewards && state.data.rewards->return_to > RewardReturn::parent_room) return false;

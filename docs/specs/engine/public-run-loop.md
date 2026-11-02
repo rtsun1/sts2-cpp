@@ -65,8 +65,10 @@ can jump. Intermediate historical diagnostic boundaries remain replayable.
 `advance_to_decision` at an input boundary is pure. Repeated queries and validation use
 no authoritative RNG or clock. Travel validation checks visible adjacency only; unrevealed encounter capability is
 checked by execution before mutation, so querying routes cannot identify hidden rooms.
-Other validation uses an isolated complete-state copy;
-this is deliberately conservative, and no throughput claim is made.
+Run preparation separates gameplay legality from capability checks and execution operands.
+Both execution paths use the same transitions. Unsupported content and operational
+failure may leave partially modified state; discard that branch. Checked rejection
+of invalid inputs remains before mutation.
 
 The public replay regression runs all nine existing dense/sparse loop fixtures and the three fresh native captures.
 Recording aliases are related to independently generated card identities without
@@ -125,3 +127,51 @@ and review regressions were added. `sts2_play` was smoke-tested through Neow to 
 Standards review found no rule violations and one optional base-preview deduplication
 suggestion; spec review reported no remaining findings after the inspection, text,
 ledger, reward-cost and hidden-travel fixes.
+
+## Legal enumeration and trusted execution
+
+Issue [#63](https://github.com/rtsun1/sts2-cpp/issues/63) adds
+`for_each_legal_action(state, consumer)` and `apply_action_trusted(state, input, scratch)`.
+The consumer is a statically dispatched callable receiving each `PlayerInput` in one
+sequential traversal. It controls storage and must not mutate the source during
+traversal. There is no action cache in complete state. Enumeration order is not a
+compatibility guarantee.
+
+Validate the root with `valid_run`, then enumerate each node's actions. Retain an
+action only for that exact state or an independent exact copy. Successful trusted
+actions preserve the state needed for later trusted decisions; a failed branch
+must be discarded. Reusing inputs across different states, invalid complete state,
+or illegal inputs violates the trusted contract; rejection is not guaranteed.
+
+```cpp
+if (!valid_run(root)) throw std::invalid_argument("invalid search root");
+std::vector<PlayerInput> actions; // Search-owned storage; any consumer is allowed.
+for_each_legal_action(root, [&](const PlayerInput& input) { actions.push_back(input); });
+for (const auto& input : actions) {
+    RunState branch = root; // Independent overflow ownership when needed.
+    Scratch scratch;
+    const auto result = apply_action_trusted(branch, input, scratch);
+    // Retain successful decisions/terminal results; discard execution failures.
+}
+```
+
+Gameplay legality does not imply implemented content or available resources.
+Enumeration includes legal Neow and reward choices even when acquisition is
+unsupported, and legal travel regardless of hidden encounter capability. Execution
+reports unsupported content, clock/capacity limits and budget failures explicitly.
+The legacy offered views retain their restrictions and may therefore expose a
+smaller unrestricted set than legal enumeration in capability-limited scenarios.
+They remain useful for checked external consumers.
+
+Configure `-DSTS2_DEFENSIVE_VALIDATION=ON` to compile internal invariant diagnostics.
+These reuse validators, print the failed condition and source location, and abort
+on an internal invariant failure. They do not depend on `NDEBUG`; checked input
+validation remains active with the option off. The performance configuration omits
+internal diagnostic evaluation and uses the same transitions. Diagnostic checks at
+continuation entry use storage/power/modifier invariants, since an unfinished
+operation is not a published decision state.
+
+Measurements and verification for this change are recorded in
+[the action-path report](action-path-performance.md). These are supported-scenario
+microbenchmarks and synthetic branching, not actual MCTS throughput or proof of
+full-game correctness.

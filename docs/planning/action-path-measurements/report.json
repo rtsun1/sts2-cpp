@@ -1,0 +1,2021 @@
+{
+  "issue": "https://github.com/rtsun1/sts2-cpp/issues/63",
+  "date": "2026-11-02",
+  "baseline_commit": "70b269f795218e45e305f00c72ad3ba058ee5840",
+  "compiler": "GNU g++ 11.4.0",
+  "flags": "-O3 -DNDEBUG -ffp-contract=off -std=c++23",
+  "defensive_validation": false,
+  "lto": false,
+  "machine": "AMD Ryzen 7 3700X, 16 logical CPUs, Linux x86_64 under Microsoft virtualization",
+  "method": "Three separate process samples per binary, 100 iterations per scenario; median of sample means. One thread, no affinity, no cache flush, uncontrolled background load. Current comparison samples collected after builds/tests completed. Baseline initial implementation; current source fingerprints below. Timers exclude setup/output and apply excludes reset clones; branching includes enumeration/clone/application.",
+  "binary_sha256": {
+    "baseline": "31243ca239f21ba9c3b90d126d6a48fb20ae05464c283da76f643cd2c7a70578",
+    "comparison": "0e81534e51072ad3af6e75195f55374641467bfff7fbd935b68539cb95f57e6a"
+  },
+  "source_sha256": {
+    "CMakeLists.txt": "543c53a4dc31eaf44540c5fda278f3fea62347532d744a6c7bd598e2d98bab68",
+    "benchmarks/architecture_benchmark.cpp": "436dd18df77ecb27094e085c0775d69e2bf66f1ff780219bff50c5fc50946144",
+    "include/sts2/engine/action.hpp": "fe524efa9d47ef2bb90597bac2dde6b72ca4189df1941bfa725da658a45d9804",
+    "src/engine/action_dispatch.cpp": "7692439cab486d1d5aa3e8cf1c24a72a9c3686bf2f2e21c348070c351e313128",
+    "src/engine/combat/initialize.cpp": "8ae00ae42df73b276e52dd0a549629794720df12b295313b53ea5f6f4d40d01f",
+    "src/engine/combat/lifecycle.cpp": "da29876210415b236c4b519b668adef6678b7b9a5daca91e747ae224b258da77",
+    "src/engine/combat/lifecycle.hpp": "eac0278068b7e775d5c74d418aad1b42be109bb02ff1535207dd5aa22634f1a3",
+    "src/engine/combat/step.cpp": "3515e51257372c9a27313c3d646a6ff8aed67bb1dd0f29fbd15c4eb7f0c6ea03",
+    "src/engine/combat/trace.cpp": "bb9dbdc614283f614ac1dc1f1d96bedb708ffad0188377055967e77c9f3b0fbd",
+    "src/engine/combat/trace.hpp": "ef251f6a63c58da465cdfe643bf9397b60e0494aadcc5979e6a4795bb3a46226",
+    "src/engine/combat/validation.cpp": "46cc7bbb0e1bac86c86ccccb5b21779b72fbe3a58154321922f96e8d390166e4",
+    "src/engine/combat/validation.hpp": "1782672b686bd379041b59380cfff9b536224ac96db70989ed4c2674f93d173a",
+    "src/engine/content/cards.cpp": "88bf5663134d5e7f98efd7d3ee51ed2901038f982f744d75b02c2676f3f9f057",
+    "src/engine/content/catalog.g.cpp": "30bbf1b0b06b60136e7ec3ac0228777754e8dbb11f5fef999ff30277dea575b4",
+    "src/engine/content/monsters.cpp": "b1f2695e8404d5b2a3070cb67fd99bb523c6ca6e33023074fef4c85dfcda936a",
+    "src/engine/content/monsters.hpp": "2382c880d3879ea0aa843eece413f102c3adc2b41e65373376e6561cf2593892",
+    "src/engine/content/powers.cpp": "66cb86ce824655a35e1b8e27093fb335ff93071d805588c447ad9c562db462e9",
+    "src/engine/content/powers.hpp": "86d5c5c62f11f34a1d639e388d01e2760823c3ba12f119d73eaf1da692cb6400",
+    "src/engine/content/relics.cpp": "8dfb1017d89a2659253d6a3ec737ba5a0278fb8536da3879fdd803afe0373281",
+    "src/engine/content/relics.hpp": "4778eed2c5c050df859b3b3600d5454d5700fd1cde3c662c964dd5f667406be4",
+    "src/engine/defensive.hpp": "3e92b32d0f67f3e0a850d508cb8eb950baeac4942943127fbbf1894ff9f95ee0",
+    "src/engine/execution/card_program.cpp": "a57097e3b0d865f166caddc281825600a23724be3399cab90833547d2bf23342",
+    "src/engine/execution/card_program.hpp": "2ec18b70a9bd332d535ed7ab6b22ba7fc24450e5ce3faaa4b4f7a7b42bb1fc01",
+    "src/engine/execution/interpreter.cpp": "2b72b9345bbfbcc1d6fd19f70cc5fbfe4ec414c8acf5c59662202ed0314ced6a",
+    "src/engine/execution/interpreter.hpp": "09255f8309d2b14b77e2cf4b3f4ea0fef47d3ef752f3ab77c103a1029503d90f",
+    "src/engine/execution/selection.cpp": "9985f6f6eedc6ea014c1df607344289ad716207c3f873d044b16644f766a7907",
+    "src/engine/execution/selection.hpp": "1bbf385f6bb590246da68ea4372209548127aca27239f4e2d94e0bc87a803aa8",
+    "src/engine/execution/validation.cpp": "7d021f67a7d66cdde3a08e437e01143bff209264d71a61dc6b534728d19d48ea",
+    "src/engine/execution/validation.hpp": "b8fe41686930a22d02f08591b770e33bd8141ed1fbe7eb2a3a7b2ad351abc1bd",
+    "src/engine/hooks/dispatch.cpp": "fec08e93b3acd92f3ce7c7e29db6c4a8b2b5077b55fc3e7312a8d86a8072a04e",
+    "src/engine/hooks/dispatch.hpp": "a0cd80566732d276392c2639f1772078d5a06f840a49fce259b3e672e0b98e58",
+    "src/engine/mechanics/block.cpp": "19824cfae267ed847b78389cb6fb29791d078615f779efc42205e6e604934636",
+    "src/engine/mechanics/block.hpp": "d3f512c498884aa827d178afbcbad2540e52076b0c4661ff0302ecdfbd8daded",
+    "src/engine/mechanics/cards.cpp": "a1d583e7145df6de72d3a2578110a3b3788ba7358b15c64e4578d97e8d42436e",
+    "src/engine/mechanics/cards.hpp": "1b76b7300455b3f1bbbaa948dbcd19df17aa38fb46069ea17fd811ee91f580e6",
+    "src/engine/mechanics/damage.cpp": "065167f2d2e1e3bb3600a4ae47d525e3d9bdba9cc5c2a0ac5ae27702ac1e35eb",
+    "src/engine/mechanics/damage.hpp": "37f939863b48ae97e0ac71eef21778a04cf2d1e9c9518fc05b8bdfa6b5021126",
+    "src/engine/mechanics/draw.cpp": "889651df8b19fd984d42220553ddb1d931111d4906402f3b216fd7a32a99ad6c",
+    "src/engine/mechanics/draw.hpp": "164af2ea7bbce36d42d58c4b49397836abbb54370e07a0cb81f9336c0d2e1d31",
+    "src/engine/mechanics/energy.cpp": "5d668dbc24c00abd528c4779382040edbd81c7f14e3b7b9ba77484134e17d020",
+    "src/engine/mechanics/energy.hpp": "3f6b8bc8976cff1d1272f78ba6d6aff0f072339ce6261d8bee368e63c89ee984",
+    "src/engine/mechanics/exhaust.cpp": "54e97ef99d6227d2839b98d4890b7b96d3c3ad8c43151630d335cfbb13ab8b3f",
+    "src/engine/mechanics/exhaust.hpp": "7495d2196b7cf2ac103b7b832bf38aaf303a548e6ce80550b81da3fb4c586ca9",
+    "src/engine/mechanics/powers.cpp": "53555962e6b63eb05f663c97cb8e69fffad7757fcfa4475bc0c4ab7c4aa089d9",
+    "src/engine/mechanics/powers.hpp": "fef71badfa8dd65ef8d3035681920196ae69dd903bccf797a6d9b73f109ad20d",
+    "src/engine/mechanics/shuffle.cpp": "9c6488320e852a9a635b006409c2f02422294429aeb4934c6f7f611bfac5830b",
+    "src/engine/mechanics/shuffle.hpp": "d1b375dcd2c89af5ffd4a2fb82a60ac5bcf97e6cbf47bf21a545784a6747fdd4",
+    "src/engine/run/initialize.cpp": "81917c6e91e104aaccea14162fe54c197af2101ae8c29e22c14156da4b464ace",
+    "src/engine/run/map.cpp": "5ac2dca255e45fed0e43cb8bd03b2714d36af752a1cbd51ebb5f7fae3131509a",
+    "src/engine/run/rewards.cpp": "7e089e57b7cab98b5f936677e679e242424e1d3eaa32715a2e4bac2d4fdc0247",
+    "src/engine/run/rooms.cpp": "6c0ae6f74a4876f8bea66d100b470631d7f7bf28a66e271a09523859c54c13bd",
+    "src/engine/run/run_flow.hpp": "0114fd0b386dc816a5f8fbab34778f494801266f7700a5b25388ee1391436a0b",
+    "src/engine/run/step.cpp": "08380af8369f3f185301baa4258a714d563029d73813d4f10052ecfd283c8602",
+    "src/engine/run/validation.cpp": "9242c37d5fd3445b6d79652d1e99456aa2d926c5dfe1b5559bf8b2fe1f2332ed",
+    "src/engine/transitions.hpp": "8e9ab6e97328de957a7e6fcb97ddfaf42481c04aafac19d26112d2149c19bdcf"
+  },
+  "baseline_samples": [
+    [
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 51383.8,
+        "operations_per_second": 19461.4
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 523.14,
+        "operations_per_second": 1911530.0
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 882.82,
+        "operations_per_second": 1132730.0
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 61676.1,
+        "operations_per_second": 16213.7
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 200,
+        "ns_per_operation": 866.93,
+        "operations_per_second": 1153500.0
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1881.43,
+        "operations_per_second": 531511
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1714220.0,
+        "operations_per_second": 583.357
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 1933.77,
+        "operations_per_second": 517125
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 2875.89,
+        "operations_per_second": 347718
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 61955100.0,
+        "operations_per_second": 16.1407
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 1300,
+        "ns_per_operation": 1847.62,
+        "operations_per_second": 541237
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 22705.6,
+        "operations_per_second": 44042
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 54711.4,
+        "operations_per_second": 18277.7
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 200,
+        "ns_per_operation": 553.51,
+        "operations_per_second": 1806650.0
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 100,
+        "ns_per_operation": 1508.64,
+        "operations_per_second": 662849
+      }
+    ],
+    [
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 46306.9,
+        "operations_per_second": 21595
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 474.73,
+        "operations_per_second": 2106460.0
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 804.06,
+        "operations_per_second": 1243690.0
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 54253.1,
+        "operations_per_second": 18432.1
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 200,
+        "ns_per_operation": 632.04,
+        "operations_per_second": 1582180.0
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1550.55,
+        "operations_per_second": 644932
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1518780.0,
+        "operations_per_second": 658.423
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 1745.13,
+        "operations_per_second": 573023
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 2497.58,
+        "operations_per_second": 400388
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 59100500.0,
+        "operations_per_second": 16.9203
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 1300,
+        "ns_per_operation": 2002.16,
+        "operations_per_second": 499461
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 23480.1,
+        "operations_per_second": 42589.2
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 54038.2,
+        "operations_per_second": 18505.4
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 200,
+        "ns_per_operation": 558.33,
+        "operations_per_second": 1791060.0
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 100,
+        "ns_per_operation": 1532.64,
+        "operations_per_second": 652469
+      }
+    ],
+    [
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 60992.2,
+        "operations_per_second": 16395.5
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 666.12,
+        "operations_per_second": 1501230.0
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1061.84,
+        "operations_per_second": 941761
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 68045.8,
+        "operations_per_second": 14696
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 200,
+        "ns_per_operation": 833.2,
+        "operations_per_second": 1200190.0
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 2006.24,
+        "operations_per_second": 498445
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1939150.0,
+        "operations_per_second": 515.69
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 2108.61,
+        "operations_per_second": 474246
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 3336.15,
+        "operations_per_second": 299747
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 59832200.0,
+        "operations_per_second": 16.7134
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 1300,
+        "ns_per_operation": 2430.15,
+        "operations_per_second": 411497
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 28549.8,
+        "operations_per_second": 35026.5
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 66957.6,
+        "operations_per_second": 14934.8
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 200,
+        "ns_per_operation": 600.96,
+        "operations_per_second": 1664000.0
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "step",
+        "iterations": 100,
+        "allocations": 100,
+        "ns_per_operation": 1830.76,
+        "operations_per_second": 546221
+      }
+    ]
+  ],
+  "comparison_samples": [
+    [
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 45825.1,
+        "operations_per_second": 21822.1
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 5820.58,
+        "operations_per_second": 171804
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 52.92,
+        "operations_per_second": 18896400.0
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 560.31
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 317.14
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 13748.8,
+        "operations_per_second": 72733.5
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 4082.35,
+        "operations_per_second": 244957
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 476.27,
+        "operations_per_second": 2099650.0
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 54514,
+        "operations_per_second": 18343.9
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 6142.63,
+        "operations_per_second": 162797
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 67.44,
+        "operations_per_second": 14828000.0
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1064.75
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 378.75
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 22539.8,
+        "operations_per_second": 44365.9
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 5086.34,
+        "operations_per_second": 196605
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 200,
+        "ns_per_operation": 619.59,
+        "operations_per_second": 1613970.0
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1536570.0,
+        "operations_per_second": 650.802
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 220035,
+        "operations_per_second": 4544.73
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 52.73,
+        "operations_per_second": 18964500.0
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1495.1
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 673.58
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 7200,
+        "ns_per_operation": 241363,
+        "operations_per_second": 4143.14
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 7200,
+        "ns_per_operation": 13234.6,
+        "operations_per_second": 75559.5
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 2070.62,
+        "operations_per_second": 482947
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 55664400.0,
+        "operations_per_second": 17.9648
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 241993,
+        "operations_per_second": 4132.36
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 272.53,
+        "operations_per_second": 3669320.0
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 20622.4
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 658.38
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 254800,
+        "ns_per_operation": 9047080.0,
+        "operations_per_second": 110.533
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 254800,
+        "ns_per_operation": 556996,
+        "operations_per_second": 1795.34
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 1300,
+        "ns_per_operation": 1998.46,
+        "operations_per_second": 500385
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 63698.2,
+        "operations_per_second": 15699
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 7537.85,
+        "operations_per_second": 132664
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 65.36,
+        "operations_per_second": 15299900.0
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 100,
+        "ns_per_operation": 1226.61
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 100,
+        "ns_per_operation": 652.58
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 1300,
+        "ns_per_operation": 19613.4,
+        "operations_per_second": 50985.6
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 1300,
+        "ns_per_operation": 4994.06,
+        "operations_per_second": 200238
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 200,
+        "ns_per_operation": 558.68,
+        "operations_per_second": 1789930.0
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 22849.1,
+        "operations_per_second": 43765.4
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 5302.67,
+        "operations_per_second": 188584
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 5.31,
+        "operations_per_second": 188324000.0
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 148
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 78.71
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 7074.55,
+        "operations_per_second": 141352
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1637.76,
+        "operations_per_second": 610590
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 512.16,
+        "operations_per_second": 1952510.0
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 700,
+        "ns_per_operation": 19113.8,
+        "operations_per_second": 52318.2
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 6382.99,
+        "operations_per_second": 156666
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 11.93,
+        "operations_per_second": 83822300.0
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 600,
+        "ns_per_operation": 2711.27
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 600,
+        "ns_per_operation": 2508.72
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 1900,
+        "ns_per_operation": 13524.3,
+        "operations_per_second": 73940.9
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 6101.66,
+        "operations_per_second": 163890
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 610.49,
+        "operations_per_second": 1638030.0
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 33256.5,
+        "operations_per_second": 30069.3
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 6319.24,
+        "operations_per_second": 158247
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 7.01,
+        "operations_per_second": 142653000.0
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 133.36
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 62.11
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 10059.7,
+        "operations_per_second": 99406.1
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 2656.4,
+        "operations_per_second": 376449
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 617.4,
+        "operations_per_second": 1619700.0
+      }
+    ],
+    [
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 47716.8,
+        "operations_per_second": 20957
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 5971.13,
+        "operations_per_second": 167472
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 49.83,
+        "operations_per_second": 20068200.0
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 587.5
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 328.65
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 14420.2,
+        "operations_per_second": 69347.2
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 4092.59,
+        "operations_per_second": 244344
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 541.43,
+        "operations_per_second": 1846960.0
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 56933.1,
+        "operations_per_second": 17564.5
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 6538.33,
+        "operations_per_second": 152944
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 72.37,
+        "operations_per_second": 13817900.0
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1006.99
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 374.79
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 21617.8,
+        "operations_per_second": 46258.2
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 5142.31,
+        "operations_per_second": 194465
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 200,
+        "ns_per_operation": 637.67,
+        "operations_per_second": 1568210.0
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1575880.0,
+        "operations_per_second": 634.564
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 220739,
+        "operations_per_second": 4530.23
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 53.52,
+        "operations_per_second": 18684600.0
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1488.48
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 697.81
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 7200,
+        "ns_per_operation": 247133,
+        "operations_per_second": 4046.41
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 7200,
+        "ns_per_operation": 13248.9,
+        "operations_per_second": 75478.1
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 1480.33,
+        "operations_per_second": 675525
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 59254900.0,
+        "operations_per_second": 16.8762
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 247794,
+        "operations_per_second": 4035.61
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 274.32,
+        "operations_per_second": 3645380.0
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 20601.1
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 669.82
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 254800,
+        "ns_per_operation": 8795180.0,
+        "operations_per_second": 113.699
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 254800,
+        "ns_per_operation": 464882,
+        "operations_per_second": 2151.08
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 1300,
+        "ns_per_operation": 1636.52,
+        "operations_per_second": 611053
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 51987.4,
+        "operations_per_second": 19235.4
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 6267.51,
+        "operations_per_second": 159553
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 50.77,
+        "operations_per_second": 19696700.0
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 100,
+        "ns_per_operation": 999.27
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 100,
+        "ns_per_operation": 532.95
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 1300,
+        "ns_per_operation": 18108.6,
+        "operations_per_second": 55222.3
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 1300,
+        "ns_per_operation": 5020.59,
+        "operations_per_second": 199180
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 200,
+        "ns_per_operation": 547.97,
+        "operations_per_second": 1824920.0
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 21013.7,
+        "operations_per_second": 47587.9
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 5125.59,
+        "operations_per_second": 195099
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 5.98,
+        "operations_per_second": 167224000.0
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 142.92
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 70.31
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 7314.71,
+        "operations_per_second": 136711
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1607.8,
+        "operations_per_second": 621968
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 503.13,
+        "operations_per_second": 1987560.0
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 700,
+        "ns_per_operation": 16062,
+        "operations_per_second": 62258.9
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 5260.12,
+        "operations_per_second": 190110
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 8.73,
+        "operations_per_second": 114548000.0
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 600,
+        "ns_per_operation": 2227.92
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 600,
+        "ns_per_operation": 2062.49
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 1900,
+        "ns_per_operation": 11325.9,
+        "operations_per_second": 88293.5
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 5299.03,
+        "operations_per_second": 188714
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 502.86,
+        "operations_per_second": 1988630.0
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 27127,
+        "operations_per_second": 36863.6
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 5291.43,
+        "operations_per_second": 188985
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 9.58,
+        "operations_per_second": 104384000.0
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 110.87
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 48.49
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 7678.55,
+        "operations_per_second": 130233
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 2145.38,
+        "operations_per_second": 466118
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 547.26,
+        "operations_per_second": 1827290.0
+      }
+    ],
+    [
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 47682.4,
+        "operations_per_second": 20972.1
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 6015.63,
+        "operations_per_second": 166234
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 53.98,
+        "operations_per_second": 18525400.0
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 602.1
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 336.51
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 14935.6,
+        "operations_per_second": 66954.3
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 4377.95,
+        "operations_per_second": 228417
+      },
+      {
+        "scenario": "supported_seeded_combat",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 498.87,
+        "operations_per_second": 2004530.0
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 58970.6,
+        "operations_per_second": 16957.6
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 6878.07,
+        "operations_per_second": 145390
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 69.54,
+        "operations_per_second": 14380200.0
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1114.49
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 381.82
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 23337.9,
+        "operations_per_second": 42848.8
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 5408.89,
+        "operations_per_second": 184881
+      },
+      {
+        "scenario": "controlled_creature_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 200,
+        "ns_per_operation": 656.75,
+        "operations_per_second": 1522650.0
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1582680.0,
+        "operations_per_second": 631.839
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 226478,
+        "operations_per_second": 4415.45
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 54.94,
+        "operations_per_second": 18201700.0
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1541.68
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 759.61
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 7200,
+        "ns_per_operation": 250903,
+        "operations_per_second": 3985.6
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 7200,
+        "ns_per_operation": 12682.2,
+        "operations_per_second": 78850.5
+      },
+      {
+        "scenario": "supported_cards_200_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 1501.54,
+        "operations_per_second": 665983
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 61501500.0,
+        "operations_per_second": 16.2598
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 265861,
+        "operations_per_second": 3761.36
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 273.06,
+        "operations_per_second": 3662200.0
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 20671.4
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 735.84
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 254800,
+        "ns_per_operation": 8805010.0,
+        "operations_per_second": 113.572
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 254800,
+        "ns_per_operation": 482773,
+        "operations_per_second": 2071.37
+      },
+      {
+        "scenario": "stratagem_pile_choice_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 1300,
+        "ns_per_operation": 1654,
+        "operations_per_second": 604595
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 51859.2,
+        "operations_per_second": 19283
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 6487.84,
+        "operations_per_second": 154135
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 55.22,
+        "operations_per_second": 18109400.0
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 100,
+        "ns_per_operation": 1000.46
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 100,
+        "ns_per_operation": 539.59
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 1300,
+        "ns_per_operation": 18648.7,
+        "operations_per_second": 53623
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 1300,
+        "ns_per_operation": 4760.49,
+        "operations_per_second": 210062
+      },
+      {
+        "scenario": "controlled_power_instances_12_overflow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 200,
+        "ns_per_operation": 546.97,
+        "operations_per_second": 1828250.0
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 21225.3,
+        "operations_per_second": 47113.6
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 5211.26,
+        "operations_per_second": 191892
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 5.4,
+        "operations_per_second": 185185000.0
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 143.61
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 73.98
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 6925.8,
+        "operations_per_second": 144388
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 1587.68,
+        "operations_per_second": 629850
+      },
+      {
+        "scenario": "run_neow",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 498.59,
+        "operations_per_second": 2005660.0
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 700,
+        "ns_per_operation": 16586,
+        "operations_per_second": 60291.9
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 5130.43,
+        "operations_per_second": 194915
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 8.63,
+        "operations_per_second": 115875000.0
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 600,
+        "ns_per_operation": 2199.91
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 600,
+        "ns_per_operation": 2162.87
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 1900,
+        "ns_per_operation": 10695.3,
+        "operations_per_second": 93499.1
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 1200,
+        "ns_per_operation": 4988.2,
+        "operations_per_second": 200473
+      },
+      {
+        "scenario": "run_travel",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 498.39,
+        "operations_per_second": 2006460.0
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "query_validate",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 26866.4,
+        "operations_per_second": 37221.3
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "integrity",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 5167.15,
+        "operations_per_second": 193530
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "legal_enumeration",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 5.03,
+        "operations_per_second": 198807000.0
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "apply_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 114.71
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "apply_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 48.21
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "branching_checked",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 7923.81,
+        "operations_per_second": 126202
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "branching_trusted",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 2429.73,
+        "operations_per_second": 411568
+      },
+      {
+        "scenario": "run_rewards",
+        "operation": "clone",
+        "iterations": 100,
+        "allocations": 0,
+        "ns_per_operation": 498.58,
+        "operations_per_second": 2005700.0
+      }
+    ]
+  ],
+  "baseline_scenarios": {
+    "supported_seeded_combat": {
+      "player_power_instances": "0",
+      "root_bytes": "34456",
+      "retained_bytes": "34456"
+    },
+    "controlled_creature_overflow": {
+      "player_power_instances": "0",
+      "root_bytes": "34456",
+      "retained_bytes": "38984"
+    },
+    "supported_cards_200_overflow": {
+      "player_power_instances": "0",
+      "root_bytes": "34456",
+      "retained_bytes": "66248"
+    },
+    "stratagem_pile_choice_overflow": {
+      "player_power_instances": "2",
+      "root_bytes": "34456",
+      "retained_bytes": "68808"
+    },
+    "controlled_power_instances_12_overflow": {
+      "player_power_instances": "12",
+      "root_bytes": "34456",
+      "retained_bytes": "34984"
+    }
+  },
+  "comparison_scenarios": {
+    "supported_seeded_combat": {
+      "player_power_instances": "0",
+      "root_bytes": "34456",
+      "retained_bytes": "34456",
+      "legal_actions": "6",
+      "offered_unrestricted_actions": "6"
+    },
+    "controlled_creature_overflow": {
+      "player_power_instances": "0",
+      "root_bytes": "34456",
+      "retained_bytes": "38984",
+      "legal_actions": "6",
+      "offered_unrestricted_actions": "6"
+    },
+    "supported_cards_200_overflow": {
+      "player_power_instances": "0",
+      "root_bytes": "34456",
+      "retained_bytes": "66296",
+      "legal_actions": "6",
+      "offered_unrestricted_actions": "6"
+    },
+    "stratagem_pile_choice_overflow": {
+      "player_power_instances": "2",
+      "root_bytes": "34456",
+      "retained_bytes": "68856",
+      "legal_actions": "196",
+      "offered_unrestricted_actions": "196"
+    },
+    "controlled_power_instances_12_overflow": {
+      "player_power_instances": "12",
+      "root_bytes": "34456",
+      "retained_bytes": "34984",
+      "legal_actions": "6",
+      "offered_unrestricted_actions": "6"
+    },
+    "run_neow": {
+      "player_power_instances": "0",
+      "root_bytes": "34456",
+      "retained_bytes": "34456",
+      "legal_actions": "3",
+      "offered_unrestricted_actions": "1"
+    },
+    "run_travel": {
+      "player_power_instances": "0",
+      "root_bytes": "34456",
+      "retained_bytes": "34456",
+      "legal_actions": "2",
+      "offered_unrestricted_actions": "2"
+    },
+    "run_rewards": {
+      "player_power_instances": "0",
+      "root_bytes": "34456",
+      "retained_bytes": "34456",
+      "legal_actions": "4",
+      "offered_unrestricted_actions": "4"
+    }
+  }
+}

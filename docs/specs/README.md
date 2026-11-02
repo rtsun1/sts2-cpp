@@ -21,6 +21,7 @@ These sheets retain detailed requirements, schemas and source evidence.
 | Intended system | [Full-game design](engine/full-game-simulator-design.md) and [architecture](engine/full-game-simulator-architecture.md); targets and proposed structure, not proof of implementation |
 | Normative contracts | [Matching target](engine/matching-contract.md), [decision contract](engine/decision-contract.md), [state inventory](engine/state-inventory.md), and format sheets below |
 | Multi-creature combat | [Pool membership and enemy turns](engine/multi-creature-combat.md); implemented two-beetle scenario, handle targets, spawn eligibility and current checkpoint layout |
+| Legal enumeration and trusted execution | [Action-path measurements](engine/action-path-performance.md) and [public API contract](engine/public-run-loop.md#legal-enumeration-and-trusted-execution); issue #63 interfaces, matched branching measurements and verification limits |
 | Public bounded run loop | [Public C++ run loop](engine/public-run-loop.md); observations, actions, forced-transition correspondence and evidence limits |
 | Consecutive combat ownership | [Consecutive supported combat](engine/consecutive-run-loop.md); historical retained graphs, permanent links, declared native scenario evidence and the superseding retention decision |
 | Warm supported public execution | [Warm structured throughput](engine/warm-public-throughput.md); lifecycle isolation, matched output profile, raw samples and limits |

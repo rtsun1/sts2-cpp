@@ -1,4 +1,5 @@
 #include "selection.hpp"
+#include "../transitions.hpp"
 #include "../combat/lifecycle.hpp"
 #include "../mechanics/cards.hpp"
 #include "../mechanics/exhaust.hpp"
@@ -64,7 +65,7 @@ StepResult apply_card_selection(RunState& state, const CombatInput& input, Scrat
             }
             clear_selection(state); state.combat().phase = CombatPhase::play;
         }
-        const auto advanced = advance_combat(state, scratch, rules);
+        const auto advanced = advance_combat_trusted(state, scratch, rules);
         if (advanced.status == StepStatus::engine_error || advanced.status == StepStatus::resource_limit) return advanced;
     }
     return result(state);

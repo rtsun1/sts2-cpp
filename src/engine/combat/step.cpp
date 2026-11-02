@@ -1,5 +1,7 @@
 #include "sts2/engine/combat.hpp"
 #include "validation.hpp"
+#include "../transitions.hpp"
+#include "../defensive.hpp"
 #include "lifecycle.hpp"
 #include "trace.hpp"
 #include "../execution/interpreter.hpp"
@@ -55,10 +57,8 @@ StepResult end_player_turn(RunState& state, Scratch& scratch, const Ruleset& rul
 }
 
 } // namespace
-StepResult advance_combat(RunState& state, Scratch& scratch, const Ruleset& rules) noexcept try {
-    if (!state.valid_combat_storage() || !valid_powers(state) || !valid_card_extra(state) || !valid_card_modifiers(state)) return fail(state, Restriction::invalid_state);
-    for (const auto& slot : state.cards().slots())
-        if (slot.live && !supported_card_modifiers(slot.value)) return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
+StepResult advance_combat_trusted(RunState& state, Scratch& scratch, const Ruleset& rules) noexcept try {
+    STS2_CHECK_INVARIANT(state.valid_combat_storage() && valid_powers(state) && valid_card_extra(state) && valid_card_modifiers(state));
     if (state.combat().phase != CombatPhase::play || state.execution().empty()) return result(state);
     while (!state.execution().empty()) {
         const auto step = resume_frame(state, scratch, rules);
@@ -68,9 +68,14 @@ StepResult advance_combat(RunState& state, Scratch& scratch, const Ruleset& rule
     return result(state);
 } catch (const std::bad_alloc&) { state.combat().phase = CombatPhase::invalid; return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; } catch (const std::length_error&) { state.combat().phase = CombatPhase::invalid; return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; }
 catch (...) { return fail(state, Restriction::invalid_state); }
-StepResult apply_combat(RunState& state, const CombatInput& input, Scratch& scratch, const Ruleset& rules) noexcept try {
-    const auto restriction = validate_combat(state, input, rules);
-    if (restriction != Restriction::none) return result(state, restriction);
+StepResult advance_combat(RunState& state, Scratch& scratch, const Ruleset& rules) noexcept {
+    if (!state.valid_combat_storage() || !valid_powers(state) || !valid_card_extra(state) || !valid_card_modifiers(state)) return fail(state, Restriction::invalid_state);
+    for (const auto& slot : state.cards().slots())
+        if (slot.live && !supported_card_modifiers(slot.value)) return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
+    return advance_combat_trusted(state, scratch, rules);
+}
+namespace {
+StepResult execute_combat(RunState& state, const CombatInput& input, Scratch& scratch, const Ruleset& rules) noexcept try {
     if (state.data.boundary.value == std::numeric_limits<std::uint32_t>::max()) return fail(state, Restriction::capacity);
     if (!state.data.clock.advance_action()) return fail(state, Restriction::clock_exhausted);
     scratch.steps = 0;
@@ -95,16 +100,16 @@ StepResult apply_combat(RunState& state, const CombatInput& input, Scratch& scra
             if (cost == 0) ++state.combat().counters.zero_energy_attacks_this_turn;
         }
         emit(state, scratch, CombatEventKind::play_started, false, false, input.card, play_id);
-        const auto advanced = advance_combat(state, scratch, rules);
+        const auto advanced = advance_combat_trusted(state, scratch, rules);
         if (advanced.status == StepStatus::engine_error || advanced.status == StepStatus::resource_limit) return advanced;
     } else {
         discard_card(state, scratch, input.card);
         state.combat().phase = CombatPhase::play;
-        const auto advanced = advance_combat(state, scratch, rules);
+        const auto advanced = advance_combat_trusted(state, scratch, rules);
         if (advanced.status == StepStatus::engine_error || advanced.status == StepStatus::resource_limit) return advanced;
     }
     if (state.combat().phase == CombatPhase::play && !state.execution().empty()) {
-        const auto advanced = advance_combat(state, scratch, rules);
+        const auto advanced = advance_combat_trusted(state, scratch, rules);
         if (advanced.status == StepStatus::engine_error || advanced.status == StepStatus::resource_limit) return advanced;
     }
     if (state.combat().phase == CombatPhase::invalid) return {StepStatus::engine_error, state.data.boundary, Restriction::execution_budget};
@@ -118,6 +123,19 @@ StepResult apply_combat(RunState& state, const CombatInput& input, Scratch& scra
     state.combat().phase = CombatPhase::invalid;
     return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity};
 } catch (...) { return fail(state, Restriction::invalid_state); }
+} // namespace
+StepResult apply_combat(RunState& state, const CombatInput& input, Scratch& scratch, const Ruleset& rules) noexcept {
+    const auto restriction = validate_combat(state, input, rules);
+    if (restriction == Restriction::unsupported_setup) return {StepStatus::unsupported_content, state.data.boundary, restriction};
+    if (restriction != Restriction::none) return result(state, restriction);
+    return execute_combat(state, input, scratch, rules);
+}
+StepResult apply_combat_trusted(RunState& state, const CombatInput& input, Scratch& scratch, const Ruleset& rules) noexcept {
+    STS2_CHECK_INVARIANT(legal_combat_input(state, input, rules) == Restriction::none);
+    for (const auto& slot : state.cards().slots())
+        if (slot.live && !supported_card_modifiers(slot.value)) return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
+    return execute_combat(state, input, scratch, rules);
+}
 StepResult apply_power_scenario(RunState& state, const PowerApplication& operation, Scratch& scratch) noexcept {
     if (!valid_combat(state)) return result(state, Restriction::invalid_state);
     if (state.combat().phase != CombatPhase::play || !state.execution().empty()) return result(state, Restriction::wrong_phase);

@@ -1,6 +1,8 @@
 #include "sts2/engine/run.hpp"
 #include "sts2/engine/rewards.hpp"
 #include "run_flow.hpp"
+#include "../transitions.hpp"
+#include "../defensive.hpp"
 #include <algorithm>
 #include <limits>
 #include <new>
@@ -35,10 +37,10 @@ StepResult enter_combat_scenario(RunState& state, BoundaryId boundary, std::stri
     } catch (const std::bad_alloc&) { return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; } catch (const std::length_error&) { return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; }
 }
 namespace {
-StepResult apply_combat_transition(RunState& state, const CombatInput& input, Scratch& scratch) {
+StepResult apply_combat_transition(RunState& state, const CombatInput& input, Scratch& scratch, bool trusted) {
     if (state.data.phase != RunPhase::combat || !state.data.combat)
         return {StepStatus::invalid_action, state.data.boundary, Restriction::wrong_phase};
-    const auto result = apply_combat(state, input, scratch);
+    const auto result = trusted ? apply_combat_trusted(state, input, scratch) : apply_combat(state, input, scratch);
     if (result.status == StepStatus::invalid_action || result.status == StepStatus::unsupported_content) return result;
     if (result.status == StepStatus::combat_won) state.data.phase = RunPhase::combat_done;
     else if (result.status == StepStatus::player_died) state.data.phase = RunPhase::complete;
@@ -53,27 +55,30 @@ StepResult apply_combat_transition(RunState& state, const CombatInput& input, Sc
     }
     return result;
 }
-StepResult apply_run_transition(RunState& state, const RunInput& input, Scratch& scratch) {
+StepResult apply_run_transition(RunState& state, const RunInput& input, Scratch& scratch, bool trusted) {
     RunActionPlan plan;
-    const auto checked = plan_run_input(state, input, plan, ValidationMode::execution);
+    if (!trusted) {
+        if (state.data.phase == RunPhase::uninitialized || state.data.phase == RunPhase::invalid)
+            return {StepStatus::engine_error, state.data.boundary, Restriction::invalid_state};
+        const auto restriction = legal_run_input(state, input);
+        if (restriction != Restriction::none)
+            return {restriction == Restriction::unsupported_setup ? StepStatus::unsupported_content : StepStatus::invalid_action, state.data.boundary, restriction};
+    }
+    const auto checked = prepare_run_input(state, input, plan, ValidationMode::execution);
     if (checked.status != StepStatus::awaiting_input) return checked;
     const auto entering_generation = plan.entering_generation;
     const auto generate_rewards = plan.generate_rewards;
     const auto destination = plan.destination;
     const auto reward_kind = plan.reward_kind;
-    std::optional<RunState> entering_combat;
-    if (destination != no_node) {
-        try {
-            entering_combat.emplace(state);
-            const auto initialized = prepare_combat(*entering_combat, scratch, state.data.boundary);
-            if (initialized.status != StepStatus::awaiting_input) return initialized;
-        } catch (const std::bad_alloc&) { return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; }
-          catch (const std::length_error&) { return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; }
-    }
+    const bool entering_combat = destination != no_node;
     if (state.data.boundary.value == UINT32_MAX) { state.data.phase = RunPhase::invalid; return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; }
     try {
-        if (entering_combat) state = std::move(*entering_combat);
-        // All validation precedes mutation. Prepare owning growth before time/payment.
+        if (entering_combat) {
+            const auto initialized = prepare_combat(state, scratch, state.data.boundary);
+            if (initialized.status != StepStatus::awaiting_input) return initialized;
+        }
+        // Legality precedes mutation. Reserve owning growth before time/payment;
+        // execution failures may leave a partially modified branch.
         if (input.kind == RunInputKind::choose_option && state.data.phase == RunPhase::neow) state.relics().reserve(state.relics().size() + 1);
         if (entering_combat) {
             state.visited().reserve(state.visited().size() + 1);
@@ -116,9 +121,19 @@ StepResult apply_run_transition(RunState& state, const RunInput& input, Scratch&
     } catch (const std::bad_alloc&) { state.data.phase = RunPhase::invalid; return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; } catch (const std::length_error&) { state.data.phase = RunPhase::invalid; return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; }
 }
 } // namespace
+StepResult apply_input_checked_state(RunState& state, const PlayerInput& input, Scratch& scratch) {
+    if (const auto* run = std::get_if<RunInput>(&input)) return apply_run_transition(state, *run, scratch, false);
+    return apply_combat_transition(state, std::get<CombatInput>(input), scratch, false);
+}
 StepResult apply_input(RunState& state, const PlayerInput& input, Scratch& scratch) {
     if (!valid_creature_storage(state.data, state.overflow) || !valid_room_context(state)) return {StepStatus::engine_error, state.data.boundary, Restriction::invalid_state};
-    if (const auto* run = std::get_if<RunInput>(&input)) return apply_run_transition(state, *run, scratch);
-    return apply_combat_transition(state, std::get<CombatInput>(input), scratch);
+    return apply_input_checked_state(state, input, scratch);
+}
+StepResult apply_input_trusted(RunState& state, const PlayerInput& input, Scratch& scratch) {
+    if (const auto* run = std::get_if<RunInput>(&input)) {
+        STS2_CHECK_INVARIANT(flow::legal_run_input(state, *run) == Restriction::none);
+        return apply_run_transition(state, *run, scratch, true);
+    }
+    return apply_combat_transition(state, std::get<CombatInput>(input), scratch, true);
 }
 } // namespace sts2::engine

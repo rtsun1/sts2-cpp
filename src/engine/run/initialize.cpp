@@ -2,6 +2,7 @@
 #include "sts2/content/cards.hpp"
 #include "../mechanics/cards.hpp"
 #include "run_flow.hpp"
+#include "../transitions.hpp"
 #include <algorithm>
 #include <new>
 #include <stdexcept>
@@ -147,7 +148,7 @@ StepResult flow::prepare_combat(RunState& run, Scratch& scratch, BoundaryId reje
     config.seed = run.seed(); config.clock = run.data.clock.config(); config.initial_rng = &run.data.rng;
     config.deck = deck; config.player_hp = run.player().hp; config.player_max_hp = run.player().max_hp;
     config.card_generation = next_combat_generation(run);
-    const auto result = initialize_combat(run, config, scratch);
+    const auto result = initialize_combat_in_place(run, config, scratch);
     if (result.status == StepStatus::awaiting_input) {
         for (std::size_t i = 0; i < run.cards().slots().size(); ++i) {
             const auto& slot = run.cards().slots()[i];

@@ -1,5 +1,7 @@
 #include "sts2/engine/action.hpp"
 #include "run/run_flow.hpp"
+#include "transitions.hpp"
+#include "defensive.hpp"
 #include <algorithm>
 
 namespace sts2::engine {
@@ -18,13 +20,13 @@ bool is_canonical(const RunInput& input) {
     return true;
 }
 StepResult submit_action(RunState& state, const PlayerInput& input, Scratch& scratch) {
-    if (!valid_creature_storage(state.data, state.overflow)) return {StepStatus::engine_error, state.data.boundary, Restriction::invalid_state};
+    if (!valid_creature_storage(state.data, state.overflow) || !flow::valid_room_context(state)) return {StepStatus::engine_error, state.data.boundary, Restriction::invalid_state};
     if (const auto* run = std::get_if<RunInput>(&input)) {
         if (run->expected_boundary != state.data.boundary) return {StepStatus::invalid_action, state.data.boundary, Restriction::stale_boundary};
         if (!is_canonical(*run)) return {StepStatus::invalid_action, state.data.boundary, Restriction::malformed_action};
         if (run->kind == RunInputKind::proceed || needs_automatic_transition(state)) return {StepStatus::invalid_action, state.data.boundary, Restriction::wrong_phase};
     }
-    return apply_input(state, input, scratch);
+    return apply_input_checked_state(state, input, scratch);
 }
 }
 std::size_t ActionSpaceView::size() const noexcept {
@@ -165,10 +167,10 @@ std::vector<PlayerAction> get_actions(const RunState& state) {
     for (std::size_t i = 0; i < offered.size(); ++i) actions.push_back(*offered.at(i));
     return actions;
 }
-StepResult advance_to_decision(RunState& state, Scratch& scratch) {
-    if (!valid_creature_storage(state.data, state.overflow)) return {StepStatus::engine_error, state.data.boundary, Restriction::invalid_state};
+namespace {
+StepResult advance_decision(RunState& state, Scratch& scratch) {
     while (needs_automatic_transition(state)) {
-        const auto result = apply_input(state, RunInput{state.data.boundary, RunInputKind::proceed}, scratch);
+        const auto result = apply_input_trusted(state, RunInput{state.data.boundary, RunInputKind::proceed}, scratch);
         if (result.status != StepStatus::awaiting_input) {
             // The initiating player input has already executed. A missing
             // automatic capability cannot be published as a valid partial stop.
@@ -178,13 +180,25 @@ StepResult advance_to_decision(RunState& state, Scratch& scratch) {
     }
     if (state.data.phase == RunPhase::invalid || state.data.phase == RunPhase::uninitialized)
         return {StepStatus::engine_error, state.data.boundary, Restriction::invalid_state};
+    STS2_CHECK_INVARIANT(valid_run(state));
     if (state.data.phase == RunPhase::complete) return {StepStatus::player_died, state.data.boundary};
     if (state.data.phase == RunPhase::combat_done) return {StepStatus::combat_won, state.data.boundary};
     return {StepStatus::awaiting_input, state.data.boundary};
 }
+} // namespace
+StepResult advance_to_decision(RunState& state, Scratch& scratch) {
+    if (!valid_creature_storage(state.data, state.overflow) || !flow::valid_room_context(state)) return {StepStatus::engine_error, state.data.boundary, Restriction::invalid_state};
+    return advance_decision(state, scratch);
+}
+StepResult apply_action_trusted(RunState& state, const PlayerInput& input, Scratch& scratch) {
+    STS2_CHECK_INVARIANT(valid_run(state));
+    const auto result = apply_input_trusted(state, input, scratch);
+    if (result.status != StepStatus::awaiting_input && result.status != StepStatus::combat_won) return result;
+    return advance_decision(state, scratch);
+}
 StepResult apply_action(RunState& state, const PlayerInput& input, Scratch& scratch) {
     const auto result = submit_action(state, input, scratch);
     if (result.status != StepStatus::awaiting_input && result.status != StepStatus::combat_won) return result;
-    return advance_to_decision(state, scratch);
+    return advance_decision(state, scratch);
 }
 } // namespace sts2::engine

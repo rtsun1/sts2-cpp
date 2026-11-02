@@ -1,5 +1,6 @@
 #include "sts2/engine/run.hpp"
 #include "lifecycle.hpp"
+#include "../transitions.hpp"
 #include "trace.hpp"
 #include "../mechanics/cards.hpp"
 #include <algorithm>
@@ -14,7 +15,8 @@ constexpr std::array starting_deck = {
     CardSpec{CardId::strike}, CardSpec{CardId::strike}, CardSpec{CardId::defend},
     CardSpec{CardId::defend}, CardSpec{CardId::defend}, CardSpec{CardId::defend}, CardSpec{CardId::bash}};
 }
-StepResult initialize_combat(RunState& state, const CombatConfig& config, Scratch& scratch, const Ruleset& rules, Limits limits) {
+namespace {
+StepResult initialize_combat_impl(RunState& state, const CombatConfig& config, Scratch& scratch, const Ruleset& rules, Limits limits, bool in_place) {
     if (config.build != game_build || config.ascension != 0 || config.encounter != "ENCOUNTER.SHRINKER_BEETLE_WEAK" ||
         config.seed.empty() || config.seed.size() > 4096 || config.player_max_hp < 1 || config.player_hp < 1 || config.player_hp > config.player_max_hp ||
         config.enemy_count < 1 || config.enemy_count > 2 || config.card_generation == 0 || config.enemy_hp < 0 || config.enemy_hp > 40 || config.exhaust_relics.size() > 2 || config.joss_paper_counter >= 5 ||
@@ -34,9 +36,11 @@ StepResult initialize_combat(RunState& state, const CombatConfig& config, Scratc
     if (config.joss_paper_counter != 0 && std::find(config.exhaust_relics.begin(), config.exhaust_relics.end(), ExhaustRelic::joss_paper) == config.exhaust_relics.end())
         return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
     try {
-        RunState next(state.overflow.allocator());
-        const bool fresh = state.data.phase == RunPhase::uninitialized || state.data.phase == RunPhase::invalid ||
-            !state.valid_storage() || state.seed() != config.seed;
+        std::optional<RunState> staged;
+        if (!in_place) staged.emplace(state.overflow.allocator());
+        RunState& next = in_place ? state : *staged;
+        const bool fresh = !in_place && (state.data.phase == RunPhase::uninitialized || state.data.phase == RunPhase::invalid ||
+            !state.valid_storage() || state.seed() != config.seed);
         if (!fresh && state.data.clock.config() != config.clock)
             return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
         if (fresh) {
@@ -51,7 +55,7 @@ StepResult initialize_combat(RunState& state, const CombatConfig& config, Scratc
             next.deck().clear();
             for (const auto& card : deck)
                 next.deck().push_back({SetupRules::find(rules.card(card.definition)->model_id), static_cast<std::uint32_t>(next.deck().size()), static_cast<std::uint32_t>(card.upgraded), -1, card.enchantment});
-        } else next = state;
+        } else if (!in_place) next = state;
         next.emplace_combat();
         next.data.phase = RunPhase::combat;
         next.data.combat_generation = config.card_generation;
@@ -83,14 +87,22 @@ StepResult initialize_combat(RunState& state, const CombatConfig& config, Scratc
         next.combat().phase = CombatPhase::play;
         scratch.steps = 0;
         next.execution().push_back(DrawFrame{.remaining = 5});
-        const auto drawn = advance_combat(next, scratch, rules);
+        const auto drawn = advance_combat_trusted(next, scratch, rules);
         if (drawn.status == StepStatus::engine_error || drawn.status == StepStatus::resource_limit)
             return {drawn.status, state.data.boundary, drawn.reason};
         if (fresh) next.data.boundary.value = 1;
         emit(next, scratch, CombatEventKind::combat_updated);
-        state = std::move(next);
+        if (!in_place) state = std::move(next);
     } catch (const std::bad_alloc&) { return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; } catch (const std::length_error&) { return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; }
     scratch.steps = 0;
     return result(state);
 }
+} // namespace
+StepResult initialize_combat(RunState& state, const CombatConfig& config, Scratch& scratch, const Ruleset& rules, Limits limits) {
+    return initialize_combat_impl(state, config, scratch, rules, limits, false);
+}
+StepResult initialize_combat_in_place(RunState& state, const CombatConfig& config, Scratch& scratch) {
+    return initialize_combat_impl(state, config, scratch, Ruleset::pinned(), {}, true);
+}
+
 }

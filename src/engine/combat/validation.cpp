@@ -50,6 +50,9 @@ Restriction validate_combat(const RunState& state, const CombatInput& input, con
         return Restriction::invalid_state;
     for (const auto& slot : state.cards().slots())
         if (slot.live && !supported_card_modifiers(slot.value)) return Restriction::unsupported_setup;
+    return legal_combat_input(state, input, rules);
+}
+Restriction legal_combat_input(const RunState& state, const CombatInput& input, const Ruleset& rules) noexcept {
     if (state.combat().enemy_side) return Restriction::wrong_phase;
     if (input.expected_boundary != state.data.boundary) return Restriction::stale_boundary;
     if (state.combat().phase == CombatPhase::combat_won || state.combat().phase == CombatPhase::player_died) return Restriction::wrong_phase;

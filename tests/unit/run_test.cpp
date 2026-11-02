@@ -20,6 +20,50 @@
 namespace sts2::engine {
 namespace {
 using Json = nlohmann::json;
+// Public seam: sequential legal enumeration and checked/trusted application.
+bool same_input(const PlayerInput& a, const PlayerInput& b) {
+    if (a.index() != b.index()) return false;
+    if (const auto* x = std::get_if<RunInput>(&a)) {
+        const auto& y = std::get<RunInput>(b);
+        return x->expected_boundary == y.expected_boundary && x->kind == y.kind &&
+            x->option == y.option && x->col == y.col && x->row == y.row;
+    }
+    const auto& x = std::get<CombatInput>(a); const auto& y = std::get<CombatInput>(b);
+    return x.expected_boundary == y.expected_boundary && x.kind == y.kind && x.card == y.card && x.target == y.target && x.prompt == y.prompt;
+}
+void compare_action_paths(const RunState& root, bool compare_offered = true, unsigned depth = 1) {
+    ASSERT_TRUE(valid_run(root));
+    std::vector<PlayerInput> legal;
+    for_each_legal_action(root, [&](const PlayerInput& input) { legal.push_back(input); });
+    for (std::size_t i = 0; i < legal.size(); ++i)
+        for (std::size_t j = 0; j < i; ++j) EXPECT_FALSE(same_input(legal[i], legal[j]));
+    if (compare_offered) {
+        auto offered = get_actions(root);
+        std::erase_if(offered, [](const auto& action) { return action.restriction != Restriction::none; });
+        EXPECT_EQ(legal.size(), offered.size());
+        for (const auto& action : offered)
+            EXPECT_EQ(std::count_if(legal.begin(), legal.end(), [&](const auto& input) { return same_input(input, action.input); }), 1);
+    }
+    for (const auto& input : legal) {
+        RunState checked = root, trusted = root; Scratch a, b;
+        const auto x = apply_action(checked, input, a), y = apply_action_trusted(trusted, input, b);
+        EXPECT_EQ(x.status, y.status); EXPECT_EQ(x.reason, y.reason); EXPECT_EQ(x.boundary, y.boundary);
+        if (x.status == StepStatus::awaiting_input || x.status == StepStatus::combat_won || x.status == StepStatus::player_died) {
+            EXPECT_EQ(checked, trusted);
+            EXPECT_TRUE(valid_run(trusted));
+            if (depth > 1) compare_action_paths(trusted, compare_offered, depth - 1);
+        }
+    }
+}
+TEST(TrustedActions, OrdinaryAndOverflowCombatAgreeWithCheckedPaths) {
+    RunState root;
+    ASSERT_EQ(initialize_seeded_combat(root, {}).status, StepStatus::awaiting_input);
+    compare_action_paths(root, true, 2);
+    std::array<CardSpec, 200> deck;
+    for (std::size_t i = 0; i < deck.size(); ++i) deck[i] = CardSpec{i % 2 ? CardId::strike : CardId::defend};
+    ASSERT_EQ(initialize_combat_scenario(root, {}, deck).status, StepStatus::awaiting_input);
+    compare_action_paths(root, true, 2);
+}
 TEST(PublicRun, PermanentCreatureAttributesRemainVisibleAndSurviveCheckpoint) {
     RunState state; Scratch scratch;
     ASSERT_EQ(initialize_combat_scenario(state, {}, {}).status, StepStatus::awaiting_input);
@@ -1224,5 +1268,134 @@ TEST(RunValidation, CorruptMapEdgeMetadataAndRewardFlagsAreRejected) {
     state = session.state(); state.data.card_rarity_offset = std::numeric_limits<float>::quiet_NaN(); EXPECT_FALSE(valid_run(state));
     state = session.state(); state.data.rewards->selected_card = 200; EXPECT_FALSE(valid_run(state));
 }
+TEST(TrustedActions, RunChoicesAndHiddenUnsupportedDestinationsAgree) {
+    RunState root;
+    ASSERT_EQ(initialize_run(root, {}).status, StepStatus::awaiting_input);
+    // Legal options include unsupported relics: legacy offered filtering is a
+    // capability-filtered subset at Neow, not the legal set.
+    compare_action_paths(root, false, 2);
+    for (auto count : {2u, 13u, 16u}) compare_action_paths(until(count).state());
+    root = until(13).state(); Scratch scratch;
+    ASSERT_EQ(apply_action(root, RunInput{root.data.boundary, RunInputKind::take_reward, 2}, scratch).status, StepStatus::awaiting_input);
+    compare_action_paths(root, true, 2);
+    root = until(2).state();
+    const auto different = std::find_if(root.act(0).normal.begin(), root.act(0).normal.end(),
+        [&](auto value) { return value != root.act(0).normal[0]; });
+    ASSERT_NE(different, root.act(0).normal.end());
+    root.act(0).normal[0] = *different;
+    compare_action_paths(root);
+}
+TEST(TrustedActions, OrdinaryAndNestedLargePilePromptsResumeEquivalently) {
+    for (bool large : {false, true}) {
+        RunState state; Scratch scratch;
+        scenario::prepare_exhaust_shuffle(state, large);
+        for (auto definition : {CardId::defend, CardId::burning_pact}) {
+            CardHandle selected{};
+            for (auto card : state.zone(Zone::hand)) if (state.cards().get(card)->definition == definition) { selected = card; break; }
+            ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, selected}, scratch).status, StepStatus::awaiting_input);
+        }
+        compare_action_paths(state, true, 2);
+        ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, state.selection_candidates().front(), {}, state.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
+        compare_action_paths(state, true, 2);
+        ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, {}, state.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
+        ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+        compare_action_paths(state);
+        // Check selected/deselected identities and subsequent confirmation too.
+        ASSERT_EQ(apply_action_trusted(state, CombatInput{state.data.boundary, CombatInputKind::select_card, state.selection_candidates().front(), {}, state.combat().selection.id}, scratch).status, StepStatus::awaiting_input);
+        compare_action_paths(state);
+    }
+}
+TEST(TrustedActions, ExecutionBudgetFailureAgreesAndEnumerationDoesNotAllocate) {
+    test::AllocationCounter counter; RunState root(counter.allocator());
+    ASSERT_EQ(initialize_seeded_combat(root, {}).status, StepStatus::awaiting_input);
+    const auto before = counter.allocations;
+    counter.fail_after = before;
+    unsigned count = 0;
+    for_each_legal_action(root, [&](const PlayerInput&) { ++count; });
+    EXPECT_GT(count, 0u); EXPECT_EQ(counter.allocations, before);
+    RunState a = root, b = root; Scratch x, y; x.step_limit = y.step_limit = 0;
+    const PlayerInput end = CombatInput{root.data.boundary, CombatInputKind::end_turn};
+    const auto checked = apply_action(a, end, x), trusted = apply_action_trusted(b, end, y);
+    EXPECT_EQ(checked.status, StepStatus::engine_error); EXPECT_EQ(checked.reason, Restriction::execution_budget);
+    EXPECT_EQ(checked.status, trusted.status); EXPECT_EQ(checked.reason, trusted.reason);
+}
+
+TEST(TrustedActions, DiscardAndAutomaticSelectionPromptsAgree) {
+    RunState state; Scratch scratch;
+    const std::array deck{CardSpec{CardId::survivor}, CardSpec{CardId::strike}, CardSpec{CardId::defend}};
+    ASSERT_EQ(initialize_combat_scenario(state, {}, deck).status, StepStatus::awaiting_input);
+    CardHandle source{};
+    for (auto card : state.zone(Zone::hand)) if (state.cards().get(card)->definition == CardId::survivor) source = card;
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, source}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(state.combat().phase, CombatPhase::discard_choice);
+    compare_action_paths(state, true, 2);
+    const std::array headbutt{CardSpec{CardId::headbutt}, CardSpec{CardId::defend}, CardSpec{CardId::defend}};
+    ASSERT_EQ(initialize_combat_scenario(state, {}, headbutt).status, StepStatus::awaiting_input);
+    const auto hand = std::vector<CardHandle>(state.zone(Zone::hand).begin(), state.zone(Zone::hand).end());
+    for (auto card : hand) if (state.cards().get(card)->definition == CardId::defend)
+        ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, card}, scratch).status, StepStatus::awaiting_input);
+    for (auto card : state.zone(Zone::hand)) if (state.cards().get(card)->definition == CardId::headbutt) source = card;
+    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, source, state.enemy_handle()}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_TRUE(state.combat().selection.automatic_at_maximum);
+    compare_action_paths(state, true, 2);
+}
+TEST(TrustedActions, CombatEntryAllocationFailureAgreesWithoutRollback) {
+    test::AllocationCounter counter;
+    RunState root(counter.allocator());
+    root = until(2).state();
+    // Force combat storage growth through a supported permanent deck.
+    const auto card = root.deck()[0];
+    for (std::uint32_t i = 10; i < 200; ++i) {
+        auto added = card; added.instance = i; root.deck().push_back(added);
+    }
+    ASSERT_TRUE(valid_run(root));
+    std::vector<PlayerInput> legal;
+    for_each_legal_action(root, [&](const PlayerInput& input) { legal.push_back(input); });
+    ASSERT_FALSE(legal.empty());
+    RunState a = root, b = root; Scratch x, y;
+    counter.fail_after = counter.allocations;
+    const auto checked = apply_action(a, legal.front(), x), trusted = apply_action_trusted(b, legal.front(), y);
+    EXPECT_EQ(checked.status, StepStatus::resource_limit); EXPECT_EQ(checked.reason, Restriction::capacity);
+    EXPECT_EQ(checked.status, trusted.status); EXPECT_EQ(checked.reason, trusted.reason);
+}
+
+TEST(TrustedActions, UnsupportedCombatCapabilityRemainsAnExecutionResult) {
+    RunState root; Scratch scratch;
+    ASSERT_EQ(initialize_seeded_combat(root, {}).status, StepStatus::awaiting_input);
+    root.cards().get(root.zone(Zone::hand).front())->base_replay_count = 1;
+    ASSERT_TRUE(valid_run(root));
+    std::vector<PlayerInput> legal;
+    for_each_legal_action(root, [&](const PlayerInput& input) { legal.push_back(input); });
+    ASSERT_FALSE(legal.empty());
+    RunState checked = root, trusted = root;
+    const auto a = apply_action(checked, legal.front(), scratch), b = apply_action_trusted(trusted, legal.front(), scratch);
+    EXPECT_EQ(a.status, StepStatus::unsupported_content); EXPECT_EQ(a.reason, Restriction::unsupported_setup);
+    EXPECT_EQ(a.status, b.status); EXPECT_EQ(a.reason, b.reason);
+}
+TEST(TrustedActions, ResolvedRewardsHaveNoPlayerActionsBeforeAutomaticAdvance) {
+    auto root = until(13).state(); Scratch scratch;
+    root.potions().push_back(SetupRules::find("POTION.POTION_OF_BINDING"));
+    ASSERT_EQ(apply_input(root, RunInput{root.data.boundary, RunInputKind::skip_rewards}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_TRUE(valid_run(root));
+    ASSERT_TRUE(root.data.rewards->resolved);
+    unsigned count = 0;
+    for_each_legal_action(root, [&](const PlayerInput&) { ++count; });
+    EXPECT_EQ(count, 0u);
+}
+
+TEST(TrustedActions, CheckedRunInputsKeepInvalidStateClassification) {
+    for (auto phase : {RunPhase::invalid, RunPhase::uninitialized}) {
+        RunState root; Scratch scratch;
+        ASSERT_EQ(initialize_run(root, {}).status, StepStatus::awaiting_input);
+        root.data.phase = phase;
+        const auto before = root;
+        const PlayerInput input = RunInput{root.data.boundary, RunInputKind::choose_option, 0};
+        const auto a = apply_input(root, input, scratch), b = apply_action(root, input, scratch);
+        EXPECT_EQ(a.status, StepStatus::engine_error); EXPECT_EQ(a.reason, Restriction::invalid_state);
+        EXPECT_EQ(a.status, b.status); EXPECT_EQ(a.reason, b.reason);
+        EXPECT_EQ(root, before);
+    }
+}
+
 }
 } // namespace sts2::engine

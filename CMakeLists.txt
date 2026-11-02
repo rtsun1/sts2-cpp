@@ -36,6 +36,8 @@ add_library(sts2_engine
   src/engine/run/step.cpp
   src/engine/run/validation.cpp
 )
+option(STS2_DEFENSIVE_VALIDATION "Enable internal engine invariant diagnostics" OFF)
+target_compile_definitions(sts2_engine PRIVATE STS2_DEFENSIVE_VALIDATION=$<BOOL:${STS2_DEFENSIVE_VALIDATION}>)
 target_link_libraries(sts2_engine PUBLIC sts2_content)
 add_library(sts2_observation src/observation/observe.cpp src/observation/run.cpp)
 target_link_libraries(sts2_observation PUBLIC sts2_engine)
