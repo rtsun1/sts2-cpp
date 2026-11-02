@@ -35,7 +35,7 @@ SHIP (explicitly requested for routine/delegated work):
 - Never equate passing tests with complete correctness.
 - Never claim that I understand code merely because
   you have explained it.
-- Keep learning checkpoints proportional to the task.
+- Keep learning checkpoints proportional to task complexity.
 
 I may explicitly override LEARN mode when appropriate.
 
@@ -67,7 +67,7 @@ Adhere strictly to these architectural constraints when writing or refactoring C
    - Logic should be data-driven (e.g., using CardId enums and flat switch statements/dispatch tables) or leverage compile-time static polymorphism (templates, overloading, or "deducing this") with zero runtime overhead.
 
 4. **Bitwise Optimization:**
-   - Represent status flags, boolean conditions, and player/enemy states as packed bitfields (`uint64_t`) to optimize space.
+   - Represent status flags, boolean conditions, and player/enemy states as compact representations such as packed bitfields (`uint64_t`) where benchmarks or state-size analysis justify them.
 
 5. **Strict Parity & No Unrequested Abstractions:**
    - Do not wrap game logic in complex software design patterns (Factories, Observers, Event buses) unless explicitly requested. Keep logic procedural, explicit, and cache-friendly.
@@ -102,6 +102,8 @@ Recent commits generally use `feat:`, `fix(oracle):`, `refactor(oracle):`, or `d
 ## Engine Boundaries
 
 Keep rules/engine transitions deterministic and independent of JSON, filesystem access, and game assemblies. Reject unsupported content explicitly. Live oracle checks require a local game installation; consult `tools/README.md` before running them.
+
+Before adding, refactoring, or reviewing engine code, read and follow the [module ownership rules](docs/specs/engine/hooks.md#module-ownership).
 
 ## Agent skills
 
