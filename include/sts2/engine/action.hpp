@@ -1,6 +1,5 @@
 #pragma once
-#include "sts2/engine/run.hpp"
-#include <algorithm>
+#include "sts2/engine/action_rules.hpp"
 #include <optional>
 #include <vector>
 
@@ -56,24 +55,23 @@ void for_each_legal_action(const RunState& state, Consumer&& consume) {
         const auto& combat = state.combat();
         if (combat.enemy_side) return;
         if (combat.phase == CombatPhase::card_choice) {
-            const auto selected = state.selection_order();
             for (auto card : state.selection_candidates()) {
-                const bool present = std::find(selected.begin(), selected.end(), card) != selected.end();
+                const bool present = action_rules::is_card_selected(state, card);
                 consume(PlayerInput{CombatInput{state.data.boundary,
                     present ? CombatInputKind::deselect_card : CombatInputKind::select_card,
                     card, {}, combat.selection.id}});
             }
-            if (!combat.selection.automatic_at_maximum && selected.size() >= combat.selection.minimum && selected.size() <= combat.selection.maximum)
+            if (action_rules::selection_confirmation_restriction(state) == Restriction::none)
                 consume(PlayerInput{CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, {}, combat.selection.id}});
         } else if (combat.phase == CombatPhase::discard_choice) {
             for (auto card : state.zone(Zone::hand))
                 consume(PlayerInput{CombatInput{state.data.boundary, CombatInputKind::select_card, card}});
         } else if (combat.phase == CombatPhase::play) {
             for (auto card : state.zone(Zone::hand)) {
-                if (combat.energy < effective_card_cost(state, card)) continue;
+                if (action_rules::card_play_restriction(state, card) != Restriction::none) continue;
                 const auto* definition = Ruleset::pinned().card(state.cards().get(card)->definition);
                 if (definition->enemy_target) {
-                    for (auto target : state.enemies()) if (state.creature(target)->hp > 0)
+                    for (auto target : state.enemies()) if (action_rules::is_living_enemy(state, target))
                         consume(PlayerInput{CombatInput{state.data.boundary, CombatInputKind::play_card, card, target}});
                 } else consume(PlayerInput{CombatInput{state.data.boundary, CombatInputKind::play_card, card}});
             }
@@ -98,14 +96,15 @@ void for_each_legal_action(const RunState& state, Consumer&& consume) {
             for (std::uint32_t i = 0; i < rewards.cards.size(); ++i) offer(RunInputKind::choose_reward_card, i);
             offer(RunInputKind::reward_alternative);
         } else {
-            if (!rewards.gold_taken) offer(RunInputKind::take_reward, 0);
-            if (rewards.potion != no_content && !rewards.potion_taken) offer(RunInputKind::take_reward, 1);
-            if (!rewards.card_taken) offer(RunInputKind::take_reward, rewards.potion == no_content ? 1 : 2);
+            if (action_rules::reward_available(rewards, 0)) offer(RunInputKind::take_reward, 0);
+            if (rewards.potion != no_content && action_rules::reward_available(rewards, 1)) offer(RunInputKind::take_reward, 1);
+            const auto card_option = action_rules::reward_card_option(rewards);
+            if (action_rules::reward_available(rewards, card_option)) offer(RunInputKind::take_reward, card_option);
             offer(RunInputKind::skip_rewards);
         }
     }
-    if ((state.data.phase == RunPhase::map || state.data.phase == RunPhase::rewards) && !(state.data.rewards && state.data.rewards->selecting_card))
-        for (std::uint32_t i = 0; i < state.potions().size(); ++i) if (state.potions()[i] != no_content) offer(RunInputKind::discard_potion, i);
+    if (action_rules::potion_discard_phase_restriction(state) == Restriction::none)
+        for (std::uint32_t i = 0; i < state.potions().size(); ++i) if (action_rules::potion_available(state, i)) offer(RunInputKind::discard_potion, i);
 }
 // Execute automatic transitions until a decision or terminal result is reached.
 [[nodiscard]] StepResult advance_to_decision(RunState&, Scratch&);

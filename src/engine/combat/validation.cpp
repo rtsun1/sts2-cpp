@@ -1,5 +1,6 @@
 #include "sts2/engine/combat.hpp"
 #include "validation.hpp"
+#include "sts2/engine/action_rules.hpp"
 #include "../execution/validation.hpp"
 #include "../execution/selection.hpp"
 #include "../mechanics/cards.hpp"
@@ -76,9 +77,8 @@ Restriction legal_combat_input(const RunState& state, const CombatInput& input, 
     if (input.kind == CombatInputKind::select_card) return Restriction::none;
     const auto* definition = rules.card(card->definition);
     if (!definition) return Restriction::invalid_state;
-    if (definition->enemy_target != input.target.present() || (input.target.present() && (!state.is_enemy(input.target) || state.creature(input.target)->hp <= 0))) return Restriction::invalid_target;
-    if (state.combat().energy < effective_card_cost(state, input.card, rules)) return Restriction::insufficient_energy;
-    return Restriction::none;
+    if (definition->enemy_target != input.target.present() || (input.target.present() && !action_rules::is_living_enemy(state, input.target))) return Restriction::invalid_target;
+    return action_rules::card_play_restriction(state, input.card, rules);
 }
 bool valid_combat(const RunState& state, const Ruleset& rules) noexcept {
     if (!state.valid_combat_storage() || state.enemies().empty()) return false;

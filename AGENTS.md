@@ -101,9 +101,19 @@ Recent commits generally use `feat:`, `fix(oracle):`, `refactor(oracle):`, or `d
 
 ## Engine Boundaries
 
-Keep rules/engine transitions deterministic and independent of JSON, filesystem access, and game assemblies. Reject unsupported content explicitly. Live oracle checks require a local game installation; consult `tools/README.md` before running them.
+Keep rules/engine transitions deterministic and independent of JSON, filesystem access, and game assemblies. Checked APIs reject unsupported content explicitly; trusted performance execution assumes supported behavior. Live oracle checks require a local game installation; consult `tools/README.md` before running them.
 
 Before adding, refactoring, or reviewing engine code, read and follow the [module ownership rules](docs/specs/engine/hooks.md#module-ownership).
+
+### Validation ownership
+
+Before changing actions, mechanics, prompts, continuation resumption, or run transitions,
+read the [validation ownership contract](docs/specs/engine/public-run-loop.md#validation-ownership).
+Trusted performance execution assumes valid state, legal input, and supported behavior;
+keep revalidation at checked boundaries or behind `STS2_DEFENSIVE_VALIDATION`.
+Keep gameplay effect conditions and execution-budget, capacity, clock, and allocation-failure
+handling active. Validate new legality rules through shared predicates and public action-set
+equivalence tests, rather than adding general validators to trusted execution.
 
 ## Agent skills
 

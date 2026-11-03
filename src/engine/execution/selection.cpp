@@ -1,4 +1,5 @@
 #include "selection.hpp"
+#include "sts2/engine/action_rules.hpp"
 #include "../transitions.hpp"
 #include "../combat/lifecycle.hpp"
 #include "../mechanics/cards.hpp"
@@ -76,11 +77,10 @@ Restriction validate_selection_input(const RunState& state, const CombatInput& i
     if (input.target != CreatureHandle{}) return Restriction::malformed_action;
     if (input.kind == CombatInputKind::confirm_selection) {
         if (input.card != CardHandle{}) return Restriction::malformed_action;
-        if (state.combat().selection.automatic_at_maximum) return Restriction::wrong_phase;
-        return state.selection_order().size() >= state.combat().selection.minimum && state.selection_order().size() <= state.combat().selection.maximum ? Restriction::none : Restriction::invalid_selection;
+        return action_rules::selection_confirmation_restriction(state);
     }
     if (input.kind != CombatInputKind::select_card && input.kind != CombatInputKind::deselect_card) return Restriction::wrong_phase;
-    const bool selected = std::find(state.selection_order().begin(), state.selection_order().end(), input.card) != state.selection_order().end();
+    const bool selected = action_rules::is_card_selected(state, input.card);
     if (input.kind == CombatInputKind::deselect_card) return selected ? Restriction::none : Restriction::invalid_selection;
     return !selected && std::find(state.selection_candidates().begin(), state.selection_candidates().end(), input.card) != state.selection_candidates().end() ? Restriction::none : Restriction::invalid_selection;
 }

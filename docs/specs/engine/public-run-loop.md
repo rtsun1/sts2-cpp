@@ -132,6 +132,16 @@ ledger, reward-cost and hidden-travel fixes.
 
 Issue [#63](https://github.com/rtsun1/sts2-cpp/issues/63) adds
 `for_each_legal_action(state, consumer)` and `apply_action_trusted(state, input, scratch)`.
+Shared gameplay predicates live in `include/sts2/engine/action_rules.hpp` and are
+used by direct generation and checked validation. Card-wide play restrictions are
+evaluated once per card before target expansion. Target eligibility, selection
+confirmation/membership, reward availability/indices, and potion availability use
+the same rules in both paths. Payload shape, stale identity, phase, and membership
+checks remain at checked boundaries when generation already establishes those facts
+by traversal. These predicates perform no general state-integrity or support checks.
+Action-set equivalence tests remain necessary; shared predicates alone cannot detect
+a generation omission, and literal boundary cases also check the shared rules.
+
 The consumer is a statically dispatched callable receiving each `PlayerInput` in one
 sequential traversal. It controls storage and must not mutate the source during
 traversal. There is no action cache in complete state. Enumeration order is not a
@@ -180,6 +190,58 @@ transitions. Required definition/pool lookups and failures to construct or dispa
 missing behavior remain explicit; omitting support guards does not implement it. Diagnostic checks at
 continuation entry use storage/power/modifier invariants, since an unfinished
 operation is not a published decision state.
+
+### Validation ownership
+
+Validation location is part of the action API contract. Apply these rules when adding
+features or refactoring any helper reachable from action execution, including mechanics,
+prompts, suspended work, combat initialization, rewards, and automatic run advancement.
+
+| Responsibility | Checked execution, both builds | Trusted performance execution | Trusted defensive execution |
+| --- | --- | --- | --- |
+| State integrity and input shape/identity/legality | Validate at the owning input boundary before mutation; preserve rejection behavior | Caller preconditions; execution preserves invariants without revalidating input | Additional invariant/legality checks at selected boundaries |
+| Redundant content-support guards | Retain, including automatic transitions | Omit; caller guarantees implemented content and reachable effects | Retain support rejection |
+| Execution budget, capacity, clock, allocation failure | Retain | Retain | Retain |
+| Gameplay effect conditions and required definition/operand lookup | Execute | Execute | Execute |
+
+`STS2_DEFENSIVE_VALIDATION`, not `CMAKE_BUILD_TYPE` or `NDEBUG`, selects the diagnostic
+policy. A Debug build with this option off still uses the trusted performance contract.
+`valid_run` establishes the search root's integrity; it does not certify that every
+legal branch is supported. The search must establish support separately before calling
+trusted performance execution. An action belongs to its originating state or an exact
+copy. Discard execution failures; failed states may be partially modified.
+
+Maintain the following ownership when extending the engine:
+
+- Share reusable gameplay eligibility predicates through `action_rules.hpp`; keep
+  content-specific conditions in their owning content module. Generation evaluates
+  card-wide restrictions before expanding targets and uses the same predicates as
+  checked validation. Input payload/membership checks remain at checked boundaries
+  when traversal already establishes those facts. Preserve existing rejection precedence.
+- Keep transitions shared. Check the full helper call chain before adding a validator:
+  an unconditional `valid_run`, `validate_combat`, `validate_action`, or `legal_*`
+  call in a shared resumer also charges trusted execution. Put diagnostic revalidation
+  behind `STS2_CHECK_INVARIANT` and redundant support guards behind the defensive option
+  or the existing compile-time support policy. Use invariants appropriate to unfinished
+  operations rather than requiring intermediate state to be a published decision.
+- Preserve the checked/trusted distinction through automatic work. Checked advancement
+  uses `apply_automatic_run_input` to retain support guards for its already legal forced
+  input. Trusted advancement uses the support-assuming helpers, including
+  `prepare_run_input_trusted`, `initialize_combat_in_place_trusted`,
+  `generate_combat_rewards_trusted`, and `advance_combat_trusted` where applicable.
+- Evaluate gameplay conditions during execution. A power's live amount or an effect's
+  conditional behavior is gameplay, not defensive validation. Required operand/definition
+  lookup and explicit failure to construct missing behavior also remain runtime work.
+- Whenever legality changes, update public action-set equivalence tests and literal
+  edge cases. Check omissions, illegal additions, and duplicates independently of order.
+  For supported actions, compare checked/trusted results and complete states on independent
+  copies, including resumed decisions. Test both defensive-option settings and preserve
+  checked invalid-input rejection. Unsupported trusted calls in performance builds violate
+  preconditions and are not required to reject cleanly.
+
+Adding production state/input/support revalidation to trusted execution changes this
+contract and requires owner approval. New features must preserve the trusted invariants
+through their mutations instead of compensating with repeated validation.
 
 Measurements and verification for this change are recorded in
 [the action-path report](action-path-performance.md). These are supported-scenario

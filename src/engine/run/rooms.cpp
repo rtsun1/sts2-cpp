@@ -1,4 +1,5 @@
 #include "run_flow.hpp"
+#include "sts2/engine/action_rules.hpp"
 #include <algorithm>
 #include <climits>
 
@@ -33,18 +34,15 @@ Restriction legal_run_input(const RunState& state, const RunInput& input) noexce
             return input.kind == RunInputKind::reward_alternative && input.option == 0 ? Restriction::none : Restriction::invalid_selection;
         }
         if (input.kind == RunInputKind::take_reward) {
-            const auto card_index = rewards.potion == no_content ? 1u : 2u;
-            if (input.option > card_index || (input.option == 0 && rewards.gold_taken) ||
-                (input.option == 1 && card_index == 2 && rewards.potion_taken) || (input.option == card_index && rewards.card_taken)) return Restriction::invalid_selection;
+            if (!action_rules::reward_available(rewards, input.option)) return Restriction::invalid_selection;
             return Restriction::none;
         }
         return input.kind == RunInputKind::skip_rewards ? Restriction::none : Restriction::wrong_phase;
     }
     switch (input.kind) {
     case RunInputKind::discard_potion:
-        if (state.data.phase != RunPhase::rewards && state.data.phase != RunPhase::map) return Restriction::unsupported_setup;
-        if (state.data.rewards && state.data.rewards->selecting_card) return Restriction::wrong_phase;
-        return input.option < state.potions().size() && state.potions()[input.option] != no_content ? Restriction::none : Restriction::invalid_selection;
+        if (const auto restriction = action_rules::potion_discard_phase_restriction(state); restriction != Restriction::none) return restriction;
+        return action_rules::potion_available(state, input.option) ? Restriction::none : Restriction::invalid_selection;
     case RunInputKind::choose_option:
         if (state.data.phase == RunPhase::room) return input.option < 2 ? Restriction::none : Restriction::invalid_selection;
         if (state.data.phase != RunPhase::neow) return Restriction::wrong_phase;
@@ -151,7 +149,7 @@ void apply_reward_input(RunState& state_view, const RunInput& input, const RunAc
     const auto next_card_instance = plan.next_card_instance;
     auto& rewards = *state_view.data.rewards;
     if (input.kind == RunInputKind::take_reward) {
-        const auto card_index = rewards.potion == no_content ? 1u : 2u;
+        const auto card_index = action_rules::reward_card_option(rewards);
         if (input.option == 0) { state_view.data.gold += rewards.gold; rewards.gold_taken = true; }
         else if (input.option == card_index) rewards.selecting_card = true;
         else if (potion_slot < static_cast<std::size_t>(state_view.data.potion_slots)) {

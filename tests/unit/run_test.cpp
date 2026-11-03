@@ -1420,5 +1420,54 @@ TEST(TrustedActions, CheckedAutomaticRewardsRetainContentSupportChecks) {
     EXPECT_EQ(state.data.phase, RunPhase::invalid);
 }
 
+TEST(TrustedActions, EnergyAndLivingTargetsDetermineTheLegalActionSet) {
+    RunState root; Scratch scratch;
+    const std::array deck{CardSpec{CardId::strike}, CardSpec{CardId::strike}, CardSpec{CardId::strike}};
+    CombatConfig config; config.deck = deck; config.enemy_count = 2;
+    ASSERT_EQ(initialize_combat(root, config, scratch).status, StepStatus::awaiting_input);
+    const auto count_actions = [](const RunState& state) {
+        unsigned count = 0;
+        for_each_legal_action(state, [&](const PlayerInput&) { ++count; });
+        return count;
+    };
+    root.combat().energy = 0;
+    EXPECT_EQ(count_actions(root), 1u); // Only end-turn.
+    compare_action_paths(root);
+    root.combat().energy = 1;
+    EXPECT_EQ(count_actions(root), 7u); // Three strikes, two targets, plus end-turn.
+    compare_action_paths(root);
+    const auto dead = root.enemy_handle(); root.creature(dead)->hp = 0;
+    EXPECT_EQ(count_actions(root), 4u);
+    compare_action_paths(root);
+    root.combat().energy = 0;
+    // Checked rejection precedence remains target first, then affordability.
+    EXPECT_EQ(validate_action(root, CombatInput{root.data.boundary, CombatInputKind::play_card,
+        root.zone(Zone::hand).front(), dead}), Restriction::invalid_target);
+}
+TEST(TrustedActions, RewardIndicesAndPotionAvailabilityAgreeWithCheckedLegality) {
+    for (bool potion_reward : {false, true}) {
+        auto root = until(13).state(); Scratch scratch;
+        ASSERT_TRUE(root.data.rewards);
+        if (!potion_reward) root.data.rewards->potion = no_content;
+        else root.data.rewards->potion = SetupRules::find("POTION.POTION_OF_BINDING");
+        root.potions().clear(); root.potions().push_back(no_content);
+        root.potions().push_back(SetupRules::find("POTION.POTION_OF_BINDING"));
+        ASSERT_TRUE(valid_run(root));
+        compare_action_paths(root);
+        const std::uint32_t card_option = potion_reward ? 2 : 1;
+        auto cards = root;
+        ASSERT_EQ(apply_action(cards, RunInput{cards.data.boundary, RunInputKind::take_reward, card_option}, scratch).status, StepStatus::awaiting_input);
+        EXPECT_TRUE(cards.data.rewards->selecting_card);
+        EXPECT_EQ(validate_action(cards, RunInput{cards.data.boundary, RunInputKind::discard_potion, 1}), Restriction::wrong_phase);
+        compare_action_paths(cards);
+        EXPECT_EQ(validate_action(root, RunInput{root.data.boundary, RunInputKind::discard_potion, 0}), Restriction::invalid_selection);
+        EXPECT_EQ(validate_action(root, RunInput{root.data.boundary, RunInputKind::discard_potion, 1}), Restriction::none);
+        EXPECT_EQ(validate_action(root, RunInput{root.data.boundary, RunInputKind::take_reward, 99}), Restriction::invalid_selection);
+        ASSERT_EQ(apply_action(root, RunInput{root.data.boundary, RunInputKind::take_reward, 0}, scratch).status, StepStatus::awaiting_input);
+        EXPECT_EQ(validate_action(root, RunInput{root.data.boundary, RunInputKind::take_reward, 0}), Restriction::invalid_selection);
+        compare_action_paths(root);
+    }
+}
+
 }
 } // namespace sts2::engine
