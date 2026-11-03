@@ -114,8 +114,8 @@ These observations are static evidence, not a new runtime parity recording:
   completes before Burning Pact's draw begins.
 
 Only supported single-player handlers are captured: player Dark Embrace for
-ordinary card exhaust, player Stratagem for shuffling, and the existing exhaust
-relics. Their candidates are derived from actual power/relic state and filtered
+ordinary card exhaust, player Stratagem for shuffling, Centennial Puzzle for
+player damage received, and the existing exhaust relics. Their candidates are derived from actual power/relic state and filtered
 before capture to omit unsupported/no-op handlers. This does not implement all
 native listener categories. Dark Embrace and Stratagem are available as diagnostic
 power applications; their playable card definitions are not added by this change.
@@ -124,11 +124,19 @@ native ethereal deferral is consequently outside this slice.
 
 ## Execution frames
 
-The execution stack stores four alternatives: `CardProgramFrame`, `DrawFrame`,
-`ExhaustCardsFrame`, and `ShuffleFrame`. Each owns the unfinished operation it
+The execution stack stores six alternatives: `CardProgramFrame`, `DrawFrame`,
+`ExhaustCardsFrame`, `ShuffleFrame`, `EnemyTurnFrame`, and `EnemyAttackFrame`. Each owns the unfinished operation it
 names. Operation frames own both batch progress and current hook progress.
 `SelectionFrame`, the old exhaust-hook-only `ExhaustFrame`, and
 `RelicDrawCompletionFrame` have been removed.
+
+Enemy turns capture ordered creature handles once, including their generations.
+The combat resumer owns actor traversal and side completion; the mechanics
+resumer owns one enemy-to-player attack and its received-damage dispatch.
+Centennial Puzzle owns its used flag and three individually awaited one-card
+draws. A nested Stratagem selection blocks damage completion and later enemies.
+Next moves advance at the following normal player-side start. See the
+[enemy-turn implementation contract](../../planning/enemy-turn-suspension.md).
 
 `resume_frame` delegates to operation-specific functions. Each processes work
 until completion, a child request, input, or failure. A parent records progress
@@ -213,10 +221,10 @@ interrupted draw resumes. Full native pile-change hooks remain outside this slic
 
 ## Compatibility and verification
 
-Binary combat checkpoint revision 20 encodes the four operation alternatives,
-embedded ranges, and handler stages; revisions 19 and earlier are rejected. Run revision 16 embeds the combat format
-and rejects older embedded combat checkpoints. Revision 18 originally replaced
-fixture-only listener storage with real captured candidates.
+Run checkpoint revision 20 embeds combat payload revision 3. They encode all six
+frame alternatives, the captured enemy order, AI completion flags, Centennial
+Puzzle state, embedded listener ranges, and handler stages. Earlier run/payload
+revisions are rejected. Historical revision numbers below describe prior layouts.
 The new powers and Stratagem's combat-pile prompt have no complete native diagnostic
 JSON mapping yet and are explicitly rejected by the exporter. Existing native recordings are unchanged.
 
@@ -236,7 +244,7 @@ The layout-only compiler probe reported `CombatData` at 4,712 bytes (previously
 These sizes and allocation regressions do not establish a throughput improvement.
 
 
-Current four-operation verification: all 279 release checks pass, and differential
+Historical four-operation verification: all 279 release checks pass, and differential
 budget/trace and sanitizer probes pass. See the
 [verification report](architecture-verification.md#operation-owned-hook-progress-2026-11-01)
 for normal/LTO timing results, allocation observations, and scope limits.

@@ -43,7 +43,7 @@ inline std::size_t player_identity_offset(std::span<const std::byte> bytes) {
     at += 4; // Highest creature generation.
     const auto slots = checkpoint_u32(bytes, at); at += 4;
     for (std::uint32_t i = 0; i < slots; ++i) {
-        at += 4 + 1 + 12 + 8 + 3; // Generation, live, HP/max HP/block, hit count.
+        at += 4 + 1 + 12 + 8 + 4; // Generation, live, HP/max HP/block, hit count.
         const auto powers = checkpoint_u32(bytes, at); at += 4;
         at += std::size_t(powers) * 35;
     }

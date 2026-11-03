@@ -1,5 +1,6 @@
 #pragma once
 #include "sts2/state/cards.hpp"
+#include "sts2/state/combat_types.hpp"
 #include <array>
 #include <type_traits>
 #include <variant>
@@ -56,7 +57,25 @@ struct CardProgramFrame {
     CreatureHandle target {};
     friend bool operator==(const CardProgramFrame&, const CardProgramFrame&) = default;
 };
-using ExecutionFrame = std::variant<CardProgramFrame, DrawFrame, ExhaustCardsFrame, ShuffleFrame>;
+enum class EnemyTurnPhase : std::uint8_t { actors, after_move, finish };
+struct EnemyTurnFrame {
+    std::uint32_t cursor = 0;
+    EnemyTurnPhase phase = EnemyTurnPhase::actors;
+    friend bool operator==(const EnemyTurnFrame&, const EnemyTurnFrame&) = default;
+};
+enum class EnemyAttackPhase : std::uint8_t { damage, hooks, finish };
+// The supported enemy attacks have one hit against the player. This frame owns
+// that damage result until received-damage listeners and their children finish.
+struct EnemyAttackFrame {
+    RangeProgress listeners {};
+    CreatureHandle actor {};
+    HitResult hit {};
+    std::int32_t base_damage = 0;
+    HandlerProgress handler {};
+    EnemyAttackPhase phase = EnemyAttackPhase::damage;
+    friend bool operator==(const EnemyAttackFrame&, const EnemyAttackFrame&) = default;
+};
+using ExecutionFrame = std::variant<CardProgramFrame, DrawFrame, ExhaustCardsFrame, ShuffleFrame, EnemyTurnFrame, EnemyAttackFrame>;
 static_assert(std::is_trivially_copyable_v<ExecutionFrame>);
 struct CardSelection {
     PromptId id {};
@@ -68,7 +87,7 @@ struct CardSelection {
     friend bool operator==(const CardSelection&, const CardSelection&) = default;
 };
 // Captured candidates refer to existing content instances, not a registration pool.
-enum class HookHandler : std::uint8_t { dark_embrace, stratagem, charons_ashes, joss_paper };
+enum class HookHandler : std::uint8_t { dark_embrace, stratagem, charons_ashes, joss_paper, centennial_puzzle };
 struct HookListener {
     CreatureHandle owner {};
     std::uint32_t power_instance = UINT32_MAX;

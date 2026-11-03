@@ -3,6 +3,7 @@
 #include "../content/relics.hpp"
 #include "../mechanics/powers.hpp"
 #include "../combat/lifecycle.hpp"
+#include "../defensive.hpp"
 #include <algorithm>
 #include <stdexcept>
 
@@ -19,12 +20,13 @@ bool eligible(const RunState& state, const HookListener& listener) noexcept {
     // Native captured powers check owner membership, not current power membership.
     if (listener.owner != state.data.player || !state.creature(listener.owner)) return false;
     if (listener.handler == HookHandler::dark_embrace || listener.handler == HookHandler::stratagem) return true;
+    if (listener.handler == HookHandler::centennial_puzzle) return state.combat().centennial_puzzle;
     const auto relic = listener.handler == HookHandler::charons_ashes ? ExhaustRelic::charons_ashes : ExhaustRelic::joss_paper;
     return std::find(state.combat().exhaust_relics.begin(), state.combat().exhaust_relics.begin() + state.combat().exhaust_relic_count, relic) !=
         state.combat().exhaust_relics.begin() + state.combat().exhaust_relic_count;
 }
 HandlerResult resume_listener(RunState& state, Scratch& scratch, HookListener listener,
-    HandlerProgress& progress, std::uint32_t* expected_selection_count) {
+    HandlerProgress& progress, std::uint32_t* expected_selection_count, const HitResult* hit) {
     // Once started, the handler completes against its captured identity even if
     // its eligibility changes while its child runs.
     if (progress.stage == 0 && !eligible(state, listener)) return HandlerResult::complete;
@@ -32,6 +34,7 @@ HandlerResult resume_listener(RunState& state, Scratch& scratch, HookListener li
     const auto* power = owner ? owner->find_power_instance(listener.power_instance, state.overflow) : nullptr;
     const auto amount = power ? power->amount : listener.removed_power_amount;
     switch (listener.handler) {
+    case HookHandler::centennial_puzzle: return centennial_puzzle_after_damage_received(state, progress, *hit);
     case HookHandler::dark_embrace: return dark_embrace_after_card_exhausted(state, progress, amount);
     case HookHandler::stratagem: return stratagem_after_shuffle(state, progress, *expected_selection_count, amount);
     case HookHandler::charons_ashes:
@@ -91,19 +94,26 @@ RangeProgress capture_shuffle_listeners(RunState& state) {
     capture_powers(state, PowerId::stratagem, HookHandler::stratagem);
     return {begin, static_cast<std::uint32_t>(state.captured_hook_listeners().size()) - begin, 0};
 }
+RangeProgress capture_damage_received_listeners(RunState& state) {
+    const auto begin = static_cast<std::uint32_t>(state.captured_hook_listeners().size());
+    if (state.combat().centennial_puzzle)
+        state.captured_hook_listeners().push_back({state.data.player, UINT32_MAX, 0, HookHandler::centennial_puzzle});
+    return {begin, static_cast<std::uint32_t>(state.captured_hook_listeners().size()) - begin, 0};
+}
 RangeProgress capture_draw_listeners(RunState&, bool) {
     // No draw listeners are supported yet. Each phase has its own capture point.
     return {};
 }
 HandlerResult resume_listeners(RunState& state, Scratch& scratch, RangeProgress& listeners,
-    HandlerProgress& progress, const Ruleset&, std::uint32_t* expected_selection_count) {
+    HandlerProgress& progress, const Ruleset&, std::uint32_t* expected_selection_count, const HitResult* hit) {
     if (listeners.count == 0) return HandlerResult::complete;
     while (listeners.cursor < listeners.count) {
         if (progress.stage == 0 && !consume(scratch)) return HandlerResult::execution_budget;
         const auto listener = state.captured_hook_listeners()[listeners.begin + listeners.cursor];
         if (listener.handler == HookHandler::stratagem && !expected_selection_count)
             throw std::logic_error("Shuffle handler without prompt progress");
-        const auto outcome = resume_listener(state, scratch, listener, progress, expected_selection_count);
+        STS2_CHECK_INVARIANT(listener.handler != HookHandler::centennial_puzzle || hit != nullptr);
+        const auto outcome = resume_listener(state, scratch, listener, progress, expected_selection_count, hit);
         // Scheduling can relocate the owning operation. Do not touch references
         // after a yielding handler; the interpreter runs its child next.
         if (outcome != HandlerResult::complete) return outcome;

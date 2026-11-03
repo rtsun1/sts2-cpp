@@ -30,7 +30,7 @@ StepResult submit_action(RunState& state, const PlayerInput& input, Scratch& scr
 }
 }
 std::optional<SelectionSpace> selection_space(const RunState& state) noexcept {
-    if (state.data.phase != RunPhase::combat || !state.data.combat || state.combat().enemy_side) return std::nullopt;
+    if (state.data.phase != RunPhase::combat || !state.data.combat) return std::nullopt;
     if (state.combat().phase == CombatPhase::card_choice) {
         const auto& prompt = state.combat().selection;
         return SelectionSpace{state.data.boundary, prompt.id, state.selection_candidates(), prompt.minimum, prompt.maximum};
