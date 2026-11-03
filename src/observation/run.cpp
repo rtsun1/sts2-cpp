@@ -88,7 +88,7 @@ RunObservation observe(const RunState& state) {
             view.prompt = PublicPrompt::card_selection;
             view.minimum_selection = view.combat->selection->minimum;
             view.maximum_selection = view.combat->selection->maximum;
-            view.submits_immediately = view.combat->selection->submits_immediately;
+            view.submits_immediately = true;
         }
         const auto project_pile = [&](Zone zone, std::vector<CardView>& pile) {
             for (const auto handle : state.zone(zone))
@@ -114,9 +114,8 @@ std::string describe(const RunObservation& view) {
     if (view.combat && view.combat->selection) {
         const auto& choice = *view.combat->selection;
         const char* effect = choice.effect == SelectionEffect::upgrade ? "upgrade" : choice.effect == SelectionEffect::topdeck ? "put on top of your draw pile" : choice.effect == SelectionEffect::add_to_hand ? "put into your hand" : "exhaust";
-        if (choice.submits_immediately) return std::string("Choose a card to ") + effect + ".";
-        if (choice.minimum == 0) return "Select up to " + std::to_string(choice.maximum) + " cards to " + effect + ", then confirm.";
-        return std::string("Select a card to ") + effect + ", then confirm.";
+        if (choice.minimum == 0) return "Select up to " + std::to_string(choice.maximum) + " cards to " + effect + ".";
+        return std::string("Select a card to ") + effect + ".";
     }
     if (view.combat) return "Play a card or end your turn.";
     return "Combat won.";

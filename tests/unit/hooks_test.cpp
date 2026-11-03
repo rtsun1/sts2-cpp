@@ -1,3 +1,4 @@
+#include "../support/selection_input.hpp"
 #include "sts2/engine/action.hpp"
 #include "sts2/persistence/checkpoint.hpp"
 #include "../../src/engine/hooks/dispatch.hpp"
@@ -20,12 +21,11 @@ void exhaust_into_shuffle(RunState& state, Scratch& scratch) {
     }
     auto& combat = state;
     const auto prompt = combat.combat().selection.id;
-    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, combat.selection_candidates().front(), {}, prompt}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, {}, prompt}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, test::selection_input(state, combat.selection_candidates().front(), prompt), scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(state.combat().selection.effect, SelectionEffect::add_to_hand);
 }
 StepResult select(RunState& state, Scratch& scratch, CardHandle card) {
-    return apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, card, {}, state.combat().selection.id}, scratch);
+    return apply_action(state, test::selection_input(state, card, state.combat().selection.id), scratch);
 }
 }
 
@@ -47,7 +47,7 @@ TEST(HookDispatch, DarkEmbraceFinishesItsDrawBeforeJossPaperAndBurningPactContin
     EXPECT_TRUE(state.captured_hook_listeners().empty());
 }
 
-TEST(HookDispatch, StackedStratagemPreservesPartialPileSelectionAcrossCloneAndRestore) {
+TEST(HookDispatch, StackedStratagemAcceptsCompleteOrderedSelectionAcrossCloneAndRestore) {
     RunState state; Scratch scratch;
     scenario::prepare_exhaust_shuffle(state);
     ASSERT_EQ(apply_power_scenario(state, {PowerId::stratagem, 1}, scratch).status, StepStatus::awaiting_input);
@@ -56,13 +56,16 @@ TEST(HookDispatch, StackedStratagemPreservesPartialPileSelectionAcrossCloneAndRe
     ASSERT_EQ(combat.combat().selection.minimum, 2u);
     ASSERT_EQ(combat.combat().selection.maximum, 2u);
     const auto first = combat.selection_candidates()[0], second = combat.selection_candidates()[1];
-    ASSERT_EQ(select(state, scratch, first).status, StepStatus::awaiting_input);
+    const auto before = state;
+    ASSERT_EQ(select(state, scratch, first).status, StepStatus::invalid_action);
+    EXPECT_EQ(state, before);
     ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
     const auto saved = checkpoint(state).bytes;
     RunState clone = state, restored;
     ASSERT_EQ(restore(restored, saved, scratch), RestoreStatus::restored);
     for (auto* branch : {&clone, &restored}) {
-        ASSERT_EQ(select(*branch, scratch, second).status, StepStatus::awaiting_input);
+        const std::array selected{second, first};
+        ASSERT_EQ(apply_action(*branch, SelectionInput{branch->data.boundary, branch->combat().selection.id, selected}, scratch).status, StepStatus::awaiting_input);
         EXPECT_EQ(branch->combat().phase, CombatPhase::play);
         EXPECT_EQ(branch->combat().counters.non_hand_draws_this_turn, 3u);
         EXPECT_NE(std::find(branch->zone(Zone::hand).begin(), branch->zone(Zone::hand).end(), first), branch->zone(Zone::hand).end());
@@ -117,7 +120,7 @@ TEST(HookDispatch, StratagemRunsAgainOnTheNextShuffle) {
         EXPECT_NE(state.combat().selection.id, previous);
         previous = state.combat().selection.id;
         const auto selected = state.selection_candidates().front();
-        ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::select_card, selected, {}, previous}, scratch).status, StepStatus::awaiting_input);
+        ASSERT_EQ(apply_selection(state, test::selection_input(state, selected, previous), scratch).status, StepStatus::awaiting_input);
         EXPECT_EQ(state.zone(Zone::hand).size(), 2u);
         EXPECT_EQ(state.combat().counters.non_hand_draws_this_turn, repeat + 1u);
     }
@@ -154,7 +157,7 @@ TEST(HookDispatch, StratagemHandOverflowGoesToDiscardWithoutCountingAsDraw) {
     combat.execution().push_back(ShuffleFrame{.listeners = gameplay::capture_shuffle_listeners(combat), .phase = ShufflePhase::hooks});
     ASSERT_EQ(advance_combat(state, scratch).status, StepStatus::awaiting_input);
     const auto prompt = combat.combat().selection.id; const auto card = combat.selection_candidates().front();
-    ASSERT_EQ(apply_combat(state, {combat.data.boundary, CombatInputKind::select_card, card, {}, prompt}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_selection(state, test::selection_input(combat, card, prompt), scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(combat.zone(Zone::hand).size(), 10u);
     ASSERT_EQ(combat.zone(Zone::discard).size(), 1u);
     EXPECT_EQ(combat.zone(Zone::discard).front(), card);

@@ -29,6 +29,16 @@ StepResult submit_action(RunState& state, const PlayerInput& input, Scratch& scr
     return apply_input_checked_state(state, input, scratch);
 }
 }
+std::optional<SelectionSpace> selection_space(const RunState& state) noexcept {
+    if (state.data.phase != RunPhase::combat || !state.data.combat || state.combat().enemy_side) return std::nullopt;
+    if (state.combat().phase == CombatPhase::card_choice) {
+        const auto& prompt = state.combat().selection;
+        return SelectionSpace{state.data.boundary, prompt.id, state.selection_candidates(), prompt.minimum, prompt.maximum};
+    }
+    if (state.combat().phase == CombatPhase::discard_choice)
+        return SelectionSpace{state.data.boundary, {}, state.zone(Zone::hand), 1, 1};
+    return std::nullopt;
+}
 std::size_t ActionSpaceView::size() const noexcept {
     if (!state_.valid_combat_storage() || state_.combat().enemy_side) return 0;
     if (state_.combat().phase == CombatPhase::play) {
@@ -41,25 +51,11 @@ std::size_t ActionSpaceView::size() const noexcept {
         }
         return count;
     }
-    if (state_.combat().phase == CombatPhase::discard_choice) return state_.zone(Zone::hand).size();
-    if (state_.combat().phase == CombatPhase::card_choice) return state_.selection_candidates().size() + !state_.combat().selection.automatic_at_maximum;
     return 0;
 }
 std::optional<ActionView> ActionSpaceView::at(std::size_t index) const noexcept {
     if (index >= size()) return std::nullopt;
-    if (state_.combat().phase == CombatPhase::card_choice) {
-        CombatInput input{state_.data.boundary, CombatInputKind::confirm_selection, {}, {}, state_.combat().selection.id};
-        if (index < state_.selection_candidates().size()) {
-            input.card = state_.selection_candidates()[index];
-            input.kind = std::find(state_.selection_order().begin(), state_.selection_order().end(), input.card) == state_.selection_order().end() ? CombatInputKind::select_card : CombatInputKind::deselect_card;
-        }
-        return ActionView{input, validate_combat(state_, input)};
-    }
     const auto hand = state_.zone(Zone::hand);
-    if (state_.combat().phase == CombatPhase::discard_choice) {
-        CombatInput input{state_.data.boundary, CombatInputKind::select_card, hand[index]};
-        return ActionView{input, validate_combat(state_, input)};
-    }
     for (auto card : hand) {
         const auto* instance = state_.cards().get(card);
         const auto* def = instance ? Ruleset::pinned().card(instance->definition) : nullptr;
@@ -93,7 +89,8 @@ Restriction validate_visible_input(const RunState& state_, const PlayerInput& in
         if (run->kind == RunInputKind::travel) return Restriction::none;
     } else {
         if (state_.data.phase != RunPhase::combat || !state_.data.combat) return Restriction::wrong_phase;
-        const auto restriction = validate_combat(state_, std::get<CombatInput>(input));
+        const auto restriction = std::holds_alternative<SelectionInput>(input) ?
+            validate_selection(state_, std::get<SelectionInput>(input)) : validate_combat(state_, std::get<CombatInput>(input));
         if (restriction != Restriction::none) return restriction;
     }
     if (state_.data.boundary.value == UINT32_MAX) return Restriction::capacity;

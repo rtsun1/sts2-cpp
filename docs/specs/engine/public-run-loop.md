@@ -135,7 +135,7 @@ Issue [#63](https://github.com/rtsun1/sts2-cpp/issues/63) adds
 Shared gameplay predicates live in `include/sts2/engine/action_rules.hpp` and are
 used by direct generation and checked validation. Card-wide play restrictions are
 evaluated once per card before target expansion. Target eligibility, selection
-confirmation/membership, reward availability/indices, and potion availability use
+count/membership, reward availability/indices, and potion availability use
 the same rules in both paths. Payload shape, stale identity, phase, and membership
 checks remain at checked boundaries when generation already establishes those facts
 by traversal. These predicates perform no general state-integrity or support checks.
@@ -146,6 +146,13 @@ The consumer is a statically dispatched callable receiving each `PlayerInput` in
 sequential traversal. It controls storage and must not mutate the source during
 traversal. There is no action cache in complete state. Enumeration order is not a
 compatibility guarantee.
+
+Selection decisions use `selection_space` and `for_each_selection` separately from
+ordinary action traversal. The generator borrows caller workspace; callback spans expire
+after each callback. Eager callers copy results into owned storage. Both checked and
+trusted execution accept the same complete `SelectionInput`; see
+[ordered choices](ordered-card-choices.md) for ownership and clock correspondence.
+An empty discrete action set at a selection prompt does not mean terminal gameplay.
 
 Validate the root with `valid_run`, then enumerate each node's actions. Retain an
 action only for that exact state or an independent exact copy. Successful trusted

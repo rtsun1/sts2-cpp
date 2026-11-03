@@ -42,7 +42,7 @@ are estimates; tune them after parity. This is a target, not implemented coverag
 | Treasure | Generated/offered relics, selection/claim state, replacement/skip/exit continuation | Mixed | `TreasureRoom`, relic acquisition hooks |
 | Lifecycle | Victory/loss kind, finalization stage, gameplay/observation-required score inputs and history, explicit elapsed-time values/reload counters where relevant | Mixed | Native run/history and `RunManager`; no persistent profile |
 | RNG | Every live stream/local generator, seed/state words/counter, aliases/ownership and generation cursors | Hidden | `RunRngSet`, `PlayerRngSet`, `Rng`, `MegaRandom` |
-| Decision | Active prompt/owner, option identities/order, constraints, partial ordered selection, confirm/cancel semantics, resume destination | Mixed | Player-choice/card-selector paths; not recovered from a room tag |
+| Decision | Active prompt/owner, option identities/order, constraints, accepted ordered operands, cancel semantics, resume destination | Mixed | Player-choice/card-selector paths; not recovered from a room tag |
 | Execution | Program/handler IDs, instruction/stage, locals, captured operands/targets/sources, pending operations, nested stack | Hidden | Simulator continuation representation; real-game async locals require semantic mapping |
 | Trigger dispatch | Active event payload, subscription owners/order, captured source list, cursor, nested dispatch and addition/removal behavior | Hidden | Runtime hooks and combat audit; rebuild only demonstrably derived indices |
 | Storage metadata | Slot generations/retired slots, free-slot allocation order, live regions, instance-domain ownership and next creation sequence | Hidden | Simulator-owned; affects future identity allocation |

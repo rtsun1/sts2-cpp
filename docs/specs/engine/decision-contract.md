@@ -44,7 +44,7 @@ arrive with the simulator feature they verify.
 | Room | Tagged public room payload: combat, event, shop, rest, treasure, rewards or transition |
 | Combat | Turn/side, player and visible entities in display order, HP/block/resources, powers, intents, hand, pile counts and inspectable pile contents |
 | Instance | Stable identity, definition ID, owner, visible modifications/counters, upgrade/enchantment/affliction data and applicable previews |
-| Prompt | Prompt ID/kind/owner, exact English instruction, ordered options, selection constraints, current partial selection, confirm/cancel/skip availability |
+| Prompt | Prompt ID/kind/owner, exact English instruction, ordered options, selection constraints, complete-selection constraints, cancel/skip availability |
 | Actions | Enabled inputs and displayed disabled options, typed restriction codes, exact visible English reasons, targets and costs/previews when shown |
 | Feedback | Ordered visible outcomes and exact English feedback since the previous accepted input, when requested |
 | Terminal | Win/loss/completion kind, visible score breakdown and current-run result/history |
@@ -98,17 +98,15 @@ need. The action space describes choices and constraints lazily.
 | Purchase | Inventory entry identity, including removal service; do not combine later selections |
 | Select objects | Prompt ID and ordered list of object/option IDs; respect min/max, distinctness, eligibility and ordering |
 | Select target/value | Prompt ID and eligible target or bounded numeric value when explicitly requested |
-| Confirm | Prompt ID; available only after valid partial selection when confirmation is exposed |
 | Cancel | Prompt ID; only when offered; effect and payment rollback follow that mechanic |
 | Continue | Offered continuation identity only where it represents a distinct gameplay decision; forced progress resolves automatically |
 
-Selections expose minimum/maximum count, whether order matters, whether repetition is
-allowed, eligible objects, partial selection and whether the prompt submits immediately
-or needs confirmation. A zero-item selection, skip, cancellation and confirmation are
-separate semantics. Cost refund rules are not inferred from the existence of cancel.
+Selections expose minimum/maximum count, whether order matters, repetition policy and
+eligible objects. Callers submit complete ordered lists. A zero-item selection, skip and
+cancellation have separate semantics; cost refund rules are not inferred from cancel.
 Selection order is preserved whenever it changes effect order or resulting state.
-Partial selections and their ordering remain simulator state and survive clone and
-checkpoint restoration; complete submissions do not remove that capability.
+Optional partial editing belongs to callers. Accepted operands belong to simulator state
+until execution finishes, including across nested prompts, clones and checkpoints.
 
 Restriction categories include stale boundary, wrong phase/prompt, malformed payload,
 unknown/stale object, ineligible selection/target, selection count/order/duplication,

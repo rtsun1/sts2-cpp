@@ -13,15 +13,8 @@ inline bool is_living_enemy(const RunState& state, CreatureHandle target) noexce
     const auto* creature = state.creature(target);
     return creature && creature->enemy_member && creature->hp > 0;
 }
-inline bool is_card_selected(const RunState& state, CardHandle card) noexcept {
-    const auto selected = state.selection_order();
-    return std::find(selected.begin(), selected.end(), card) != selected.end();
-}
-inline Restriction selection_confirmation_restriction(const RunState& state) noexcept {
-    const auto& selection = state.combat().selection;
-    if (selection.automatic_at_maximum) return Restriction::wrong_phase;
-    const auto count = state.selection_order().size();
-    return count >= selection.minimum && count <= selection.maximum ? Restriction::none : Restriction::invalid_selection;
+inline Restriction selection_count_restriction(std::size_t count, std::uint32_t minimum, std::uint32_t maximum) noexcept {
+    return count < minimum || count > maximum ? Restriction::invalid_selection : Restriction::none;
 }
 inline std::uint32_t reward_card_option(const CombatRewards& rewards) noexcept {
     return rewards.potion == no_content ? 1u : 2u;

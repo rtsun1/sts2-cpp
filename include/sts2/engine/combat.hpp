@@ -3,18 +3,27 @@
 
 namespace sts2::engine {
 [[nodiscard]] std::int32_t effective_card_cost(const RunState&, CardHandle, const Ruleset& = Ruleset::pinned()) noexcept;
-enum class CombatInputKind : std::uint8_t { play_card, end_turn, select_card, deselect_card, confirm_selection };
+enum class CombatInputKind : std::uint8_t { play_card, end_turn };
 struct CombatInput {
     BoundaryId expected_boundary {};
     CombatInputKind kind = CombatInputKind::end_turn;
     CardHandle card{};
     CreatureHandle target {};
-    PromptId prompt {};
     CombatInput() = default;
     constexpr CombatInput(BoundaryId boundary, CombatInputKind input_kind, CardHandle source = {},
-                          CreatureHandle receiver = {}, PromptId selection = {}) noexcept
-        : expected_boundary(boundary), kind(input_kind), card(source), target(receiver), prompt(selection) {}
+                          CreatureHandle receiver = {}) noexcept
+        : expected_boundary(boundary), kind(input_kind), card(source), target(receiver) {}
 };
+// Borrowed only for the duration of submission. Accepted operands are owned by state.
+struct SelectionInput {
+    BoundaryId expected_boundary {};
+    PromptId prompt {};
+    std::span<const CardHandle> cards;
+};
+[[nodiscard]] StepResult apply_selection(RunState&, const SelectionInput&, Scratch&,
+    const Ruleset& = Ruleset::pinned()) noexcept;
+[[nodiscard]] Restriction validate_selection(const RunState&, const SelectionInput&,
+    const Ruleset& = Ruleset::pinned()) noexcept;
 [[nodiscard]] StepResult initialize_combat(RunState&, const CombatConfig&, Scratch&,
     const Ruleset& = Ruleset::pinned(), Limits = {});
 [[nodiscard]] StepResult advance_combat(RunState&, Scratch&,

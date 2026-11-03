@@ -12,5 +12,6 @@ StepResult apply_automatic_run_input(RunState&, const RunInput&, Scratch&);
 StepResult generate_combat_rewards_trusted(RunState&);
 StepResult apply_input_trusted(RunState&, const PlayerInput&, Scratch&);
 StepResult apply_combat_trusted(RunState&, const CombatInput&, Scratch&, const Ruleset& = Ruleset::pinned()) noexcept;
+StepResult apply_selection_trusted(RunState&, const SelectionInput&, Scratch&, const Ruleset& = Ruleset::pinned()) noexcept;
 StepResult advance_combat_trusted(RunState&, Scratch&, const Ruleset& = Ruleset::pinned()) noexcept;
 }

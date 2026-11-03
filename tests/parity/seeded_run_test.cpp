@@ -187,7 +187,7 @@ TEST(SeededRunParity, SurvivorScenarioMatchesEntireNativeStateAcrossSuspensionAn
             ASSERT_EQ(restore(restored, saved.bytes, scratch), RestoreStatus::restored);
             state = std::move(restored);
             const auto selected = labels.at(std::stoul(scenario["selection"].get<std::string>().substr(5)));
-            ASSERT_EQ(apply_input(state, CombatInput{state.data.boundary, CombatInputKind::select_card, selected}, scratch).status, StepStatus::awaiting_input);
+            ASSERT_EQ(apply_input(state, SelectionInput{state.data.boundary, {}, std::span<const CardHandle>(&selected, 1)}, scratch).status, StepStatus::awaiting_input);
             compare_all(scenario["states"][2], exporter.snapshot(state));
         }
     }

@@ -41,8 +41,7 @@ void nested(RunState& state) {
         require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, selected}, scratch).status == StepStatus::awaiting_input);
     }
     auto& combat = state;
-    require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, combat.selection_candidates().front(), {}, combat.combat().selection.id}, scratch).status == StepStatus::awaiting_input);
-    require(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, {}, combat.combat().selection.id}, scratch).status == StepStatus::awaiting_input);
+    require(apply_action(state, SelectionInput{state.data.boundary, combat.combat().selection.id, std::span<const CardHandle>(&combat.selection_candidates().front(), 1)}, scratch).status == StepStatus::awaiting_input);
     require(!state.combat_overflow.empty());
 }
 
@@ -57,9 +56,14 @@ bool offered_legal(Restriction restriction) {
 std::uint64_t action_checksum(const PlayerInput& input) {
     if (const auto* run = std::get_if<RunInput>(&input))
         return run->expected_boundary.value + static_cast<unsigned>(run->kind) + run->option + run->col + run->row;
+    if (const auto* selection = std::get_if<SelectionInput>(&input)) {
+        std::uint64_t sum = selection->expected_boundary.value + selection->prompt.value;
+        for (auto card : selection->cards) sum += card.slot + card.generation;
+        return sum;
+    }
     const auto& combat = std::get<CombatInput>(input);
     return combat.expected_boundary.value + static_cast<unsigned>(combat.kind) + combat.card.slot + combat.card.generation +
-        combat.target.slot + combat.target.generation + combat.prompt.value;
+        combat.target.slot + combat.target.generation;
 }
 
 template<class Function> void measure(const char* operation, std::uint64_t iterations, Function function) {
@@ -129,7 +133,18 @@ int main(int argc, char** argv) try {
         std::cout << "workload=" << (workload == 0 ? "supported_seeded_combat" : workload == 1 ? "controlled_creature_overflow" : workload == 2 ? "supported_cards_200_overflow" : workload == 3 ? "stratagem_pile_choice_overflow" : workload == 4 ? "controlled_power_instances_12_overflow" : workload == 5 ? "run_neow" : workload == 6 ? "run_travel" : "run_rewards")
                   << " player_power_instances=" << baseline.player().power_instances(baseline.overflow).size()
                   << " root_bytes=" << sizeof(RunState) << " retained_bytes=" << sizeof(RunState) + baseline.overflow.retained_bytes() + baseline.combat_overflow.retained_bytes() << '\n';
+        const auto selection = selection_space(baseline);
+        std::vector<CardHandle> workspace(selection ? selection->maximum : 0);
+        const auto enumerate = [&](auto&& consumer) {
+            if (selection) {
+                require(for_each_selection(*selection, workspace, [&](SelectionInput input) { consumer(PlayerInput{input}); return true; }));
+            } else for_each_legal_action(baseline, consumer);
+        };
         measure("query_validate", iterations, [&] {
+            if (selection) {
+                enumerate([&](const PlayerInput& input) { checksum += static_cast<unsigned>(validate_action(baseline, input)) + 1; });
+                return;
+            }
             RunActionSpaceView actions(baseline);
             for (std::size_t i = 0; i < actions.size(); ++i) {
                 auto action = actions.at(i); require(action.has_value());
@@ -138,11 +153,18 @@ int main(int argc, char** argv) try {
         });
         measure("integrity", iterations, [&] { require(valid_run(baseline)); checksum += baseline.data.boundary.value; });
         measure("legal_enumeration", iterations, [&] {
-            for_each_legal_action(baseline, [&](const PlayerInput& input) { checksum += action_checksum(input); });
+            enumerate([&](const PlayerInput& input) { checksum += action_checksum(input); });
         });
         // Reusable consumer storage is search-owned and allocated before timing.
         std::vector<PlayerInput> legal;
-        for_each_legal_action(baseline, [&](const PlayerInput& input) { legal.push_back(input); });
+        std::vector<std::vector<CardHandle>> retained_selections;
+        enumerate([&](PlayerInput input) {
+            if (auto* selected = std::get_if<SelectionInput>(&input)) {
+                retained_selections.emplace_back(selected->cards.begin(), selected->cards.end());
+                selected->cards = retained_selections.back();
+            }
+            legal.push_back(input);
+        });
         require(!legal.empty());
         std::size_t supported = 0, legacy_legal = 0;
         const auto offered = get_actions(baseline);
@@ -150,12 +172,10 @@ int main(int argc, char** argv) try {
             supported += action.restriction == Restriction::none;
             legacy_legal += offered_legal(action.restriction);
         }
-        require(legacy_legal == legal.size());
+        if (!selection) require(legacy_legal == legal.size());
         std::cout << " legal_actions=" << legal.size() << " offered_unrestricted_actions=" << supported << " applied_actions=" << (workload == 5 ? 1 : legal.size()) << '\n';
-        const PlayerInput step_input = workload < 5
-            ? PlayerInput{workload == 3 ? CombatInput{baseline.data.boundary, CombatInputKind::select_card, baseline.selection_candidates().front(), {}, baseline.combat().selection.id}
-                : CombatInput{baseline.data.boundary, CombatInputKind::end_turn}}
-            : legal.front();
+        const PlayerInput step_input = workload == 3 || workload >= 5 ? legal.front() :
+            PlayerInput{CombatInput{baseline.data.boundary, CombatInputKind::end_turn}};
         for (bool trusted : {false, true}) {
             double seconds = 0; std::uint64_t total_allocations = 0;
             for (std::uint64_t i = 0; i < iterations; ++i) {
@@ -180,7 +200,8 @@ int main(int argc, char** argv) try {
                     require(result.status == StepStatus::awaiting_input || result.status == StepStatus::unsupported_content || result.reason == Restriction::unsupported_setup);
                     checksum += static_cast<unsigned>(result.status) + branch.data.boundary.value;
                 };
-                if (trusted) for_each_legal_action(baseline, apply);
+                if (trusted) enumerate(apply);
+                else if (selection) enumerate([&](const PlayerInput& input) { if (offered_legal(validate_action(baseline, input))) apply(input); });
                 else {
                     const RunActionSpaceView offered(baseline);
                     for (std::size_t i = 0; i < offered.size(); ++i) {

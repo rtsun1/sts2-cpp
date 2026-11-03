@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <iostream>
 #include <string>
+#include <sstream>
 
 int main(int argc, char** argv) {
     using namespace sts2::engine;
@@ -30,6 +31,25 @@ int main(int argc, char** argv) {
             const auto text = describe(card);
             std::cout << "  Card " << card.instance << ": " << text.name << " (" << card.energy_cost.value_or(-1) << " Energy) — " << text.description << '\n';
         }
+        if (const auto selection = selection_space(run)) {
+            std::cout << "Choose " << selection->minimum << " to " << selection->maximum << " cards in order (space-separated indices; blank for none):\n";
+            for (std::size_t i = 0; i < selection->candidates.size(); ++i)
+                std::cout << i << ": " << Ruleset::pinned().card(run.cards().get(selection->candidates[i])->definition)->model_id << '\n';
+            std::string line;
+            if (!std::getline(std::cin, line) || line == "quit") return 0;
+            std::istringstream stream(line);
+            std::vector<CardHandle> selected;
+            std::size_t index;
+            bool valid = true;
+            while (stream >> index) {
+                if (index >= selection->candidates.size()) { valid = false; break; }
+                selected.push_back(selection->candidates[index]);
+            }
+            if (!valid || !stream.eof()) continue;
+            const auto result = apply_action(run, SelectionInput{selection->expected_boundary, selection->prompt, selected}, scratch);
+            if (result.reason != Restriction::none) std::cout << describe(result.reason) << '\n';
+            continue;
+        }
         const RunActionSpaceView offered(run);
         if (offered.empty()) return view.valid ? 0 : 1;
         for (std::size_t i = 0; i < offered.size(); ++i) {
@@ -37,15 +57,13 @@ int main(int argc, char** argv) {
             std::cout << i << ": ";
             if (const auto* input = std::get_if<CombatInput>(&action.input)) {
                 if (input->kind == CombatInputKind::end_turn) std::cout << "End turn";
-                else if (input->kind == CombatInputKind::confirm_selection) std::cout << "Confirm selection";
                 else {
                     const CardView* card = nullptr;
                     for (const auto* pile : {&view.hand_cards, &view.draw, &view.discard, &view.exhaust}) {
                         const auto found = std::find_if(pile->begin(), pile->end(), [&](const auto& c) { return c.handle == input->card; });
                         if (found != pile->end()) { card = &*found; break; }
                     }
-                    const auto verb = input->kind == CombatInputKind::play_card ? "Play " :
-                        input->kind == CombatInputKind::deselect_card ? "Unselect " : view.prompt == PublicPrompt::discard ? "Discard " : "Choose ";
+                    const auto verb = "Play ";
                     std::cout << verb << (card ? card->name : "card");
                 }
             } else {

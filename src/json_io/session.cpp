@@ -87,10 +87,15 @@ StepResult Session::apply(const Json& action) {
     if (kind == "select_cards") {
         fields(action, {"kind", "card_instances"});
         const auto& selected = action.at("card_instances");
-        if (!selected.is_array() || selected.size() != 1) return {StepStatus::invalid_action, state_.data.boundary, Restriction::invalid_selection};
-        const auto index = label_index(selected[0]);
-        if (index >= cards_.size()) throw std::invalid_argument("Unknown card identity");
-        return apply_input(state_, CombatInput{state_.data.boundary, CombatInputKind::select_card, cards_[index]}, scratch_);
+        if (!selected.is_array()) return {StepStatus::invalid_action, state_.data.boundary, Restriction::invalid_selection};
+        std::vector<CardHandle> cards;
+        for (const auto& label : selected) {
+            const auto index = label_index(label);
+            if (index >= cards_.size()) throw std::invalid_argument("Unknown card identity");
+            cards.push_back(cards_[index]);
+        }
+        const auto prompt = state_.data.combat && state_.combat().phase == CombatPhase::card_choice ? state_.combat().selection.id : PromptId{};
+        return apply_input(state_, SelectionInput{state_.data.boundary, prompt, cards}, scratch_);
     }
     if (kind == "end_turn") {
         fields(action, {"kind"}); return apply_input(state_, CombatInput{state_.data.boundary, CombatInputKind::end_turn}, scratch_);

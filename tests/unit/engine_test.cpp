@@ -1,3 +1,4 @@
+#include "../support/selection_input.hpp"
 #include "sts2/engine/action.hpp"
 #include "sts2/engine/combat.hpp"
 #include "sts2/observation/observe.hpp"
@@ -180,11 +181,12 @@ TEST(Engine, RejectsInvalidAndStaleInputWithoutChangingAnyState) {
     auto state = initial(); Scratch scratch;
     const auto before = checkpoint(state).bytes;
     for (auto input : {CombatInput{{0}, CombatInputKind::end_turn},
-                       CombatInput{state.data.boundary, CombatInputKind::play_card, {999, 1}, state.enemy_handle()},
-                       CombatInput{state.data.boundary, CombatInputKind::select_card, state.zone(Zone::hand)[0]}}) {
+                       CombatInput{state.data.boundary, CombatInputKind::play_card, {999, 1}, state.enemy_handle()}}) {
         EXPECT_EQ(apply_combat(state, input, scratch).status, StepStatus::invalid_action);
         EXPECT_EQ(checkpoint(state).bytes, before);
     }
+    EXPECT_EQ(apply_selection(state, test::selection_input(state, state.zone(Zone::hand)[0]), scratch).status, StepStatus::invalid_action);
+    EXPECT_EQ(checkpoint(state).bytes, before);
     const auto h = find_card(state, CardId::strike); ASSERT_TRUE(h.present());
     EXPECT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::play_card, h, {}}, scratch).reason, Restriction::invalid_target);
     EXPECT_EQ(checkpoint(state).bytes, before);
@@ -243,10 +245,10 @@ TEST(Engine, SurvivorSuspendsInsideEffectAndCloneRestoreResumeIndependently) {
     ASSERT_EQ(restore(restored, saved.bytes, scratch), RestoreStatus::restored);
     EXPECT_EQ(s, branch); EXPECT_EQ(s, restored);
     const auto strike = find_card(s, CardId::strike), defend = find_card(s, CardId::defend);
-    ASSERT_EQ(apply_combat(s, {s.data.boundary, CombatInputKind::select_card, strike}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(apply_combat(restored, {restored.data.boundary, CombatInputKind::select_card, strike}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_selection(s, test::selection_input(s, strike, {}), scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_selection(restored, test::selection_input(restored, strike, {}), scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(s, restored);
-    ASSERT_EQ(apply_combat(branch, {branch.data.boundary, CombatInputKind::select_card, defend}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_selection(branch, test::selection_input(branch, defend, {}), scratch).status, StepStatus::awaiting_input);
     EXPECT_NE(s, branch); EXPECT_EQ(s.player().block, 8); EXPECT_EQ(branch.player().block, 8);
     EXPECT_EQ(s.zone(Zone::discard), (std::vector<CardHandle>{strike, survivor}));
     EXPECT_EQ(branch.zone(Zone::discard), (std::vector<CardHandle>{defend, survivor}));
@@ -429,8 +431,8 @@ TEST(CombatMechanics, SurvivorBoundariesAndPileOrderingMatchLiveNativeCases) {
             RunState clone; clone_into(clone, s);
             const auto saved = checkpoint(s);
             RunState resumed; ASSERT_EQ(restore(resumed, saved.bytes, scratch), RestoreStatus::restored);
-            const CombatInput input{s.data.boundary, CombatInputKind::select_card, ids.at(scenario["selection"].get<std::string>())};
-            for (auto* state : {&s, &clone, &resumed}) EXPECT_EQ(apply_combat(*state, input, scratch).status, StepStatus::awaiting_input);
+            const auto input = test::selection_input(s, ids.at(scenario["selection"].get<std::string>()), {});
+            for (auto* state : {&s, &clone, &resumed}) EXPECT_EQ(apply_selection(*state, input, scratch).status, StepStatus::awaiting_input);
             EXPECT_EQ(s, clone); EXPECT_EQ(s, resumed); check(scenario["states"][2]);
         }
     }

@@ -75,38 +75,36 @@ StepResult advance_combat(RunState& state, Scratch& scratch, const Ruleset& rule
     return advance_combat_trusted(state, scratch, rules);
 }
 namespace {
-StepResult execute_combat(RunState& state, const CombatInput& input, Scratch& scratch, const Ruleset& rules) noexcept try {
+template<class Input>
+StepResult execute_combat(RunState& state, const Input& input, Scratch& scratch, const Ruleset& rules) noexcept try {
     if (state.data.boundary.value == std::numeric_limits<std::uint32_t>::max()) return fail(state, Restriction::capacity);
     if (!state.data.clock.advance_action()) return fail(state, Restriction::clock_exhausted);
     scratch.steps = 0;
-    if (state.combat().phase == CombatPhase::card_choice) {
+    if constexpr (std::is_same_v<Input, SelectionInput>) {
         const auto selected = apply_card_selection(state, input, scratch, rules);
         if (selected.status == StepStatus::engine_error || selected.status == StepStatus::resource_limit) return selected;
-    } else if (input.kind == CombatInputKind::end_turn) {
-        const auto ended = end_player_turn(state, scratch, rules);
-        if (ended.status == StepStatus::engine_error || ended.status == StepStatus::resource_limit) return ended;
-    } else if (input.kind == CombatInputKind::play_card) {
-        const auto* card = state.cards().get(input.card);
-        const auto cost = effective_card_cost(state, input.card, rules);
-        spend_energy(state, cost);
-        move_card(state, Zone::hand, Zone::play, input.card);
-        if (state.combat().counters.started_plays == UINT32_MAX) return fail(state, Restriction::capacity);
-        const auto play_id = state.combat().counters.started_plays;
-        state.execution().push_back(CardProgramFrame{input.card, 0, play_id, cost, input.target.present() ? input.target : state.data.player});
-        if (cost > 0) emit(state, scratch, CombatEventKind::energy_spent, false, false, {}, 0, cost);
-        ++state.combat().counters.started_plays; ++state.combat().counters.started_this_turn;
-        if (rules.card(card->definition)->kind == CardKind::attack) {
-            ++state.combat().counters.attacks_this_turn;
-            if (cost == 0) ++state.combat().counters.zero_energy_attacks_this_turn;
-        }
-        emit(state, scratch, CombatEventKind::play_started, false, false, input.card, play_id);
-        const auto advanced = advance_combat_trusted(state, scratch, rules);
-        if (advanced.status == StepStatus::engine_error || advanced.status == StepStatus::resource_limit) return advanced;
     } else {
-        discard_card(state, scratch, input.card);
-        state.combat().phase = CombatPhase::play;
-        const auto advanced = advance_combat_trusted(state, scratch, rules);
-        if (advanced.status == StepStatus::engine_error || advanced.status == StepStatus::resource_limit) return advanced;
+        if (input.kind == CombatInputKind::end_turn) {
+            const auto ended = end_player_turn(state, scratch, rules);
+            if (ended.status == StepStatus::engine_error || ended.status == StepStatus::resource_limit) return ended;
+        } else if (input.kind == CombatInputKind::play_card) {
+            const auto* card = state.cards().get(input.card);
+            const auto cost = effective_card_cost(state, input.card, rules);
+            spend_energy(state, cost);
+            move_card(state, Zone::hand, Zone::play, input.card);
+            if (state.combat().counters.started_plays == UINT32_MAX) return fail(state, Restriction::capacity);
+            const auto play_id = state.combat().counters.started_plays;
+            state.execution().push_back(CardProgramFrame{input.card, 0, play_id, cost, input.target.present() ? input.target : state.data.player});
+            if (cost > 0) emit(state, scratch, CombatEventKind::energy_spent, false, false, {}, 0, cost);
+            ++state.combat().counters.started_plays; ++state.combat().counters.started_this_turn;
+            if (rules.card(card->definition)->kind == CardKind::attack) {
+                ++state.combat().counters.attacks_this_turn;
+                if (cost == 0) ++state.combat().counters.zero_energy_attacks_this_turn;
+            }
+            emit(state, scratch, CombatEventKind::play_started, false, false, input.card, play_id);
+            const auto advanced = advance_combat_trusted(state, scratch, rules);
+            if (advanced.status == StepStatus::engine_error || advanced.status == StepStatus::resource_limit) return advanced;
+        }
     }
     if (state.combat().phase == CombatPhase::play && !state.execution().empty()) {
         const auto advanced = advance_combat_trusted(state, scratch, rules);
@@ -132,6 +130,20 @@ StepResult apply_combat(RunState& state, const CombatInput& input, Scratch& scra
 }
 StepResult apply_combat_trusted(RunState& state, const CombatInput& input, Scratch& scratch, const Ruleset& rules) noexcept {
     STS2_CHECK_INVARIANT(legal_combat_input(state, input, rules) == Restriction::none);
+#if STS2_DEFENSIVE_VALIDATION
+    for (const auto& slot : state.cards().slots())
+        if (slot.live && !supported_card_modifiers(slot.value)) return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
+#endif
+    return execute_combat(state, input, scratch, rules);
+}
+StepResult apply_selection(RunState& state, const SelectionInput& input, Scratch& scratch, const Ruleset& rules) noexcept {
+    const auto restriction = validate_selection(state, input, rules);
+    if (restriction == Restriction::unsupported_setup) return {StepStatus::unsupported_content, state.data.boundary, restriction};
+    if (restriction != Restriction::none) return result(state, restriction);
+    return execute_combat(state, input, scratch, rules);
+}
+StepResult apply_selection_trusted(RunState& state, const SelectionInput& input, Scratch& scratch, const Ruleset& rules) noexcept {
+    STS2_CHECK_INVARIANT(legal_selection_input(state, input) == Restriction::none);
 #if STS2_DEFENSIVE_VALIDATION
     for (const auto& slot : state.cards().slots())
         if (slot.live && !supported_card_modifiers(slot.value)) return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};

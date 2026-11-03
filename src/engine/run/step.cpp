@@ -37,10 +37,15 @@ StepResult enter_combat_scenario(RunState& state, BoundaryId boundary, std::stri
     } catch (const std::bad_alloc&) { return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; } catch (const std::length_error&) { return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; }
 }
 namespace {
-StepResult apply_combat_transition(RunState& state, const CombatInput& input, Scratch& scratch, bool trusted) {
+template<class Input>
+StepResult apply_combat_transition(RunState& state, const Input& input, Scratch& scratch, bool trusted) {
     if (state.data.phase != RunPhase::combat || !state.data.combat)
         return {StepStatus::invalid_action, state.data.boundary, Restriction::wrong_phase};
-    const auto result = trusted ? apply_combat_trusted(state, input, scratch) : apply_combat(state, input, scratch);
+    const auto result = [&] {
+        if constexpr (std::is_same_v<Input, SelectionInput>)
+            return trusted ? apply_selection_trusted(state, input, scratch) : apply_selection(state, input, scratch);
+        else return trusted ? apply_combat_trusted(state, input, scratch) : apply_combat(state, input, scratch);
+    }();
     if (result.status == StepStatus::invalid_action || result.status == StepStatus::unsupported_content) return result;
     if (result.status == StepStatus::combat_won) state.data.phase = RunPhase::combat_done;
     else if (result.status == StepStatus::player_died) state.data.phase = RunPhase::complete;
@@ -129,6 +134,7 @@ StepResult apply_automatic_run_input(RunState& state, const RunInput& input, Scr
 }
 StepResult apply_input_checked_state(RunState& state, const PlayerInput& input, Scratch& scratch) {
     if (const auto* run = std::get_if<RunInput>(&input)) return apply_run_transition(state, *run, scratch, false);
+    if (const auto* selection = std::get_if<SelectionInput>(&input)) return apply_combat_transition(state, *selection, scratch, false);
     return apply_combat_transition(state, std::get<CombatInput>(input), scratch, false);
 }
 StepResult apply_input(RunState& state, const PlayerInput& input, Scratch& scratch) {
@@ -140,6 +146,7 @@ StepResult apply_input_trusted(RunState& state, const PlayerInput& input, Scratc
         STS2_CHECK_INVARIANT(flow::legal_run_input(state, *run) == Restriction::none);
         return apply_run_transition(state, *run, scratch, true);
     }
+    if (const auto* selection = std::get_if<SelectionInput>(&input)) return apply_combat_transition(state, *selection, scratch, true);
     return apply_combat_transition(state, std::get<CombatInput>(input), scratch, true);
 }
 } // namespace sts2::engine

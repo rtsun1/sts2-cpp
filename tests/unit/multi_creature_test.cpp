@@ -1,3 +1,4 @@
+#include "../support/selection_input.hpp"
 #include "sts2/engine/action.hpp"
 #include "sts2/observation/observe.hpp"
 #include "sts2/persistence/checkpoint.hpp"
@@ -226,8 +227,7 @@ TEST(MultiCreature, SuspendedCardTargetRetainsItsIdentityAcrossCloneAndRestore) 
     ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, pact}, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
     const auto prompt = state.combat().selection.id;
-    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::select_card, state.selection_candidates().front(), {}, prompt}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, {}, prompt}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_action(state, test::selection_input(state, state.selection_candidates().front(), prompt), scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(state.combat().selection.effect, SelectionEffect::add_to_hand);
     // Resume a real damage program after the controlled interruption, as in the
     // existing retained-target regression. No fixture-only handler is installed.
@@ -244,8 +244,7 @@ TEST(MultiCreature, SuspendedCardTargetRetainsItsIdentityAcrossCloneAndRestore) 
     EXPECT_EQ(state, clone); EXPECT_EQ(state, restored);
     for (auto* branch : {&clone, &restored}) {
         while (branch->combat().phase == CombatPhase::card_choice) {
-            CombatInput input{branch->data.boundary, CombatInputKind::confirm_selection, {}, {}, branch->combat().selection.id};
-            if (branch->selection_order().empty()) { input.kind = CombatInputKind::select_card; input.card = branch->selection_candidates().front(); }
+            const auto input = test::selection_input(*branch, branch->selection_candidates().front(), branch->combat().selection.id);
             ASSERT_EQ(apply_action(*branch, input, scratch).status, StepStatus::awaiting_input);
         }
         EXPECT_EQ(branch->creature(second)->hp, 34);

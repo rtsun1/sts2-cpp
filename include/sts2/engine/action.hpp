@@ -4,6 +4,38 @@
 #include <vector>
 
 namespace sts2::engine {
+// Borrowed prompt description. Reacquire after state mutation. Ordinary action
+// views/generation omit selection decisions; callers submit SelectionInput.
+struct SelectionSpace {
+    BoundaryId expected_boundary;
+    PromptId prompt;
+    std::span<const CardHandle> candidates;
+    std::uint32_t minimum, maximum;
+};
+// Precondition: valid_run(state), as for trusted legal-action traversal.
+[[nodiscard]] std::optional<SelectionSpace> selection_space(const RunState&) noexcept;
+// Enumerate a valid space (unique candidates) without replacement. workspace is caller-owned,
+// at least maximum handles, disjoint from candidates, and unchanged by consume.
+// Each emitted span lasts only through consume. Return false from consume to stop.
+// An eager caller can copy emitted spans into its own storage using this seam.
+template<class Consumer>
+bool for_each_selection(const SelectionSpace& space, std::span<CardHandle> workspace, Consumer&& consume) {
+    if (workspace.size() < space.maximum || space.maximum > space.candidates.size() || space.minimum > space.maximum)
+        return false;
+    const auto walk = [&](auto&& self, std::size_t count) -> bool {
+        if (action_rules::selection_count_restriction(count, space.minimum, space.maximum) == Restriction::none &&
+            !consume(SelectionInput{space.expected_boundary, space.prompt, workspace.first(count)})) return false;
+        if (count == space.maximum) return true;
+        for (auto card : space.candidates) {
+            if (std::find(workspace.begin(), workspace.begin() + count, card) != workspace.begin() + count) continue;
+            workspace[count] = card;
+            if (!self(self, count + 1)) return false;
+        }
+        return true;
+    };
+    return walk(walk, 0);
+}
+
 struct ActionView { CombatInput input; Restriction restriction; };
 class ActionSpaceView {
 public:
@@ -54,19 +86,7 @@ void for_each_legal_action(const RunState& state, Consumer&& consume) {
     if (state.data.phase == RunPhase::combat) {
         const auto& combat = state.combat();
         if (combat.enemy_side) return;
-        if (combat.phase == CombatPhase::card_choice) {
-            for (auto card : state.selection_candidates()) {
-                const bool present = action_rules::is_card_selected(state, card);
-                consume(PlayerInput{CombatInput{state.data.boundary,
-                    present ? CombatInputKind::deselect_card : CombatInputKind::select_card,
-                    card, {}, combat.selection.id}});
-            }
-            if (action_rules::selection_confirmation_restriction(state) == Restriction::none)
-                consume(PlayerInput{CombatInput{state.data.boundary, CombatInputKind::confirm_selection, {}, {}, combat.selection.id}});
-        } else if (combat.phase == CombatPhase::discard_choice) {
-            for (auto card : state.zone(Zone::hand))
-                consume(PlayerInput{CombatInput{state.data.boundary, CombatInputKind::select_card, card}});
-        } else if (combat.phase == CombatPhase::play) {
+        if (combat.phase == CombatPhase::play) {
             for (auto card : state.zone(Zone::hand)) {
                 if (action_rules::card_play_restriction(state, card) != Restriction::none) continue;
                 const auto* definition = Ruleset::pinned().card(state.cards().get(card)->definition);

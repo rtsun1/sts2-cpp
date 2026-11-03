@@ -40,14 +40,14 @@ struct CombatData {
     InlineSequence<HookListener, 8> captured_hook_listeners {};
     InlineSequence<CardHandle, 16> continuation_cards {};
     CardSelection selection {};
-    InlineSequence<CardHandle, 10> selection_candidates {}, selection_order {};
+    InlineSequence<CardHandle, 10> selection_candidates {};
     PromptId next_prompt {1};
     std::uint32_t next_power_instance = 0;
     std::uint32_t next_creation_order = 0;
     template<class Self, class Visit> static void visit_sequences(Self& r, Visit visit) noexcept {
         visit(r.cards.slots); visit(r.cards.free); visit(r.card_extra); visit(r.enchantment_runtime); visit(r.cost_modifiers);
         for (auto& zone : r.zones) visit(zone);
-        visit(r.execution); visit(r.selection_candidates); visit(r.selection_order);
+        visit(r.execution); visit(r.selection_candidates);
         visit(r.captured_hook_listeners); visit(r.continuation_cards);
     }
     template<class Visit> void for_each_sequence(Visit visit) const noexcept { visit_sequences(*this, visit); }

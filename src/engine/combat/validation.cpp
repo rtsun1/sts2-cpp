@@ -45,40 +45,51 @@ bool valid_powers(const RunState& state) noexcept {
     });
     return valid;
 }
-Restriction validate_combat(const RunState& state, const CombatInput& input, const Ruleset& rules) noexcept {
+namespace {
+Restriction checked_combat_state_restriction(const RunState& state, const Ruleset& rules) noexcept {
     if (!state.valid_combat_storage() || !valid_powers(state) || !valid_card_extra(state) || !valid_card_modifiers(state) || !valid_continuations(state, rules) ||
         state.combat().phase == CombatPhase::uninitialized || state.combat().phase == CombatPhase::invalid || state.combat().rules != rules_revision)
         return Restriction::invalid_state;
     for (const auto& slot : state.cards().slots())
         if (slot.live && !supported_card_modifiers(slot.value)) return Restriction::unsupported_setup;
-    return legal_combat_input(state, input, rules);
+    return Restriction::none;
+}
+}
+Restriction validate_combat(const RunState& state, const CombatInput& input, const Ruleset& rules) noexcept {
+    const auto integrity = checked_combat_state_restriction(state, rules);
+    return integrity == Restriction::none ? legal_combat_input(state, input, rules) : integrity;
 }
 Restriction legal_combat_input(const RunState& state, const CombatInput& input, const Ruleset& rules) noexcept {
     if (state.combat().enemy_side) return Restriction::wrong_phase;
     if (input.expected_boundary != state.data.boundary) return Restriction::stale_boundary;
     if (state.combat().phase == CombatPhase::combat_won || state.combat().phase == CombatPhase::player_died) return Restriction::wrong_phase;
     if (state.combat().phase == CombatPhase::card_choice) {
-        return validate_selection_input(state, input);
+        return Restriction::wrong_phase;
     }
     if (!input.target.present() && input.target != CreatureHandle{}) return Restriction::malformed_action;
-    if (input.prompt != PromptId{}) return Restriction::invalid_selection;
     if (input.kind == CombatInputKind::end_turn) {
         if (input.card != CardHandle{} || input.target.present()) return Restriction::malformed_action;
         return state.combat().phase == CombatPhase::play ? Restriction::none : Restriction::wrong_phase;
     }
-    if (input.kind != CombatInputKind::play_card && input.kind != CombatInputKind::select_card) return Restriction::malformed_action;
-    if (input.kind == CombatInputKind::select_card) {
-        if (state.combat().phase != CombatPhase::discard_choice) return Restriction::wrong_phase;
-        if (input.target.present()) return Restriction::malformed_action;
-    } else if (state.combat().phase != CombatPhase::play) return Restriction::wrong_phase;
+    if (input.kind != CombatInputKind::play_card) return Restriction::malformed_action;
+    if (state.combat().phase != CombatPhase::play) return Restriction::wrong_phase;
     const auto* card = state.cards().get(input.card);
     const auto hand = state.zone(Zone::hand);
     if (!card || std::find(hand.begin(), hand.end(), input.card) == hand.end()) return Restriction::stale_card;
-    if (input.kind == CombatInputKind::select_card) return Restriction::none;
     const auto* definition = rules.card(card->definition);
     if (!definition) return Restriction::invalid_state;
     if (definition->enemy_target != input.target.present() || (input.target.present() && !action_rules::is_living_enemy(state, input.target))) return Restriction::invalid_target;
     return action_rules::card_play_restriction(state, input.card, rules);
+}
+Restriction legal_selection_input(const RunState& state, const SelectionInput& input) noexcept {
+    if (state.combat().enemy_side) return Restriction::wrong_phase;
+    if (input.expected_boundary != state.data.boundary) return Restriction::stale_boundary;
+    return validate_selection_input(state, input);
+}
+Restriction validate_selection(const RunState& state, const SelectionInput& input, const Ruleset& rules) noexcept {
+    const auto integrity = checked_combat_state_restriction(state, rules);
+    if (integrity != Restriction::none) return integrity;
+    return legal_selection_input(state, input);
 }
 bool valid_combat(const RunState& state, const Ruleset& rules) noexcept {
     if (!state.valid_combat_storage() || state.enemies().empty()) return false;
@@ -121,7 +132,7 @@ bool valid_combat(const RunState& state, const Ruleset& rules) noexcept {
     if ((state.combat().phase == CombatPhase::combat_won && (state.has_living_enemies() || state.player().hp == 0)) ||
         (state.combat().phase == CombatPhase::player_died && state.player().hp != 0) ||
         (!terminal && (!state.has_living_enemies() || state.player().hp == 0))) return false;
-    if (state.combat().next_prompt.value == 0 || (state.combat().phase != CombatPhase::card_choice && (state.combat().selection != CardSelection{} || !state.selection_candidates().empty() || !state.selection_order().empty()))) return false;
+    if (state.combat().next_prompt.value == 0 || (state.combat().phase != CombatPhase::card_choice && (state.combat().selection != CardSelection{} || !state.selection_candidates().empty()))) return false;
     if (!valid_continuations(state, rules)) return false;
     if (state.combat().phase == CombatPhase::combat_won && (!state.player().powers.empty() || !state.enemy().powers.empty())) return false;
     const auto& counters = state.combat().counters;

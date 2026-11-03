@@ -11,6 +11,7 @@ int main() {
     using namespace sts2::engine;
     using Json = nlohmann::json;
     RunState state; Scratch scratch; NativeRunExporter exporter;
+    std::vector<CardHandle> edited_selection;
     for (std::string line; std::getline(std::cin, line);) try {
         const auto request = Json::parse(line); const auto command = request.at("cmd").get<std::string>();
         if (command == "start") {
@@ -36,6 +37,7 @@ int main() {
             initialize_json_run(state, request.at("setup"), next_exporter.trace(), deck, relics,
                 request.value("scenario_enemy_hp", 0), request.value("scenario_joss_counter", 0u));
             if (state.data.combat) state.enemy().block = enemy_block;
+            edited_selection.clear();
             exporter = std::move(next_exporter); scratch.trace = exporter.trace();
         } else {
             const auto before = checkpoint(state).bytes;
@@ -45,7 +47,7 @@ int main() {
             if (checkpoint(state).bytes != before) throw std::runtime_error("Query mutated run");
             RunState restored; if (restore(restored, before, scratch) != RestoreStatus::restored) throw std::runtime_error("Restore failed");
             auto cloned = state;
-            auto apply = [&](RunState& run, Scratch& execution) {
+            auto apply = [&](RunState& run, Scratch& execution, std::vector<CardHandle>& edited) {
                 if (command == "scenario_enter_combat") return enter_combat_scenario(run, run.data.boundary, request.at("encounter").get<std::string>(), execution.trace);
                 if (command == "scenario_power") {
                     constexpr std::array names{"POWER.SHRINK_POWER", "POWER.VULNERABLE_POWER", "POWER.STRENGTH_POWER", "POWER.DEXTERITY_POWER", "POWER.WEAK_POWER", "POWER.ARTIFACT_POWER", "POWER.DARK_EMBRACE_POWER", "POWER.STRATAGEM_POWER"};
@@ -59,6 +61,7 @@ int main() {
                 if (command != "action") throw std::invalid_argument("Unknown command");
                 const auto& action = request.at("action"); const auto kind = action.at("kind").get<std::string>();
                 PlayerInput input;
+                std::vector<CardHandle> submitted;
                 if (kind == "play_card") {
                     const auto view = observe(run); const auto index = action.at("card_index").get<std::size_t>();
                     if (!view.combat || index >= view.combat->hand.size()) throw std::invalid_argument("Invalid hand index");
@@ -81,8 +84,27 @@ int main() {
                         card = selection.candidates[index];
                     }
                     const auto prompt = action.contains("prompt") ? PromptId{action.at("prompt").get<std::uint32_t>()} : selection.id;
-                    const auto input_kind = kind == "select_card" ? CombatInputKind::select_card : kind == "deselect_card" ? CombatInputKind::deselect_card : CombatInputKind::confirm_selection;
-                    input = CombatInput{run.data.boundary, input_kind, card, {}, prompt};
+                    if (prompt != selection.id) throw std::invalid_argument("Stale prompt");
+                    if (kind == "select_card") {
+                        if (std::find(edited.begin(), edited.end(), card) != edited.end()) throw std::invalid_argument("Duplicate selection");
+                        if (edited.size() == selection.maximum) edited.pop_back();
+                        edited.push_back(card);
+                    } else if (kind == "deselect_card") {
+                        const auto found = std::find(edited.begin(), edited.end(), card);
+                        if (found == edited.end()) throw std::invalid_argument("Card not selected");
+                        edited.erase(found);
+                    }
+                    // Historical partial inputs consumed time/boundaries. Keep this
+                    // transport compatibility out of engine gameplay execution.
+                    if (kind != "confirm_selection" && !(run.combat().selection.automatic_at_maximum && edited.size() == selection.maximum)) {
+                        if (run.data.boundary.value == UINT32_MAX || !run.data.clock.advance_action()) throw std::runtime_error("Legacy clock exhausted");
+                        ++run.data.boundary.value;
+                        execution.trace.emit(run, {CombatEventKind::combat_updated});
+                        return StepResult{StepStatus::awaiting_input, run.data.boundary};
+                    }
+                    submitted = edited;
+                    edited.clear();
+                    input = SelectionInput{run.data.boundary, prompt, submitted};
                 }
                 else if (kind == "end_turn") input = CombatInput{run.data.boundary, CombatInputKind::end_turn};
                 else {
@@ -98,9 +120,10 @@ int main() {
                 return apply_action(run, input, execution);
             };
             Scratch branch_scratch;
-            const auto result = apply(state, scratch);
+            auto restored_edit = edited_selection, cloned_edit = edited_selection;
+            const auto result = apply(state, scratch, edited_selection);
             if (result.status != StepStatus::awaiting_input && result.status != StepStatus::player_died && result.status != StepStatus::combat_won) throw std::runtime_error("Operation failed: status " + std::to_string(static_cast<unsigned>(result.status)));
-            if (apply(restored, branch_scratch).status != result.status || apply(cloned, branch_scratch).status != result.status || restored != state || cloned != state)
+            if (apply(restored, branch_scratch, restored_edit).status != result.status || apply(cloned, branch_scratch, cloned_edit).status != result.status || restored != state || cloned != state)
                 throw std::runtime_error("Clone/restore future differs");
         }
         Json response{{"ok", true}, {"state", exporter.snapshot(state)}, {"selection", nullptr}, {"boundary", state.data.boundary.value}};
@@ -121,14 +144,14 @@ int main() {
                 candidates.push_back({{"slot", handle.slot}, {"generation", handle.generation},
                     {"model_id", card->model_id}, {"upgraded", card->upgraded}});
             }
-            for (auto handle : selection.selected) {
+            for (auto handle : edited_selection) {
                 const auto at = std::find(selection.candidates.begin(), selection.candidates.end(), handle);
                 if (at == selection.candidates.end()) throw std::runtime_error("Selected public card absent from candidates");
                 selected.push_back(at - selection.candidates.begin());
             }
             response["selection"] = {{"prompt", selection.id.value}, {"minimum", selection.minimum}, {"maximum", selection.maximum},
-                {"automatic_at_maximum", selection.submits_immediately}, {"selected_count", selection.selected.size()},
-                {"can_confirm", selection.can_confirm}, {"candidates", candidates}, {"selected_indices", selected}};
+                {"automatic_at_maximum", state.combat().selection.automatic_at_maximum}, {"selected_count", edited_selection.size()},
+                {"can_confirm", (!state.combat().selection.automatic_at_maximum && edited_selection.size() >= selection.minimum)}, {"candidates", candidates}, {"selected_indices", selected}};
         }
         std::cout << response.dump() << std::endl;
     } catch (const std::exception& error) {

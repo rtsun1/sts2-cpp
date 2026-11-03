@@ -4,6 +4,10 @@ Implementation evidence for [issue #63](https://github.com/rtsun1/sts2-cpp/issue
 measured 2026-11-02 at commit `3fcfc7f`, before the follow-up that omits trusted
 support guards in performance builds. These are historical measurements, not
 measurements of the updated mode. No benchmarks were run for that follow-up.
+They also predate complete ordered selection submissions. The benchmark caller has
+been migrated to that interface for compilation; no new measurements were collected
+for the selection migration. Selection-related verification below describes the
+historical incremental interface at the measured commit.
 
 This report measures supported examples and synthetic branching;
 there is no MCTS runner and no whole-simulation throughput claim.
@@ -46,7 +50,8 @@ separately to avoid transferring cost between operations unnoticed.
 
 Raw per-sample timings/allocation counts, source fingerprints and binary hashes are
 retained in [report.json](../../planning/action-path-measurements/report.json).
-Reproduce the current measurements with `cmake --build --preset release` followed by
+To reproduce these historical measurements, check out `3fcfc7f` and use
+`cmake --build --preset release` followed by
 three separate invocations of `./build/release/architecture_benchmark 100`. Build the
 baseline standalone target from the pinned parent commit in a separate checkout
 using matching compiler/diagnostic settings to reproduce the before measurement.

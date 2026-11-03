@@ -4,7 +4,6 @@
 #include "../combat/lifecycle.hpp"
 #include "../mechanics/cards.hpp"
 #include "../mechanics/exhaust.hpp"
-#include "../combat/lifecycle.hpp"
 #include "sts2/core/sort.hpp"
 #include <algorithm>
 #include <stdexcept>
@@ -18,7 +17,7 @@ bool pile_choice_less(const RunState& state, CardHandle a, CardHandle b, const R
 }
 }
 void clear_selection(RunState& state) {
-    state.combat().selection = {}; state.selection_candidates().clear(); state.selection_order().clear();
+    state.combat().selection = {}; state.selection_candidates().clear();
 }
 void begin_selection(RunState& state, SelectionEffect effect, Zone zone, std::uint32_t minimum, std::uint32_t maximum, bool automatic) {
     if (state.combat().next_prompt.value == UINT32_MAX) throw std::length_error("prompt identity exhausted");
@@ -33,28 +32,27 @@ void begin_selection(RunState& state, SelectionEffect effect, Zone zone, std::ui
     state.combat().selection.maximum = std::min(maximum, static_cast<std::uint32_t>(state.selection_candidates().size()));
     state.combat().phase = CombatPhase::card_choice;
 }
-StepResult apply_card_selection(RunState& state, const CombatInput& input, Scratch& scratch, const Ruleset& rules) {
-    auto selected = state.selection_order();
-    if (input.kind == CombatInputKind::select_card) {
-        if (selected.size() == state.combat().selection.maximum) selected.pop_back();
-        selected.push_back(input.card);
-    } else if (input.kind == CombatInputKind::deselect_card) {
-        selected.erase(std::find(selected.begin(), selected.end(), input.card));
-    }
-    if (input.kind == CombatInputKind::confirm_selection || (state.combat().selection.automatic_at_maximum && selected.size() == state.combat().selection.maximum)) {
-        if (state.combat().selection.effect == SelectionEffect::exhaust) {
-            const auto cards = capture_exhaust_cards(state, std::span<const CardHandle>(selected.begin(), selected.size()));
-            const auto zone = state.combat().selection.zone;
-            clear_selection(state); state.combat().phase = CombatPhase::play;
+StepResult apply_card_selection(RunState& state, const SelectionInput& input, Scratch& scratch, const Ruleset& rules) {
+    // Copy once before any effect can suspend or invalidate caller storage.
+    const auto cards = capture_exhaust_cards(state, input.cards);
+    if (state.combat().phase == CombatPhase::discard_choice) {
+        const auto card = state.continuation_cards()[cards.begin];
+        discard_card(state, scratch, card);
+        state.continuation_cards().pop_back();
+        state.combat().phase = CombatPhase::play;
+    } else {
+        const auto effect = state.combat().selection.effect;
+        const auto zone = state.combat().selection.zone;
+        clear_selection(state);
+        state.combat().phase = CombatPhase::play;
+        if (effect == SelectionEffect::exhaust) {
             if (cards.count != 0)
                 state.execution().push_back(ExhaustCardsFrame{.cards = cards, .source_zone = zone});
-            else if (!consume(scratch))
-                return fail(state, Restriction::execution_budget);
+            else if (!consume(scratch)) return fail(state, Restriction::execution_budget);
         } else {
-            // These operations have no suspendable listeners in supported content.
-            const auto effect = state.combat().selection.effect;
-            const auto zone = state.combat().selection.zone;
-            for (auto card : selected) {
+            // Supported synchronous operations share the same operand ownership.
+            for (std::uint32_t i = 0; i < cards.count; ++i) {
+                const auto card = state.continuation_cards()[cards.begin + i];
                 if (effect != SelectionEffect::add_to_hand && !consume(scratch)) return fail(state, Restriction::execution_budget);
                 if (!state.cards().get(card)) return fail(state, Restriction::invalid_state);
                 if (effect == SelectionEffect::upgrade) state.cards().get(card)->upgraded = true;
@@ -64,32 +62,35 @@ StepResult apply_card_selection(RunState& state, const CombatInput& input, Scrat
                     auto pile = state.zone(Zone::draw); std::rotate(pile.begin(), pile.end() - 1, pile.end());
                 } else return fail(state, Restriction::invalid_state);
             }
-            clear_selection(state); state.combat().phase = CombatPhase::play;
+            while (state.continuation_cards().size() > cards.begin) state.continuation_cards().pop_back();
         }
-        const auto advanced = advance_combat_trusted(state, scratch, rules);
-        if (advanced.status == StepStatus::engine_error || advanced.status == StepStatus::resource_limit) return advanced;
     }
-    return result(state);
+    return advance_combat_trusted(state, scratch, rules);
 }
 
-Restriction validate_selection_input(const RunState& state, const CombatInput& input) noexcept {
-    if (input.prompt != state.combat().selection.id) return Restriction::invalid_selection;
-    if (input.target != CreatureHandle{}) return Restriction::malformed_action;
-    if (input.kind == CombatInputKind::confirm_selection) {
-        if (input.card != CardHandle{}) return Restriction::malformed_action;
-        return action_rules::selection_confirmation_restriction(state);
+Restriction validate_selection_input(const RunState& state, const SelectionInput& input) noexcept {
+    const bool discard = state.combat().phase == CombatPhase::discard_choice;
+    if (!discard && state.combat().phase != CombatPhase::card_choice) return Restriction::wrong_phase;
+    if (input.prompt != (discard ? PromptId{} : state.combat().selection.id)) return Restriction::invalid_selection;
+    const std::span<const CardHandle> candidates = discard ? std::span<const CardHandle>(state.zone(Zone::hand)) : std::span<const CardHandle>(state.selection_candidates());
+    const auto minimum = discard ? 1u : state.combat().selection.minimum;
+    const auto maximum = discard ? 1u : state.combat().selection.maximum;
+    const auto count = action_rules::selection_count_restriction(input.cards.size(), minimum, maximum);
+    if (count != Restriction::none) return count;
+    for (std::size_t i = 0; i < input.cards.size(); ++i) {
+        const auto card = input.cards[i];
+        if (!state.cards().get(card) || std::find(candidates.begin(), candidates.end(), card) == candidates.end())
+            return discard ? Restriction::stale_card : Restriction::invalid_selection;
+        for (std::size_t j = 0; j < i; ++j) if (input.cards[j] == card) return Restriction::invalid_selection;
     }
-    if (input.kind != CombatInputKind::select_card && input.kind != CombatInputKind::deselect_card) return Restriction::wrong_phase;
-    const bool selected = action_rules::is_card_selected(state, input.card);
-    if (input.kind == CombatInputKind::deselect_card) return selected ? Restriction::none : Restriction::invalid_selection;
-    return !selected && std::find(state.selection_candidates().begin(), state.selection_candidates().end(), input.card) != state.selection_candidates().end() ? Restriction::none : Restriction::invalid_selection;
+    return Restriction::none;
 }
 
 bool valid_selection(const RunState& state, const Ruleset& rules) noexcept {
     if (state.combat().phase == CombatPhase::card_choice) {
         const auto& p = state.combat().selection;
         if (state.execution().empty() || p.continuation_depth != state.execution().size() - 1 || p.id.value == 0 || p.id.value >= state.combat().next_prompt.value ||
-            p.minimum > p.maximum || p.maximum == 0 || state.selection_order().size() > p.maximum || p.zone >= Zone::count) return false;
+            p.minimum > p.maximum || p.maximum == 0 || p.zone >= Zone::count) return false;
         const auto& frame = state.execution().back();
         SelectionEffect effect;
         Zone zone = Zone::hand; std::uint32_t minimum = 1, maximum = 1;
@@ -128,9 +129,6 @@ bool valid_selection(const RunState& state, const Ruleset& rules) noexcept {
             }
             if (offered != state.selection_candidates().size() || offered == 0 || (minimum == 1 && offered <= 1)) return false;
         }
-        for (auto card : state.selection_order())
-            if (std::count(state.selection_order().begin(), state.selection_order().end(), card) != 1 ||
-                std::find(state.selection_candidates().begin(), state.selection_candidates().end(), card) == state.selection_candidates().end()) return false;
     } else if (state.combat().phase == CombatPhase::discard_choice) {
         if (state.execution().empty() || state.zone(Zone::hand).empty()) return false;
         const auto& frame = state.execution().back();

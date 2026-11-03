@@ -136,9 +136,9 @@ Checkpoint persistence::encode_combat(const RunState& s) {
     w.u32(s.combat().next_prompt.value); w.u32(s.combat().selection.id.value);
     w.u8(static_cast<std::uint8_t>(s.combat().selection.effect)); w.u8(static_cast<std::uint8_t>(s.combat().selection.zone));
     w.u32(s.combat().selection.minimum); w.u32(s.combat().selection.maximum); w.u8(s.combat().selection.automatic_at_maximum); w.u32(s.combat().selection.continuation_depth);
-    for (const auto& selection : {s.selection_candidates(), s.selection_order()}) {
-        w.u32(static_cast<std::uint32_t>(selection.size())); for (auto card : selection) w.handle(card);
-    }
+    w.u32(static_cast<std::uint32_t>(s.selection_candidates().size()));
+    for (auto card : s.selection_candidates()) w.handle(card);
+    w.u32(0); // Reserved legacy partial-selection count.
     w.u32(s.combat().counters.started_plays);
     w.u32(s.combat().counters.finished_plays);
     w.u32(s.combat().counters.started_this_turn);
@@ -220,10 +220,9 @@ RestoreStatus persistence::decode_combat(RunState& s, std::span<const std::byte>
         s.combat().next_prompt.value = r.u32(); s.combat().selection.id.value = r.u32();
         s.combat().selection.effect = static_cast<SelectionEffect>(r.u8()); s.combat().selection.zone = static_cast<Zone>(r.u8());
         s.combat().selection.minimum = r.u32(); s.combat().selection.maximum = r.u32(); s.combat().selection.automatic_at_maximum = r.boolean(); s.combat().selection.continuation_depth = r.u32();
-        for (auto selection : {s.selection_candidates(), s.selection_order()}) {
-            const auto n = r.u32(); if (n > count) return RestoreStatus::malformed;
-            for (std::uint32_t i = 0; i < n; ++i) selection.push_back(r.handle());
-        }
+        const auto candidates = r.u32(); if (candidates > count) return RestoreStatus::malformed;
+        for (std::uint32_t i = 0; i < candidates; ++i) s.selection_candidates().push_back(r.handle());
+        if (r.u32() != 0) return RestoreStatus::malformed;
         s.combat().counters.started_plays = r.u32();
         s.combat().counters.finished_plays = r.u32();
         s.combat().counters.started_this_turn = r.u32();

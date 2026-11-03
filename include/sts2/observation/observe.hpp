@@ -7,9 +7,8 @@ namespace sts2::engine {
 struct CardSelectionView {
     PromptId id;
     SelectionEffect effect;
-    std::span<const CardHandle> candidates, selected;
+    std::span<const CardHandle> candidates;
     std::uint32_t minimum, maximum;
-    bool submits_immediately, can_confirm;
 };
 struct EnemyObservation {
     CreatureHandle handle;

@@ -323,8 +323,6 @@ struct RunState {
     auto continuation_cards() const noexcept { return SequenceView(combat().continuation_cards, combat_overflow); }
     auto selection_candidates() noexcept { return SequenceView(combat().selection_candidates, combat_overflow); }
     auto selection_candidates() const noexcept { return SequenceView(combat().selection_candidates, combat_overflow); }
-    auto selection_order() noexcept { return SequenceView(combat().selection_order, combat_overflow); }
-    auto selection_order() const noexcept { return SequenceView(combat().selection_order, combat_overflow); }
     auto deck_extra() noexcept { return SequenceView(data.card_extra, overflow); }
     auto deck_extra() const noexcept { return SequenceView(data.card_extra, overflow); }
     auto relics() noexcept { return SequenceView(data.relics, overflow); }
@@ -378,8 +376,7 @@ inline bool RunState::combat_equals(const RunState& other) const {
         && execution() == other.execution()
         && captured_hook_listeners() == other.captured_hook_listeners()
         && continuation_cards() == other.continuation_cards()
-        && selection_candidates() == other.selection_candidates()
-        && selection_order() == other.selection_order();
+        && selection_candidates() == other.selection_candidates();
 }
 inline bool operator==(const RunState& a, const RunState& b) {
     for (std::size_t i = 0; i < a.data.acts.size(); ++i) if (!(a.act(i) == b.act(i))) return false;

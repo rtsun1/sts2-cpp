@@ -19,7 +19,7 @@ struct RunInput {
     std::uint32_t option = 0;
     std::int32_t col = 0, row = 0;
 };
-using PlayerInput = std::variant<RunInput, CombatInput>;
+using PlayerInput = std::variant<RunInput, CombatInput, SelectionInput>;
 
 [[nodiscard]] bool valid_run(const RunState&) noexcept;
 [[nodiscard]] StepResult initialize_run(RunState&, const SeededConfig&);

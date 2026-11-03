@@ -1,3 +1,4 @@
+#include "../support/selection_input.hpp"
 #include "sts2/engine/action.hpp"
 #include "sts2/observation/run.hpp"
 #include "sts2/persistence/checkpoint.hpp"
@@ -431,12 +432,12 @@ TEST(CompleteStateClone, PendingChoicePreservesSourceAfterUnreferencedCardRemova
     const auto encoded = checkpoint(source).bytes;
     RunState cloned, restored; clone_into(cloned, source);
     ASSERT_EQ(restore(restored, encoded, scratch), RestoreStatus::restored);
-    const CombatInput select{source.data.boundary, CombatInputKind::select_card, defend};
-    ASSERT_EQ(apply_combat(cloned, select, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(apply_combat(restored, select, scratch).status, StepStatus::awaiting_input);
+    const auto select = test::selection_input(source, defend);
+    ASSERT_EQ(apply_selection(cloned, select, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_selection(restored, select, scratch).status, StepStatus::awaiting_input);
     EXPECT_EQ(cloned, restored); EXPECT_EQ(cloned.data.rng, restored.data.rng);
     EXPECT_FALSE(cloned.cards().get(strike)); EXPECT_EQ(checkpoint(source).bytes, encoded);
-    ASSERT_EQ(apply_combat(source, {source.data.boundary, CombatInputKind::select_card, bash}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_selection(source, test::selection_input(source, bash, {}), scratch).status, StepStatus::awaiting_input);
     EXPECT_NE(source, cloned);
 }
 
@@ -475,7 +476,7 @@ TEST(CompleteStateClone, SuspendedCountersAndCapturedOperandsSurviveIndependentF
     auto branch = source; RunState restored;
     ASSERT_EQ(restore(restored, saved, scratch), RestoreStatus::restored);
     for (auto* state : {&branch, &restored}) {
-        ASSERT_EQ(apply_combat(*state, {state->data.boundary, CombatInputKind::select_card, defend}, scratch).status, StepStatus::awaiting_input);
+        ASSERT_EQ(apply_selection(*state, test::selection_input(*state, defend), scratch).status, StepStatus::awaiting_input);
         EXPECT_TRUE(state->execution().empty());
         EXPECT_EQ(state->combat().counters.finished_plays, 1u);
         EXPECT_EQ(state->cards().get(survivor)->last_finished_player_turn, 1);
@@ -493,7 +494,7 @@ TEST(CompleteStateClone, SuspendedCountersAndCapturedOperandsSurviveIndependentF
     }
     EXPECT_EQ(branch, restored);
     EXPECT_EQ(checkpoint(source).bytes, saved);
-    ASSERT_EQ(apply_combat(source, {source.data.boundary, CombatInputKind::select_card, strike}, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(apply_selection(source, test::selection_input(source, strike, {}), scratch).status, StepStatus::awaiting_input);
     EXPECT_NE(source, branch);
 }
 

@@ -7,18 +7,17 @@ planning handoff; no engine or probe implementation is claimed.
 
 ## Selection and action model
 
-Keep partial selection in the simulator, following the user's latest decision.
-Pending prompts retain selected objects, their meaningful order, selection limits,
-and available select/deselect/confirm operations. Preserve order whenever it changes
-effect execution or future state. Clone/checkpoint/restore must retain partial
-selection and resume the same prompt. Separate confirmation remains supported where
-required by the mechanic. Complete ordered submissions may coexist where legal;
-they do not replace the partial-selection capability.
+Use complete ordered selections in the engine. Callers own proposed selections and
+optional incremental editing. Submit borrowed spans; accepted operands are copied into
+engine-owned continuation storage and survive nested suspension, cloning and restoration.
+Expose prompt candidates and constraints separately from discrete actions. Selection
+enumeration has a caller-consumer seam so lazy traversal and eager collection can evolve
+without changing gameplay execution. See [ordered choices](../specs/engine/ordered-card-choices.md).
 
 For redundant menu cancellation, opening
 optional removal and cancelling back is equivalent to not opening it when gameplay
 state and future behavior are unchanged. Do not infer from this equivalence that
-all cancellation effects are identical or that partial selections can be discarded.
+all cancellation effects are identical or that other menu actions have no gameplay effects.
 Preserve actual gameplay effects, payment changes, reveals and future choices.
 
 Keep the original 697-boundary dense pair and its provenance unchanged. Map partial
@@ -92,17 +91,11 @@ dependencies, not a separate up-front tooling project or another broad audit.
 Redundant finished-page/continue controls and distinctions between interchangeable
 objects do not become required tool features.
 
-Extend the reference tool alongside simulator partial-selection implementation.
-Require the resulting evidence before declaring those selections verified; there
-is no separate early tool-only milestone.
-
-The current atomic reference selector cannot validate select/deselect/confirm steps.
-Extend reference tooling to capture the native partial-selection behavior that the
-simulator now retains. This is concrete implementation work, not another task to
-rediscover the known limitation or another preference question for the user.
-Implement it alongside the choice-owning engine slice and demonstrate that path
-before accepting its partial-selection parity. Do not block unrelated engine work
-on completing every probe first.
+Preserve existing partial-selection evidence and recordings as historical artifacts.
+The engine now assumes editing before submission has no gameplay effects; no additional
+native partial-selector audit is required for this migration. Verify bulk submission and
+suspended operand ownership through correctness tests, and keep legacy input adaptation
+outside gameplay execution.
 
 Native public-screen value/order/reveal gaps also remain real. Add suitable probes
 or independently instrumented consumers with the room/mechanic slices they verify.
