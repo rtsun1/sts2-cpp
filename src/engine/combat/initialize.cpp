@@ -2,6 +2,8 @@
 #include "lifecycle.hpp"
 #include "../transitions.hpp"
 #include "trace.hpp"
+#include "../content/enemies.hpp"
+#include "../content/encounters.hpp"
 #include "../mechanics/cards.hpp"
 #include <algorithm>
 #include <new>
@@ -19,9 +21,9 @@ namespace {
 template<bool CheckSupport>
 StepResult initialize_combat_impl(RunState& state, const CombatConfig& config, Scratch& scratch, const Ruleset& rules, Limits limits, bool in_place) {
     if constexpr (CheckSupport) {
-        if (config.build != game_build || config.ascension != 0 || config.encounter != "ENCOUNTER.SHRINKER_BEETLE_WEAK" ||
+        if (config.build != game_build || config.ascension != 0 || !supported_encounter(config.encounter) ||
             config.seed.empty() || config.seed.size() > 4096 || config.player_max_hp < 1 || config.player_hp < 1 || config.player_hp > config.player_max_hp ||
-            config.enemy_count < 1 || config.enemy_count > 2 || config.card_generation == 0 || config.enemy_hp < 0 || config.enemy_hp > 40 || config.exhaust_relics.size() > 2 || config.joss_paper_counter >= 5 ||
+            config.enemy_count < 1 || config.enemy_count > 2 || (config.enemy_count == 2 && config.encounter != "ENCOUNTER.SHRINKER_BEETLE_WEAK") || config.card_generation == 0 || config.enemy_hp < 0 || config.enemy_hp > (config.encounter == "ENCOUNTER.FUZZY_WURM_CRAWLER_WEAK" ? 57 : 40) || config.exhaust_relics.size() > 2 || config.joss_paper_counter >= 5 ||
             (config.seed.starts_with("old") && std::any_of(config.seed.begin(), config.seed.end(), [](unsigned char c) { return c >= 128; })))
             return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
         RunClock checked_clock;
@@ -63,17 +65,21 @@ StepResult initialize_combat_impl(RunState& state, const CombatConfig& config, S
         } else if (!in_place) next = state;
         next.emplace_combat();
         next.data.phase = RunPhase::combat;
+        next.data.combat_encounter = SetupRules::find(config.encounter);
         next.data.combat_generation = config.card_generation;
         next.combat().exhaust_relic_count = static_cast<std::uint8_t>(config.exhaust_relics.size());
         std::copy(config.exhaust_relics.begin(), config.exhaust_relics.end(), next.combat().exhaust_relics.begin());
         next.data.joss_paper_counter = config.joss_paper_counter;
         next.reserve_combat(deck.size()); next.seed() = config.seed; next.data.numeric_seed = game_seed(config.seed); next.data.rng = config.initial_rng ? *config.initial_rng : RngBank(config.seed);
         next.player().clear(); next.player().hp = config.player_hp; next.player().max_hp = config.player_max_hp;
-        for (std::uint32_t i = 0; i < config.enemy_count; ++i) {
+        auto composition = generate_encounter(config.encounter, next);
+        if (config.enemy_count == 2 && config.encounter == "ENCOUNTER.SHRINKER_BEETLE_WEAK") { composition.enemies[1] = EnemyId::shrinker_beetle; composition.count = 2; }
+        for (std::uint32_t i = 0; i < composition.count; ++i) {
             auto handle = i == 0 ? next.enemy_handle() : next.create_enemy_at(i, {});
             if (!handle.present()) return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity};
             int enemy_hp = config.enemy_hp;
-            if (enemy_hp == 0) (void)next.data.rng.get(RunStream::niche).next_int(38, 41, enemy_hp);
+            next.creature(handle)->enemy_type = composition.enemies[i];
+            if (enemy_hp == 0) enemy_hp = roll_enemy_hp(next, composition.enemies[i], next.data.rng.get(RunStream::niche));
             next.creature(handle)->hp = next.creature(handle)->max_hp = enemy_hp;
         }
         next.combat().energy = 3; next.combat().turn = 1; next.combat().burning_blood = config.burning_blood;

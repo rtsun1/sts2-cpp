@@ -119,3 +119,12 @@ fields and ignores storage addresses and inline/overflow capacity.
 Existing recording and replay-parity checks remain part of the validation suite.
 Passing tests establishes their tested scope, not full-game correctness. No
 benchmarks were run for this change, and no performance improvement is claimed.
+
+## Additional encounter compositions
+
+`CombatConfig.encounter` and direct seeded combat setup now also accept
+`ENCOUNTER.FUZZY_WURM_CRAWLER_WEAK` and `ENCOUNTER.OVERGROWTH_CRAWLERS`. The latter
+creates Shrinker then Crawler without setting `enemy_count`. Natural run travel
+uses the generated encounter queue. The authored two-beetle override remains
+available only for Shrinker setup. See the
+[enemy generalization scope](../../planning/enemy-encounter-generalization.md).

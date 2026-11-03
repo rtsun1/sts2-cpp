@@ -185,6 +185,7 @@ struct RunData {
     float potion_reward_odds = 0.4f;
     std::optional<CombatData> combat;
     bool direct_combat = false;
+    ContentId combat_encounter = no_content; // Retained through reward/map return.
     std::uint32_t combat_generation = 0;
     std::optional<CombatRewards> rewards;
     RunClock clock;
@@ -222,7 +223,7 @@ inline bool valid_creature_storage(const RunData& data, const OverflowStorage& o
     const EnemyPoolRange enemies{pool};
     if (data.combat.has_value() != !enemies.empty() || data.player.slot != 0 || pool.get(data.player)->enemy_member) return false;
     for (const auto& slot : pool.slots()) {
-        if (static_cast<unsigned>(slot.value.enemy_ai.selected) > static_cast<unsigned>(BeetleMove::stomp)) return false;
+        if (slot.value.enemy_type >= EnemyId::count || static_cast<unsigned>(slot.value.enemy_ai.selected) > static_cast<unsigned>(EnemyMove::third)) return false;
     }
     return true;
 }
@@ -390,7 +391,7 @@ inline bool operator==(const RunState& a, const RunState& b) {
         a.deck() == b.deck() && a.deck_extra() == b.deck_extra() && a.relics() == b.relics() && a.data.joss_paper_counter == b.data.joss_paper_counter &&
         a.potions() == b.potions() && a.data.card_rarity_offset == b.data.card_rarity_offset &&
         a.data.potion_reward_odds == b.data.potion_reward_odds && a.combat_equals(b) &&
-        a.data.direct_combat == b.data.direct_combat && a.data.combat_generation == b.data.combat_generation &&
+        a.data.direct_combat == b.data.direct_combat && a.data.combat_encounter == b.data.combat_encounter && a.data.combat_generation == b.data.combat_generation &&
         a.data.rewards == b.data.rewards && a.data.clock == b.data.clock && a.data.boundary == b.data.boundary &&
         a.data.phase == b.data.phase && a.data.room == b.data.room && a.data.act_index == b.data.act_index && a.data.maps == b.data.maps &&
         a.data.current == b.data.current && a.visited() == b.visited() && a.data.event_rng == b.data.event_rng &&

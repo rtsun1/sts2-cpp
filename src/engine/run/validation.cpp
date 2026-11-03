@@ -1,5 +1,6 @@
 #include "sts2/engine/run.hpp"
 #include "run_flow.hpp"
+#include "../content/encounters.hpp"
 #include "../mechanics/cards.hpp"
 #include <algorithm>
 #include <cmath>
@@ -33,6 +34,7 @@ bool valid_run(const RunState& state) noexcept {
     if (!valid_data_storage(state.data, state.overflow) ||
         (!state.data.combat && !state.combat_overflow.empty())) return false;
     if (!flow::valid_room_context(state)) return false;
+    if (state.data.combat_encounter != no_content && !gameplay::supported_encounter(SetupRules::name(state.data.combat_encounter))) return false;
     if (state.data.phase == RunPhase::uninitialized || state.data.phase >= RunPhase::invalid || state.data.act_index != 0 ||
         state.data.boundary.value == 0 || state.seed().empty() || state.seed().size() > 4096 || game_seed(state.seed()) != state.data.numeric_seed ||
         !SetupRules::character(state.data.character) || state.data.ascension > 10 || state.player().max_hp < 1 || state.player().hp < 0 || state.player().hp > state.player().max_hp ||

@@ -53,6 +53,19 @@ std::uint32_t apply_power(RunState& s, Scratch& scratch, PowerId id, int amount,
     }
     return identity;
 }
+void remove_power(RunState& state, Scratch& scratch, CreatureHandle owner, std::uint32_t identity) {
+    auto* creature = state.creature(owner);
+    auto* power = creature ? creature->find_power_instance(identity, state.overflow) : nullptr;
+    if (!power) return;
+    power->active = false; const auto removed = *power;
+    emit(state, scratch, CombatEventKind::power_changed, state.combat().enemy_side, removed.enemy_owner, {}, identity, 0, {}, true, false, owner, owner);
+    retain_removed_power(state, owner, removed);
+    if (auto* current = state.creature(owner)) {
+        auto powers = current->power_instances(state.overflow);
+        const auto at = std::find_if(powers.begin(), powers.end(), [&](const auto& p) { return p.instance == identity; });
+        if (at != powers.end()) powers.erase(at);
+    }
+}
 void expire_power(RunState& state, Scratch& scratch, CreatureState& creature, std::uint32_t identity) {
     const auto owner = state.creature_handle(creature);
     auto* power = creature.find_power_instance(identity, state.overflow);

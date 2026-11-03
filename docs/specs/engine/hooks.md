@@ -240,3 +240,12 @@ Current four-operation verification: all 279 release checks pass, and differenti
 budget/trace and sanitizer probes pass. See the
 [verification report](architecture-verification.md#operation-owned-hook-progress-2026-11-01)
 for normal/LTO timing results, allocation observations, and scope limits.
+
+## Supported synchronous death handler
+
+`after_creature_death` dispatches the supported Shrink listener to
+`shrink_after_applier_death` in content. The named handler checks the applier
+identity and calls the reusable power-removal mutation. Card damage and Charon's
+Ashes notify it after a lethal hit so killing Shrinker while another enemy survives
+removes its Shrink. This bounded synchronous dispatch does not implement every
+native death listener or a suspendable death operation.

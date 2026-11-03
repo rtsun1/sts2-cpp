@@ -1,6 +1,7 @@
 #include "sts2/engine/run.hpp"
 #include "sts2/content/cards.hpp"
 #include "../mechanics/cards.hpp"
+#include "../content/encounters.hpp"
 #include "run_flow.hpp"
 #include "../transitions.hpp"
 #include <algorithm>
@@ -122,7 +123,7 @@ std::array<ContentId, 3> neow_options(GameRng& rng) {
 }
 }
 // Initialize combat in place without advancing its clock.
-StepResult flow::prepare_combat(RunState& run, Scratch& scratch, BoundaryId rejection_boundary, std::int32_t enemy_hp, bool trusted) {
+StepResult flow::prepare_combat(RunState& run, Scratch& scratch, BoundaryId rejection_boundary, std::int32_t enemy_hp, bool trusted, std::string_view encounter) {
     std::vector<CardSpec> deck;
     for (std::size_t card_index = 0; card_index < run.deck().size(); ++card_index) {
         const auto& card = run.deck()[card_index];
@@ -133,7 +134,7 @@ StepResult flow::prepare_combat(RunState& run, Scratch& scratch, BoundaryId reje
             return {StepStatus::unsupported_content, rejection_boundary, Restriction::unsupported_setup};
         deck.push_back({definition, card.upgrade == 1, run.deck().handles()[card_index], card.enchantment});
     }
-    CombatConfig config;
+    CombatConfig config; config.encounter = encounter;
     std::array<ExhaustRelic, 2> listeners {}; std::size_t count = 0;
     config.burning_blood = false;
     for (auto relic : run.relics()) {
@@ -159,7 +160,7 @@ StepResult flow::prepare_combat(RunState& run, Scratch& scratch, BoundaryId reje
         }
     }
     if (result.status == StepStatus::awaiting_input && enemy_hp != 0) {
-        if (enemy_hp < 1 || enemy_hp > 40) return {StepStatus::unsupported_content, rejection_boundary, Restriction::unsupported_setup};
+        if (enemy_hp < 1 || enemy_hp > (encounter == "ENCOUNTER.FUZZY_WURM_CRAWLER_WEAK" ? 57 : 40)) return {StepStatus::unsupported_content, rejection_boundary, Restriction::unsupported_setup};
         run.enemy().hp = enemy_hp; run.enemy().max_hp = enemy_hp;
     }
     return result;
@@ -192,7 +193,7 @@ StepResult initialize_seeded_combat(RunState& destination, const SeededConfig& c
     return result;
 }
 StepResult initialize_combat_scenario(RunState& destination, const SeededConfig& config, std::span<const CardSpec> scenario_deck, CombatTrace trace, std::span<const ContentId> scenario_relics, std::int32_t enemy_hp, std::uint32_t joss_counter) {
-    if (config.character != "CHARACTER.IRONCLAD" || config.ascension != 0)
+    if (config.character != "CHARACTER.IRONCLAD" || config.ascension != 0 || !gameplay::supported_encounter(config.encounter))
         return {StepStatus::unsupported_content, destination.data.boundary, Restriction::unsupported_setup};
     try {
         RunState next(destination.overflow.allocator());
@@ -213,7 +214,7 @@ StepResult initialize_combat_scenario(RunState& destination, const SeededConfig&
         next.data.joss_paper_counter = joss_counter;
         if (!supported_combat_inventory(next)) return {StepStatus::unsupported_content, destination.data.boundary, Restriction::unsupported_setup};
         Scratch scratch; scratch.trace = trace;
-        const auto initialized = prepare_combat(next, scratch, destination.data.boundary, enemy_hp);
+        const auto initialized = prepare_combat(next, scratch, destination.data.boundary, enemy_hp, false, config.encounter);
         if (initialized.status != StepStatus::awaiting_input) return initialized;
         next.act(0).normal_visited = 1;
         next.data.phase = RunPhase::combat; next.data.direct_combat = false; next.data.combat_generation = 1;

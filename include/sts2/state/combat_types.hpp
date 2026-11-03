@@ -4,9 +4,12 @@
 #include <cstdint>
 
 namespace sts2::engine {
-enum class BeetleMove : std::uint8_t { shrink, chomp, stomp };
+enum class EnemyId : std::uint8_t { shrinker_beetle, fuzzy_wurm_crawler, count };
+// Local index interpreted by the owning enemy definition.
+enum class EnemyMove : std::uint8_t { first, second, third };
 struct EnemyAiState {
-    BeetleMove selected = BeetleMove::shrink;
+    EnemyMove selected = EnemyMove::first;
+    bool performed = false;
     friend bool operator==(const EnemyAiState&, const EnemyAiState&) = default;
 };
 enum class CombatEventKind : std::uint8_t { drawn, discarded, energy_spent, play_started, play_finished, damaged, attacked, block_gained, power_received, combat_started, combat_won, combat_lost, power_changed, combat_updated, exhausted };

@@ -9,7 +9,7 @@
 #include "../mechanics/cards.hpp"
 #include "../mechanics/energy.hpp"
 #include "../mechanics/powers.hpp"
-#include "../content/monsters.hpp"
+#include "../content/enemies.hpp"
 #include "../hooks/dispatch.hpp"
 #include <algorithm>
 #include <limits>
@@ -42,6 +42,7 @@ StepResult end_player_turn(RunState& state, Scratch& scratch, const Ruleset& rul
     if (state.player().hp == 0) end_combat(state, scratch, false);
     else if (!state.has_living_enemies()) end_combat(state, scratch, true);
     else {
+        for (auto handle : state.enemies()) advance_enemy_move(*state.creature(handle));
         snapshot_power_turn(state, scratch, state.player(), false);
         state.combat().counters.started_this_turn = state.combat().counters.attacks_this_turn = 0;
         state.combat().counters.zero_energy_attacks_this_turn = state.combat().counters.non_hand_draws_this_turn = 0;

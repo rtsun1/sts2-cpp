@@ -13,7 +13,7 @@ std::uint32_t highest_combat_generation(const RunState&) noexcept;
 std::uint32_t next_combat_generation(const RunState&) noexcept;
 bool supported_combat_inventory(const RunState&);
 // Initialize combat in place without advancing its clock; discard on failure.
-StepResult prepare_combat(RunState&, Scratch&, BoundaryId rejection_boundary, std::int32_t enemy_hp = 0, bool trusted = false);
+StepResult prepare_combat(RunState&, Scratch&, BoundaryId rejection_boundary, std::int32_t enemy_hp = 0, bool trusted = false, std::string_view encounter = "ENCOUNTER.SHRINKER_BEETLE_WEAK");
 bool valid_room_context(const RunState&) noexcept;
 void apply_reward_input(RunState&, const RunInput&, const RunActionPlan&);
 void apply_room_option(RunState&, const RunInput&);

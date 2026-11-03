@@ -85,9 +85,9 @@ struct CombatConfig {
     std::span<const CardSpec> deck; // Empty selects the Ironclad starting deck.
     std::int32_t player_hp = 80;
     std::int32_t player_max_hp = 80;
-    std::int32_t enemy_hp = 0; // Zero rolls the native A0 38..40 range.
+    std::int32_t enemy_hp = 0; // Zero rolls each enemy's native A0 HP range.
     bool burning_blood = true;
-    std::uint32_t enemy_count = 1; // Authored scenarios support one or two beetles.
+    std::uint32_t enemy_count = 1; // Legacy authored override: 2 duplicates Shrinker; other encounters use their composition.
     std::uint32_t card_generation = 1;
     std::uint8_t ascension = 0;
     std::string_view encounter = "ENCOUNTER.SHRINKER_BEETLE_WEAK";

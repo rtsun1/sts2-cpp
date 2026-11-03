@@ -80,6 +80,8 @@ void export_rewards(Json& out, const RunState& run) {
 }
 }
 void export_native_combat(Json& out, const RunState& run, const RecordedCombat& recorded) {
+    if (run.data.combat_encounter != no_content && SetupRules::name(run.data.combat_encounter) != "ENCOUNTER.SHRINKER_BEETLE_WEAK")
+        throw std::invalid_argument("Crawler and mixed encounters have no complete native diagnostic mapping yet");
     if (run.has_combat() && (run.enemies().size() != 1 || run.combat().enemy_side))
         throw std::invalid_argument("Multi-enemy/active enemy-side native diagnostics are not mapped");
     if (run.data.combat && run.combat().phase == CombatPhase::card_choice &&

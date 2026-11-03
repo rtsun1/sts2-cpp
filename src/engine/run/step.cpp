@@ -1,6 +1,7 @@
 #include "sts2/engine/run.hpp"
 #include "sts2/engine/rewards.hpp"
 #include "run_flow.hpp"
+#include "../content/encounters.hpp"
 #include "../transitions.hpp"
 #include "../defensive.hpp"
 #include <algorithm>
@@ -14,7 +15,7 @@ StepResult enter_combat_scenario(RunState& state, BoundaryId boundary, std::stri
     if (boundary != state.data.boundary) return {StepStatus::invalid_action, state.data.boundary, Restriction::stale_boundary};
     if (state.data.phase != RunPhase::map || state.data.combat_generation == 0 || (state.data.rewards && !state.data.rewards->resolved))
         return {StepStatus::invalid_action, state.data.boundary, Restriction::wrong_phase};
-    if (encounter != "ENCOUNTER.SHRINKER_BEETLE_WEAK" || state.data.ascension != 0 ||
+    if (!gameplay::supported_encounter(encounter) || state.data.ascension != 0 ||
         SetupRules::name(state.data.character) != "CHARACTER.IRONCLAD")
         return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
     if (!supported_combat_inventory(state))
@@ -24,7 +25,7 @@ StepResult enter_combat_scenario(RunState& state, BoundaryId boundary, std::stri
         RunState next = state;
         const auto generation = next_combat_generation(next);
         Scratch scratch; scratch.trace = trace;
-        const auto result = prepare_combat(next, scratch, state.data.boundary);
+        const auto result = prepare_combat(next, scratch, state.data.boundary, 0, false, encounter);
         if (result.status != StepStatus::awaiting_input) return result;
         next.data.rewards.reset();
         next.data.combat_generation = generation;
@@ -81,7 +82,7 @@ StepResult apply_run_transition(RunState& state, const RunInput& input, Scratch&
     if (state.data.boundary.value == UINT32_MAX) { state.data.phase = RunPhase::invalid; return {StepStatus::resource_limit, state.data.boundary, Restriction::capacity}; }
     try {
         if (entering_combat) {
-            const auto initialized = prepare_combat(state, scratch, state.data.boundary, 0, !enforce_support);
+            const auto initialized = prepare_combat(state, scratch, state.data.boundary, 0, !enforce_support, SetupRules::name(state.act(state.data.act_index).normal[state.act(state.data.act_index).normal_visited]));
             if (initialized.status != StepStatus::awaiting_input) return initialized;
         }
         // Legality precedes mutation. Reserve owning growth before time/payment;

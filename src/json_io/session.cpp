@@ -48,7 +48,8 @@ void initialize_json_run(RunState& destination, const Json& setup, CombatTrace t
     config.clock.seconds_per_action = static_cast<std::int64_t>(integer(clock.at("seconds_per_action"), 86400));
     RunState next(destination.overflow.allocator()); StepResult result{StepStatus::unsupported_content, {}};
     if (setup.at("kind") == "seeded_combat") {
-        if (setup.at("encounter") != "SHRINKER_BEETLE_WEAK") throw std::invalid_argument("Unsupported encounter");
+        const auto encounter = "ENCOUNTER." + setup.at("encounter").get<std::string>();
+        config.encounter = encounter;
         result = scenario_deck.empty() && scenario_relics.empty() && enemy_hp == 0 && joss_counter == 0 ?
             initialize_seeded_combat(next, config, trace) :
             initialize_combat_scenario(next, config, scenario_deck, trace, scenario_relics, enemy_hp, joss_counter);

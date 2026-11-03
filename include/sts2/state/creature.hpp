@@ -8,8 +8,9 @@ namespace sts2::engine {
 struct CreatureState {
     std::int32_t hp = 0, max_hp = 0, block = 0;
     EnemyAiState enemy_ai {};
-    bool enemy_member = false;
-    bool skip_current_enemy_turn = false;
+    EnemyId enemy_type = EnemyId::shrinker_beetle;
+    bool enemy_member : 1 = false;
+    bool skip_current_enemy_turn : 1 = false;
     std::uint64_t positive_unblocked_hits = 0;
     // Provisional inline ordered instances; this access contract does not select
     // a final dense/sparse layout. Capacity is a storage optimization, not a limit.
@@ -48,7 +49,7 @@ struct CreatureState {
         auto retained = powers; *this = {}; powers = retained; powers.clear();
     }
     bool equals(const OverflowStorage& owner, const CreatureState& other, const OverflowStorage& other_owner) const {
-        return enemy_ai == other.enemy_ai && enemy_member == other.enemy_member && skip_current_enemy_turn == other.skip_current_enemy_turn && hp == other.hp && max_hp == other.max_hp && block == other.block && positive_unblocked_hits == other.positive_unblocked_hits && powers.equals(owner, other.powers, other_owner);
+        return enemy_type == other.enemy_type && enemy_ai == other.enemy_ai && enemy_member == other.enemy_member && skip_current_enemy_turn == other.skip_current_enemy_turn && hp == other.hp && max_hp == other.max_hp && block == other.block && positive_unblocked_hits == other.positive_unblocked_hits && powers.equals(owner, other.powers, other_owner);
     }
 };
 }

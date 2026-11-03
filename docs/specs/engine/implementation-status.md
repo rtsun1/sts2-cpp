@@ -106,7 +106,7 @@ Immutable card definitions and instruction programs live in
 `src/engine/content/catalog.g.cpp`. Their public declarations are in
 `include/sts2/content/`. The `Ruleset` and `SetupRules` type names remain.
 Content-specific relic reactions and monster behavior live in
-`src/engine/content/relics.cpp` and `src/engine/content/monsters.cpp` respectively. Combat setup, stepping, completion and validation live in
+`src/engine/content/relics.cpp` and `src/engine/content/enemies.cpp` respectively. Combat setup, stepping, completion and validation live in
 `src/engine/combat/`; run initialization lives in `src/engine/run/initialize.cpp`, progression in
 `src/engine/run/step.cpp`, and room handling in `src/engine/run/rooms.cpp`.
 These sources compile together in `sts2_engine` and share focused private headers
@@ -366,3 +366,13 @@ in `core/rng.hpp` and `src/core/rng.cpp`. `state/rng.hpp` holds named run/player
 stream banks with inline constructors. The unused experimental root `rng.hpp`
 and its two dedicated tests are removed; pinned native RNG vectors and full
 stream-state comparisons remain in `tests/unit/engine_test.cpp`.
+
+## Additional enemy content
+
+A0 Fuzzy Wurm Crawler and Overgrowth Crawlers are implemented through the public
+combat/run APIs. Enemy identity, local move indices, ordered encounter composition,
+HP uniqueness, crawler Strength, and mixed-fight Shrink removal are covered by
+public-seam tests against pinned audit findings. These additions do not have new
+canonical native full-state replay fixtures. Native JSON diagnostics reject the
+unmapped crawler/mixed histories explicitly. See the
+[implementation scope and verification](../../planning/enemy-encounter-generalization.md).

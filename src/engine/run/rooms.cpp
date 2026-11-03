@@ -1,4 +1,5 @@
 #include "run_flow.hpp"
+#include "../content/encounters.hpp"
 #include "sts2/engine/action_rules.hpp"
 #include <algorithm>
 #include <climits>
@@ -108,7 +109,7 @@ StepResult prepare_run_input_impl(const RunState& state, const RunInput& input, 
         if (rooms.normal_visited >= rooms.normal.size())
             return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
         if constexpr (CheckSupport) {
-            if (SetupRules::name(rooms.normal[rooms.normal_visited]) != "ENCOUNTER.SHRINKER_BEETLE_WEAK" || !supported_combat_inventory(state))
+            if (!gameplay::supported_encounter(SetupRules::name(rooms.normal[rooms.normal_visited])) || !supported_combat_inventory(state))
                 return reject(StepStatus::unsupported_content, Restriction::unsupported_setup);
         }
     }

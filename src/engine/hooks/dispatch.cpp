@@ -67,6 +67,25 @@ RangeProgress capture_exhaust_listeners(RunState& state) {
     return {begin, static_cast<std::uint32_t>(state.captured_hook_listeners().size()) - begin, 0};
 }
 
+void after_creature_death(RunState& state, Scratch& scratch, CreatureHandle dead) {
+    for (std::uint32_t slot = 0; slot < state.creatures().slots().size(); ++slot) {
+        const auto& entry = state.creatures().slots()[slot];
+        if (!entry.live || (slot != state.data.player.slot && !entry.value.enemy_member)) continue;
+        const CreatureHandle owner{slot, entry.generation};
+        std::size_t index = 0;
+        while (auto* creature = state.creature(owner)) {
+            const auto powers = creature->power_instances(state.overflow);
+            if (index >= powers.size()) break;
+            const auto power = powers[index];
+            if (power.definition == PowerId::shrink) shrink_after_applier_death(state, scratch, owner, power, dead);
+            creature = state.creature(owner);
+            if (!creature) break;
+            const auto remaining = creature->power_instances(state.overflow);
+            if (index < remaining.size() && remaining[index].instance == power.instance) ++index;
+        }
+    }
+}
+
 void after_enemy_turn(RunState& state, Scratch& scratch) {
     for (std::size_t index = 0; index < state.creatures().slots().size(); ++index) {
         const auto& slot = state.creatures().slots()[index];

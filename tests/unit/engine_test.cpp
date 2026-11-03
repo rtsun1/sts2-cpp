@@ -215,9 +215,9 @@ TEST(Engine, ShrinkerAlternatesMovesBlockExpiresAndDeathIsTerminal) {
     CombatConfig config; config.player_hp = 15;
     auto s = initial(config); Scratch scratch;
     ASSERT_EQ(apply_combat(s, {s.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
-    EXPECT_EQ(s.player().hp, 15); EXPECT_EQ(s.enemy().enemy_ai.selected, BeetleMove::chomp);
+    EXPECT_EQ(s.player().hp, 15); EXPECT_EQ(s.enemy().enemy_ai.selected, EnemyMove::second);
     ASSERT_EQ(apply_combat(s, {s.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
-    EXPECT_EQ(s.player().hp, 8); EXPECT_EQ(s.enemy().enemy_ai.selected, BeetleMove::stomp);
+    EXPECT_EQ(s.player().hp, 8); EXPECT_EQ(s.enemy().enemy_ai.selected, EnemyMove::third);
     ASSERT_EQ(apply_combat(s, {s.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::player_died);
     EXPECT_EQ(s.player().hp, 0); EXPECT_TRUE(valid_combat(s));
     const auto before = checkpoint(s).bytes;
