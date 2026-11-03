@@ -22,6 +22,33 @@ this ADR. The detailed specification and migration acceptance criteria are in th
 The published implementation specification is
 [issue #56](https://github.com/TonyinBio/sts2-cpp/issues/56).
 
+## Complete ordered selection submissions
+
+The later accepted selection decision supplements this architecture: the engine
+accepts a complete ordered selection in one submission. Callers own proposed
+selections and optional select/deselect/confirm editing. The simulator assumes
+that editing before submission has no gameplay effects; this is an accepted
+modeling assumption, not a new native-audit finding.
+
+Submission borrows a `std::span<const CardHandle>` for the call. Before applying
+effects, the engine copies accepted handles once into existing continuation
+operand storage. Both synchronous completion and nested suspension use that
+ownership model; operands remain cloneable and restorable until execution
+finishes, then are released. Gameplay state retains the prompt and its constraints,
+but no partial selection or separate selection-editing buffer.
+
+Selection enumeration is separate from submission and effect execution. It uses
+caller-owned workspace and a consumer interface, allowing early stopping or eager
+collection without changing gameplay execution. Incremental editing was previously
+preferred to avoid eagerly materializing permutations, but complete submissions
+do not require eager enumeration. This choice removes editing state from gameplay
+clones while leaving enumeration and retained-action storage with callers. No
+comparative throughput improvement has been established.
+
+This replaces earlier requirements to retain partial selections in authoritative
+state. Detailed input, ownership, clock and historical-recording compatibility
+contracts live in [ordered combat card choices](../specs/engine/ordered-card-choices.md).
+
 ## Consequences
 
 - Complete state owns every mutable gameplay value, RNG stream, pending prompt,
