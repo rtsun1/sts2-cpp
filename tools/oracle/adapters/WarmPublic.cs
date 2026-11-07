@@ -145,6 +145,16 @@ public partial class RunSimulator
             var args = action.EnumerateObject().Where(p => p.Name != "kind").ToDictionary(p => p.Name, p => p.Value);
             OracleRunAction(JsonSerializer.SerializeToElement(new { action = action.GetProperty("kind").GetString(), args, request_id = "benchmark" }));
         } else throw new InvalidOperationException("Unsupported benchmark operation");
+        // MCTS needs a terminal response before the ordinary forced-proceed loop.
+        // Keep the existing warm-public comparison profile unchanged by default.
+        if (command.TryGetProperty("stop_on_death", out var stop) && stop.GetBoolean()
+            && _runState!.Players.Single().Creature.CurrentHp <= 0) {
+            var player = _runState.Players.Single();
+            return new() { ["ok"] = true, ["observation"] = new {
+                prompt = "dead", hp = player.Creature.CurrentHp, max_hp = player.Creature.MaxHp,
+                combat = (object?)null, choices = Array.Empty<object>()
+            }, ["capabilities"] = Array.Empty<int>() };
+        }
         for (int i = 0; i < 4; ++i) {
             var room = _runState!.CurrentRoom;
             bool forced = room is EventRoom && RunManager.Instance.EventSynchronizer.GetLocalEvent()!.IsFinished

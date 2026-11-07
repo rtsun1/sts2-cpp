@@ -25,8 +25,9 @@ Implementation is not approved.
   setting a numerical speedup target. Use scenarios the simulator supports today;
   compare supported run decisions such as travel and rewards and explicitly list
   unmeasured decisions. Do not expand gameplay support for these measurements.
-- There is no MCTS runner. Any branching workload added for measurement is
-  synthetic and does not establish actual MCTS throughput.
+- The action-path measurements use synthetic branching and do not establish
+  actual MCTS throughput. The subsequent [replay-based MCTS runner](../../benchmarks/mcts/README.md)
+  provides a separate end-to-end search workload.
 - Enumeration need not preserve existing action order. Choose an efficient
   order considering both action generation and consumption by the simulator,
   rather than optimizing enumeration alone. Avoid workarounds to retain

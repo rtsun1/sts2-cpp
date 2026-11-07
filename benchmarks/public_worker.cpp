@@ -10,6 +10,9 @@ namespace {
 using namespace sts2::engine;
 using Json = nlohmann::json;
 Json project(const RunState& state, Json& capabilities) {
+    if (state.player().hp <= 0)
+        return Json{{"prompt", "dead"}, {"hp", state.player().hp}, {"max_hp", state.player().max_hp},
+            {"combat", nullptr}, {"choices", Json::array()}};
     const auto view = observe(state);
     Json result{{"profile", "warm-public-structured-v1"}, {"hp", view.hp}, {"max_hp", view.max_hp}, {"gold", view.gold},
         {"deck", Json::array()}, {"relics", Json::array()}, {"potions", Json::array()},
