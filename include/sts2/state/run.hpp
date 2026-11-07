@@ -318,6 +318,8 @@ struct RunState {
     auto cost_modifiers() const noexcept { return SequenceView(combat().cost_modifiers, combat_overflow); }
     auto execution() noexcept { return SequenceView(combat().execution, combat_overflow); }
     auto execution() const noexcept { return SequenceView(combat().execution, combat_overflow); }
+    auto enemy_turn_order() noexcept { return SequenceView(combat().enemy_turn_order, combat_overflow); }
+    auto enemy_turn_order() const noexcept { return SequenceView(combat().enemy_turn_order, combat_overflow); }
     auto captured_hook_listeners() noexcept { return SequenceView(combat().captured_hook_listeners, combat_overflow); }
     auto captured_hook_listeners() const noexcept { return SequenceView(combat().captured_hook_listeners, combat_overflow); }
     auto continuation_cards() noexcept { return SequenceView(combat().continuation_cards, combat_overflow); }
@@ -362,6 +364,8 @@ inline bool RunState::combat_equals(const RunState& other) const {
         && combat().turn == other.combat().turn
         && combat().enemy_side == other.combat().enemy_side
         && combat().burning_blood == other.combat().burning_blood
+        && combat().centennial_puzzle == other.combat().centennial_puzzle
+        && combat().centennial_puzzle_used == other.combat().centennial_puzzle_used
         && combat().counters == other.combat().counters
         && combat().exhaust_relics == other.combat().exhaust_relics
         && combat().exhaust_relic_count == other.combat().exhaust_relic_count
@@ -375,6 +379,7 @@ inline bool RunState::combat_equals(const RunState& other) const {
         && enchantment_runtime() == other.enchantment_runtime()
         && cost_modifiers() == other.cost_modifiers()
         && execution() == other.execution()
+        && enemy_turn_order() == other.enemy_turn_order()
         && captured_hook_listeners() == other.captured_hook_listeners()
         && continuation_cards() == other.continuation_cards()
         && selection_candidates() == other.selection_candidates();

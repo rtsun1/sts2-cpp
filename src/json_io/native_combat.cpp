@@ -201,8 +201,11 @@ void export_native_combat(Json& out, const RunState& run, const RecordedCombat& 
     for (std::size_t i = 0; i < run.relics().size(); ++i) {
         const auto name = SetupRules::name(run.relics()[i]);
         const auto vars = name == "RELIC.BURNING_BLOOD" ? Json{{"Heal", 6}} : name == "RELIC.GOLDEN_PEARL" ? Json{{"Gold", 150}} :
-            name == "RELIC.CHARONS_ASHES" ? Json{{"Damage", 3}} : name == "RELIC.JOSS_PAPER" ? Json{{"ExhaustAmount", 5}, {"Cards", 1}} : Json::object();
-        out["native_model_state"]["/players/0/relics/" + std::to_string(i)] = {{"model_fields", name == "RELIC.JOSS_PAPER" ? Json{{"JossPaper._etherealCount", 0}} : Json::object()}, {"dynamic_vars", vars}};
+            name == "RELIC.CHARONS_ASHES" ? Json{{"Damage", 3}} : name == "RELIC.JOSS_PAPER" ? Json{{"ExhaustAmount", 5}, {"Cards", 1}} :
+            name == "RELIC.CENTENNIAL_PUZZLE" ? Json{{"Cards", 3}} : Json::object();
+        const auto fields = name == "RELIC.JOSS_PAPER" ? Json{{"JossPaper._etherealCount", 0}} :
+            name == "RELIC.CENTENNIAL_PUZZLE" ? Json{{"CentennialPuzzle._usedThisCombat", run.combat().centennial_puzzle_used}} : Json::object();
+        out["native_model_state"]["/players/0/relics/" + std::to_string(i)] = {{"model_fields", fields}, {"dynamic_vars", vars}};
     }
     if (!terminal) for (std::size_t i = 0; i < run.potions().size(); ++i) {
         if (run.potions()[i] == no_content) continue;

@@ -20,7 +20,8 @@ bool supported_combat_inventory(const RunState& state) {
     // Inventory hooks are supported only for the starting relic and Golden Pearl.
     for (auto relic : state.relics())
         if (SetupRules::name(relic) != "RELIC.BURNING_BLOOD" && SetupRules::name(relic) != "RELIC.GOLDEN_PEARL" &&
-            SetupRules::name(relic) != "RELIC.CHARONS_ASHES" && SetupRules::name(relic) != "RELIC.JOSS_PAPER") return false;
+            SetupRules::name(relic) != "RELIC.CHARONS_ASHES" && SetupRules::name(relic) != "RELIC.JOSS_PAPER" &&
+            SetupRules::name(relic) != "RELIC.CENTENNIAL_PUZZLE") return false;
     return true;
 }
 Restriction legal_run_input(const RunState& state, const RunInput& input) noexcept {

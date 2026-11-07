@@ -25,6 +25,13 @@ struct Writer {
             range(value->cards); range(value->listeners); u8(value->handler.stage); u8(static_cast<std::uint8_t>(value->phase)); u8(static_cast<std::uint8_t>(value->source_zone)); u8(value->charge_card_step);
         } else if (const auto* value = std::get_if<ShuffleFrame>(&f)) {
             range(value->listeners); u32(value->expected_selection_count); u8(value->handler.stage); u8(static_cast<std::uint8_t>(value->phase)); u8(value->charge_draw_step_if_hooks);
+        } else if (const auto* value = std::get_if<EnemyTurnFrame>(&f)) {
+            u32(value->cursor); u8(static_cast<std::uint8_t>(value->phase));
+        } else if (const auto* value = std::get_if<EnemyAttackFrame>(&f)) {
+            range(value->listeners); u32(value->actor.slot); u32(value->actor.generation);
+            i32(value->hit.blocked); i32(value->hit.unblocked); i32(value->hit.overkill);
+            u8(value->hit.block_broken); u8(value->hit.fully_blocked); u8(value->hit.killed);
+            i32(value->base_damage); u8(value->handler.stage); u8(static_cast<std::uint8_t>(value->phase));
         }
     }
     void card_extra(const CardExtraData& data) {
@@ -71,6 +78,13 @@ struct Reader {
             ShuffleFrame f; f.listeners = range(); f.expected_selection_count = u32(); f.handler.stage = u8();
             f.phase = static_cast<ShufflePhase>(u8()); f.charge_draw_step_if_hooks = boolean(); return f;
         }
+        case 4: return EnemyTurnFrame{u32(), static_cast<EnemyTurnPhase>(u8())};
+        case 5: {
+            EnemyAttackFrame f; f.listeners = range(); f.actor = {u32(), u32()};
+            f.hit.blocked = i32(); f.hit.unblocked = i32(); f.hit.overkill = i32();
+            f.hit.block_broken = boolean(); f.hit.fully_blocked = boolean(); f.hit.killed = boolean();
+            f.base_damage = i32(); f.handler.stage = u8(); f.phase = static_cast<EnemyAttackPhase>(u8()); return f;
+        }
         default: throw std::invalid_argument("Unknown execution frame");
         }
     }
@@ -93,15 +107,15 @@ std::uint64_t content_fingerprint() {
         }
     }
     // Version exceptional enemy/power/relic handlers and clock/RNG semantics too.
-    w.text("enemies-a0:beetle38-40:crawler55-57:goop4:inhale7:local-moves:player-start-roll:unique-hp:late-victory:retained-death:duration-history:shrink70:chomp7:stomp13;vulnerable150;burning-blood6;survivor1;action_clock_v1;xoshiro256ss-v1");
+    w.text("enemies-a0:beetle38-40:crawler55-57:goop4:inhale7:local-moves:player-start-roll:unique-hp:late-victory:retained-death:duration-history:shrink70:chomp7:stomp13;vulnerable150;burning-blood6;survivor1;action_clock_v1;xoshiro256ss-v1;enemy-turn-continuations-v1;centennial-puzzle3");
     return digest(w.data);
 }
 Checkpoint persistence::encode_combat(const RunState& s) {
     if (!valid_combat(s)) throw std::invalid_argument("Cannot checkpoint invalid simulation");
     Writer w;
-    w.text("STS2CB02"); w.u32(2); w.u32(s.combat().rules); w.text(game_digest); w.u64(content_fingerprint());
+    w.text("STS2CB02"); w.u32(3); w.u32(s.combat().rules); w.text(game_digest); w.u64(content_fingerprint());
     w.u8(static_cast<std::uint8_t>(s.combat().phase)); w.i32(s.combat().energy); w.i32(s.combat().turn);
-    w.u8(s.combat().enemy_side); w.u8(s.combat().burning_blood); w.u32(s.combat().next_creation_order);
+    w.u8(s.combat().enemy_side); w.u8(s.combat().burning_blood); w.u8(s.combat().centennial_puzzle); w.u8(s.combat().centennial_puzzle_used); w.u32(s.combat().next_creation_order);
     w.u8(s.combat().exhaust_relic_count); for (auto relic : s.combat().exhaust_relics) w.u8(static_cast<std::uint8_t>(relic));
     w.u32(s.cards().data.highest_generation);
     w.u32(static_cast<std::uint32_t>(s.cards().slots().size()));
@@ -132,6 +146,7 @@ Checkpoint persistence::encode_combat(const RunState& s) {
         w.i32(listener.removed_power_amount); w.u8(static_cast<std::uint8_t>(listener.handler));
     }
     w.u32(static_cast<std::uint32_t>(s.continuation_cards().size())); for (auto h : s.continuation_cards()) w.handle(h);
+    w.u32(static_cast<std::uint32_t>(s.enemy_turn_order().size())); for (auto actor : s.enemy_turn_order()) { w.u32(actor.slot); w.u32(actor.generation); }
     w.u32(static_cast<std::uint32_t>(s.execution().size())); for (const auto& frame : s.execution()) w.frame(frame);
     w.u32(s.combat().next_prompt.value); w.u32(s.combat().selection.id.value);
     w.u8(static_cast<std::uint8_t>(s.combat().selection.effect)); w.u8(static_cast<std::uint8_t>(s.combat().selection.zone));
@@ -157,13 +172,13 @@ RestoreStatus persistence::decode_combat(RunState& s, std::span<const std::byte>
         if (trailer.u64() != digest(bytes.first(bytes.size() - 8))) return RestoreStatus::malformed;
         Reader r{bytes.first(bytes.size() - 8)};
         for (char c : std::string_view("STS2CB02")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
-        if (r.u32() != 2 || r.u32() != rules_revision) return RestoreStatus::incompatible;
+        if (r.u32() != 3 || r.u32() != rules_revision) return RestoreStatus::incompatible;
         for (char c : game_digest) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
         if (r.u64() != content_fingerprint()) return RestoreStatus::incompatible;
         s.data.combat.emplace();
         s.combat().phase = static_cast<CombatPhase>(r.u8());
         s.combat().energy = r.i32(); s.combat().turn = r.i32();
-        s.combat().enemy_side = r.boolean(); s.combat().burning_blood = r.boolean(); s.combat().next_creation_order = r.u32();
+        s.combat().enemy_side = r.boolean(); s.combat().burning_blood = r.boolean(); s.combat().centennial_puzzle = r.boolean(); s.combat().centennial_puzzle_used = r.boolean(); s.combat().next_creation_order = r.u32();
         s.combat().exhaust_relic_count = r.u8(); for (auto& relic : s.combat().exhaust_relics) relic = static_cast<ExhaustRelic>(r.u8());
         const auto highest_generation = r.u32();
         const auto count = r.u32();
@@ -215,7 +230,9 @@ RestoreStatus persistence::decode_combat(RunState& s, std::span<const std::byte>
             s.captured_hook_listeners().push_back(listener);
         }
         const auto operand_count = r.count(8, std::uint64_t(limits.continuations) * 16); for (std::uint32_t i = 0; i < operand_count; ++i) s.continuation_cards().push_back(r.handle());
-        const auto frames = r.count(20, limits.continuations);
+        const auto actors = r.count(8, 4096);
+        for (std::uint32_t i = 0; i < actors; ++i) s.enemy_turn_order().push_back({r.u32(), r.u32()});
+        const auto frames = r.count(6, limits.continuations);
         for (std::uint32_t i = 0; i < frames; ++i) s.execution().push_back(r.frame());
         s.combat().next_prompt.value = r.u32(); s.combat().selection.id.value = r.u32();
         s.combat().selection.effect = static_cast<SelectionEffect>(r.u8()); s.combat().selection.zone = static_cast<Zone>(r.u8());

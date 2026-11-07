@@ -82,7 +82,6 @@ Restriction legal_combat_input(const RunState& state, const CombatInput& input, 
     return action_rules::card_play_restriction(state, input.card, rules);
 }
 Restriction legal_selection_input(const RunState& state, const SelectionInput& input) noexcept {
-    if (state.combat().enemy_side) return Restriction::wrong_phase;
     if (input.expected_boundary != state.data.boundary) return Restriction::stale_boundary;
     return validate_selection_input(state, input);
 }
@@ -110,6 +109,7 @@ bool valid_combat(const RunState& state, const Ruleset& rules) noexcept {
         joss |= relic == ExhaustRelic::joss_paper;
     }
     if (!joss && state.data.joss_paper_counter != 0) return false;
+    if (!state.combat().centennial_puzzle && state.combat().centennial_puzzle_used) return false;
     if (static_cast<unsigned>(state.combat().phase) > static_cast<unsigned>(CombatPhase::invalid) ||
         static_cast<unsigned>(state.enemy().enemy_ai.selected) > static_cast<unsigned>(EnemyMove::third) ||
         state.seed().empty() || state.seed().size() > 4096 || state.data.numeric_seed != game_seed(state.seed()) ||

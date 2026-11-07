@@ -5,6 +5,7 @@
 namespace sts2::engine::gameplay {
 bool valid_continuations(const RunState& state, const Ruleset& rules) noexcept {
     std::size_t captured_end = 0, cards_end = 0;
+    bool enemy_turn = false, enemy_attack = false;
     const auto range_valid = [](const RangeProgress& range, std::size_t size, std::size_t& end) {
         if (range.cursor > range.count || range.begin > size) return false;
         if (range.count == 0) return range.cursor == 0;
@@ -37,7 +38,8 @@ bool valid_continuations(const RunState& state, const Ruleset& rules) noexcept {
                 if (handler != HookHandler::dark_embrace && handler != HookHandler::joss_paper) return false;
             }
             for (std::uint32_t i = 0; i < exhaust->listeners.count; ++i)
-                if (state.captured_hook_listeners()[exhaust->listeners.begin + i].handler == HookHandler::stratagem) return false;
+                if (const auto handler = state.captured_hook_listeners()[exhaust->listeners.begin + i].handler;
+                    handler != HookHandler::dark_embrace && handler != HookHandler::charons_ashes && handler != HookHandler::joss_paper) return false;
         } else if (const auto* shuffle = std::get_if<ShuffleFrame>(&frame)) {
             if (shuffle->phase > ShufflePhase::hooks || shuffle->handler.stage > 1 ||
                 !range_valid(shuffle->listeners, state.captured_hook_listeners().size(), captured_end)) return false;
@@ -46,12 +48,36 @@ bool valid_continuations(const RunState& state, const Ruleset& rules) noexcept {
             if (shuffle->expected_selection_count != 0 && (shuffle->handler.stage != 1 || &frame != &state.execution().back() || state.combat().phase != CombatPhase::card_choice)) return false;
             for (std::uint32_t i = 0; i < shuffle->listeners.count; ++i)
                 if (state.captured_hook_listeners()[shuffle->listeners.begin + i].handler != HookHandler::stratagem) return false;
+        } else if (const auto* turn = std::get_if<EnemyTurnFrame>(&frame)) {
+            if (enemy_turn || &frame != &state.execution().front() || !state.combat().enemy_side ||
+                turn->phase > EnemyTurnPhase::finish || turn->cursor > state.enemy_turn_order().size() ||
+                (turn->phase == EnemyTurnPhase::after_move && turn->cursor == state.enemy_turn_order().size())) return false;
+            enemy_turn = true;
+        } else if (const auto* attack = std::get_if<EnemyAttackFrame>(&frame)) {
+            if (enemy_attack || !enemy_turn || !attack->actor.present() || attack->actor == state.data.player ||
+                attack->base_damage < 0 || attack->phase > EnemyAttackPhase::finish || attack->handler.stage > 3 ||
+                attack->hit.blocked < 0 || attack->hit.unblocked < 0 || attack->hit.overkill < 0 ||
+                !range_valid(attack->listeners, state.captured_hook_listeners().size(), captured_end)) return false;
+            const auto* turn = std::get_if<EnemyTurnFrame>(&state.execution().front());
+            if (!turn || turn->phase != EnemyTurnPhase::after_move || state.enemy_turn_order()[turn->cursor] != attack->actor) return false;
+            if (attack->phase != EnemyAttackPhase::hooks && (attack->listeners.count != 0 || attack->handler.stage != 0)) return false;
+            if (attack->handler.stage != 0 && attack->listeners.cursor == attack->listeners.count) return false;
+            if (attack->handler.stage != 0 && (!state.combat().centennial_puzzle_used || attack->hit.unblocked == 0)) return false;
+            for (std::uint32_t i = 0; i < attack->listeners.count; ++i)
+                if (state.captured_hook_listeners()[attack->listeners.begin + i].handler != HookHandler::centennial_puzzle) return false;
+            enemy_attack = true;
         }
+    }
+    if (enemy_turn != state.combat().enemy_side || (!enemy_turn && !state.enemy_turn_order().empty())) return false;
+    for (std::size_t i = 0; i < state.enemy_turn_order().size(); ++i) {
+        const auto actor = state.enemy_turn_order()[i];
+        if (!actor.present() || actor.slot >= state.creatures().slots().size() || actor.generation > state.creatures().data.highest_generation ||
+            actor == state.data.player || std::find(state.enemy_turn_order().begin(), state.enemy_turn_order().begin() + i, actor) != state.enemy_turn_order().begin() + i) return false;
     }
     if (captured_end != state.captured_hook_listeners().size() || cards_end != state.continuation_cards().size()) return false;
     for (auto card : state.continuation_cards()) if (!state.cards().get(card)) return false;
     for (const auto& listener : state.captured_hook_listeners()) {
-        if (!listener.owner.present() || listener.handler > HookHandler::joss_paper) return false;
+        if (!listener.owner.present() || listener.handler > HookHandler::centennial_puzzle) return false;
         const bool power = listener.handler == HookHandler::dark_embrace || listener.handler == HookHandler::stratagem;
         if (power ? listener.power_instance >= state.combat().next_power_instance : listener.power_instance != UINT32_MAX) return false;
         if (listener.removed_power_amount < -999999999 || listener.removed_power_amount > 999999999) return false;

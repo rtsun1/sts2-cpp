@@ -1,5 +1,8 @@
 # Enemy and encounter generalization
 
+This records the original independent task. Its execution boundary and checkpoint
+version are superseded by the [integration contract](enemy-combat-integration.md).
+
 ## Scope
 
 Implement A0 single-player Shrinker Beetle, Fuzzy Wurm Crawler, and Overgrowth

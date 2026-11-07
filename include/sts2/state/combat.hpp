@@ -28,12 +28,15 @@ struct CombatData {
     std::int32_t turn = 0;
     bool enemy_side = false;
     bool burning_blood = true;
+    bool centennial_puzzle = false;
+    bool centennial_puzzle_used = false;
     CardPool cards {};
     InlineSequence<CombatCardExtra, 20> card_extra {};
     InlineSequence<EnchantmentRuntime, 2> enchantment_runtime {};
     InlineSequence<CostModifier, 8> cost_modifiers {};
     std::array<InlineSequence<CardHandle, 32>, static_cast<std::size_t>(Zone::count)> zones {};
     InlineSequence<ExecutionFrame, 4> execution {};
+    InlineSequence<CreatureHandle, 4> enemy_turn_order {};
     CombatCounters counters {};
     std::array<ExhaustRelic, 2> exhaust_relics {};
     std::uint8_t exhaust_relic_count = 0;
@@ -47,7 +50,7 @@ struct CombatData {
     template<class Self, class Visit> static void visit_sequences(Self& r, Visit visit) noexcept {
         visit(r.cards.slots); visit(r.cards.free); visit(r.card_extra); visit(r.enchantment_runtime); visit(r.cost_modifiers);
         for (auto& zone : r.zones) visit(zone);
-        visit(r.execution); visit(r.selection_candidates);
+        visit(r.execution); visit(r.enemy_turn_order); visit(r.selection_candidates);
         visit(r.captured_hook_listeners); visit(r.continuation_cards);
     }
     template<class Visit> void for_each_sequence(Visit visit) const noexcept { visit_sequences(*this, visit); }
@@ -87,6 +90,7 @@ struct CombatConfig {
     std::int32_t player_max_hp = 80;
     std::int32_t enemy_hp = 0; // Zero rolls each enemy's native A0 HP range.
     bool burning_blood = true;
+    bool centennial_puzzle = false;
     std::uint32_t enemy_count = 1; // Legacy authored override: 2 duplicates Shrinker; other encounters use their composition.
     std::uint32_t card_generation = 1;
     std::uint8_t ascension = 0;

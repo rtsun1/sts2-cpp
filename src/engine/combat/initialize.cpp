@@ -57,6 +57,7 @@ StepResult initialize_combat_impl(RunState& state, const CombatConfig& config, S
             next.data.direct_combat = true;
             next.relics().clear();
             if (config.burning_blood) next.relics().push_back(SetupRules::find("RELIC.BURNING_BLOOD"));
+            if (config.centennial_puzzle) next.relics().push_back(SetupRules::find("RELIC.CENTENNIAL_PUZZLE"));
             for (auto relic : config.exhaust_relics)
                 next.relics().push_back(SetupRules::find(relic == ExhaustRelic::charons_ashes ? "RELIC.CHARONS_ASHES" : "RELIC.JOSS_PAPER"));
             next.deck().clear();
@@ -82,6 +83,7 @@ StepResult initialize_combat_impl(RunState& state, const CombatConfig& config, S
             if (enemy_hp == 0) enemy_hp = roll_enemy_hp(next, composition.enemies[i], next.data.rng.get(RunStream::niche));
             next.creature(handle)->hp = next.creature(handle)->max_hp = enemy_hp;
         }
+        next.combat().centennial_puzzle = config.centennial_puzzle;
         next.combat().energy = 3; next.combat().turn = 1; next.combat().burning_blood = config.burning_blood;
         for (const auto& card : deck) {
             auto handle = next.cards().create({card.definition, card.upgraded, next.combat().next_creation_order++, card.origin}, limits.cards, config.card_generation);

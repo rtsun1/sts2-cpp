@@ -1,6 +1,5 @@
 #include "enemies.hpp"
 #include "powers.hpp"
-#include "../mechanics/damage.hpp"
 #include "../mechanics/powers.hpp"
 #include "../combat/trace.hpp"
 #include <stdexcept>
@@ -22,9 +21,7 @@ void execute_enemy_move(RunState& state, Scratch& scratch, CreatureHandle actor)
     const auto& enemy = *state.creature(actor);
     const auto base = attack_base(enemy);
     if (base != 0) {
-        const auto hit = damage(state.player(), base, enemy, state.overflow);
-        emit(state, scratch, CombatEventKind::damaged, true, false, {}, 0, 0, hit, true, true, actor, state.data.player);
-        emit(state, scratch, CombatEventKind::attacked, true, true, {}, 0, 0, hit, true, true, actor, state.data.player);
+        state.execution().push_back(EnemyAttackFrame{.actor = actor, .base_damage = base});
     } else if (enemy.enemy_type == EnemyId::fuzzy_wurm_crawler) {
         (void)apply_power(state, scratch, PowerId::strength, 7, true, true, {}, true, true, PowerInstance::Stacking::by_type, actor, actor);
     } else if (enemy.enemy_type == EnemyId::shrinker_beetle) {
@@ -32,7 +29,6 @@ void execute_enemy_move(RunState& state, Scratch& scratch, CreatureHandle actor)
     } else {
         throw std::invalid_argument("Unsupported enemy move");
     }
-    if (auto* completed = state.creature(actor)) completed->enemy_ai.performed = true;
 }
 void advance_enemy_move(CreatureState& enemy) noexcept {
     if (!enemy.enemy_ai.performed) return;

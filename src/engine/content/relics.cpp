@@ -6,6 +6,18 @@
 #include "../combat/trace.hpp"
 
 namespace sts2::engine::gameplay {
+HandlerResult centennial_puzzle_after_damage_received(RunState& state, HandlerProgress& progress, const HitResult& hit) {
+    if (progress.stage == 0) {
+        if (hit.unblocked <= 0 || state.player().hp == 0 || state.combat().centennial_puzzle_used)
+            return HandlerResult::complete;
+        state.combat().centennial_puzzle_used = true;
+    }
+    if (progress.stage == 3) return HandlerResult::complete;
+    // Native Puzzle awaits three separate one-card draws, not one batch draw.
+    ++progress.stage;
+    state.execution().push_back(DrawFrame{.remaining = 1, .from_hand_draw = false});
+    return HandlerResult::yield;
+}
 void charons_ashes_after_card_exhausted(RunState& state, Scratch& scratch) {
     for (auto handle : state.enemies()) {
         if (state.creature(handle)->hp <= 0) continue;

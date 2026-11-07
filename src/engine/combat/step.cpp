@@ -23,37 +23,11 @@ StepResult end_player_turn(RunState& state, Scratch& scratch, const Ruleset& rul
     if (!consume(scratch)) return fail(state, Restriction::execution_budget);
     discard_hand_at_turn_end(state, rules);
     state.combat().enemy_side = true;
-    // Reacquire positions each time: creation may grow the pool, and membership
-    // or generations can change during a synchronous effect/diagnostic callback.
-    for (std::uint32_t index = 1; index < state.creatures().slots().size(); ++index) {
-        const auto& slot = state.creatures().slots()[index];
-        const CreatureHandle handle{index, slot.generation};
-        if (!slot.live || !slot.value.enemy_member || slot.value.hp <= 0 || slot.value.skip_current_enemy_turn) continue;
-        if (!consume(scratch)) return fail(state, Restriction::execution_budget);
-        state.creature(handle)->block = 0;
-        snapshot_power_turn(state, scratch, *state.creature(handle), true);
-        if (state.is_enemy(handle) && state.creature(handle)->hp > 0) execute_enemy_move(state, scratch, handle);
-        if (state.player().hp == 0 || !state.has_living_enemies()) break;
-    }
-    if (state.player().hp > 0 && state.has_living_enemies()) after_enemy_turn(state, scratch);
-    // Side-end work can create creatures too; clear flags only after it finishes.
-    for (auto& slot : state.creatures().slots()) if (slot.live) slot.value.skip_current_enemy_turn = false;
-    state.combat().enemy_side = false;
-    if (state.player().hp == 0) end_combat(state, scratch, false);
-    else if (!state.has_living_enemies()) end_combat(state, scratch, true);
-    else {
-        for (auto handle : state.enemies()) advance_enemy_move(*state.creature(handle));
-        snapshot_power_turn(state, scratch, state.player(), false);
-        state.combat().counters.started_this_turn = state.combat().counters.attacks_this_turn = 0;
-        state.combat().counters.zero_energy_attacks_this_turn = state.combat().counters.non_hand_draws_this_turn = 0;
-        state.player().block = 0;
-        if (state.combat().turn == std::numeric_limits<int>::max()) return fail(state, Restriction::capacity);
-        for (auto it = state.cost_modifiers().begin(); it != state.cost_modifiers().end();) {
-            if ((static_cast<unsigned>(it->expiry) & 2U) != 0) it = state.cost_modifiers().erase(it);
-            else ++it;
-        }
-        ++state.combat().turn; refresh_energy(state, 3); state.execution().push_back(DrawFrame{.remaining = 5});
-    }
+    // Native captures enemy identities once. Reused slots and new summons cannot
+    // replace an unfinished actor, and newly created enemies wait until next turn.
+    state.enemy_turn_order().clear();
+    for (auto handle : state.enemies()) state.enemy_turn_order().push_back(handle);
+    state.execution().push_back(EnemyTurnFrame{});
     return result(state);
 }
 
