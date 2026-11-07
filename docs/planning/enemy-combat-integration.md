@@ -46,4 +46,7 @@ targeted run passed all 33 Enemies, EnemyTurn, MultiCreature, and HookDispatch t
   suspension branch; no additional state growth or throughput claim follows.
 - Logs: `/tmp/enemy-integration-{configure,build-all,ctest-full,defensive-build,defensive-targeted}.log`.
 
-Independent integration review results are recorded after the merge commit.
+Independent Standards and Spec reviews of merge `79e4e5a` found no actionable
+issues. Both reviewed the conflict resolutions and combined continuation,
+checkpoint, and public selection behavior. The original task branches remain
+unchanged. Passing checks and static review do not establish full native parity.
