@@ -1,5 +1,41 @@
 # Preliminary checked/trusted comparison
 
+## Native in-process public-API measurement
+
+`mcts-native-in-process-replay-v1` runs the shared C++ UCT search inside one
+.NET process through native callbacks to the stock public `RunSimulator` methods.
+The native gameplay/action sources are unchanged. Benchmark-only lifecycle
+bookkeeping disposes process-lifetime selector scopes and detaches old simulator
+event handlers so roots can be reconstructed safely for this bounded workload.
+
+Seed 1, horizon 64, 100 simulations and 1,986 transitions per search:
+
+| Sample | Elapsed seconds |
+| --- | ---: |
+| 1 | 14.977554 |
+| 2 | 14.909435 |
+| 3 | 15.016069 |
+| Median | **14.977554** |
+
+One full search warmed the process before measurement. All 400 reconstructed
+roots passed the public-value drift check. Every measured search matched all
+result fields from the untimed C++ checked/trusted state-verification search.
+The low-HP scenario also passed two measured 20-simulation searches (2.952057
+and 2.936931 seconds, 248 transitions each) and C++ result verification.
+
+Timed work includes root teardown/setup/prefix replay, public-method decision
+dictionary and description construction, native polling waits, C++ tree work,
+and managed/native callback overhead. It excludes .NET process startup,
+configuration parsing, final result JSON, protocol IPC and diagnostic output.
+There is no new polling/action scheduler in the benchmark host. Samples run
+sequentially after builds, without affinity controls or a JIT-stability guarantee.
+
+This addresses transport/startup overhead but still uses native reconstruction,
+whereas the C++ in-process profile uses `clone_into`. It therefore remains a
+comparison of available branching mechanisms and integrations, not isolated
+simulator kernels. Raw reports, source/binary hashes and logs:
+`/tmp/mcts-native-inprocess-final/` and `/tmp/mcts-native-inprocess-low-hp/`.
+
 Current native MCTS uses stock JSON (`mcts-stock-json-v3`). All native v1/v2
 timings below are historical measurements of our injected oracle adapter, not
 measurements of stock `sts2-cli`. They are retained for provenance.

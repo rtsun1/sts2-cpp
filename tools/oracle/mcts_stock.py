@@ -1,4 +1,4 @@
-"""Unmodified sts2-cli build and its stock JSON protocol. No injected C#."""
+"""Stock JSON support, with an optional separate in-process benchmark entry point."""
 import contextlib
 import hashlib
 import os
@@ -10,7 +10,7 @@ from reference_runtime import JsonProcess, require
 
 
 @contextlib.contextmanager
-def stock_build(submodule, lib, logs):
+def stock_build(submodule, lib, logs, *, benchmark_host=None):
     submodule, lib = submodule.resolve(), lib.resolve()
     require((lib / 'sts2.dll').is_file(), 'Run upstream sts2-cli setup.sh first, or supply --native-lib with prepared headless DLLs')
     require(not subprocess.check_output(['git', '-C', str(submodule), 'status', '--porcelain', '--untracked-files=normal'], text=True).strip(), 'Stock submodule must have clean sources')
@@ -22,6 +22,10 @@ def stock_build(submodule, lib, logs):
         env = dict(os.environ, STS2_LIB=str(root / 'lib'), STS2_GAME_DIR=str(root / 'lib'),
                    DOTNET_CLI_HOME=str(logs / 'dotnet-home'), DOTNET_CLI_TELEMETRY_OPTOUT='1')
         project = root / 'src/Sts2Headless/Sts2Headless.csproj'
+        if benchmark_host is not None:
+            shutil.copy2(benchmark_host, project.parent / 'BenchmarkMain.cs')
+            project.write_text(project.read_text().replace('<OutputType>Exe</OutputType>',
+                '<OutputType>Exe</OutputType><StartupObject>BenchmarkMain</StartupObject>'))
         result = subprocess.run(['dotnet', 'build', str(project), '-c', 'Release', '--nologo'],
                                 env=env, capture_output=True, text=True, timeout=120)
         (logs / 'stock-build.log').write_text(result.stdout + result.stderr)
@@ -33,7 +37,7 @@ def stock_build(submodule, lib, logs):
                 source_hash.update(source.relative_to(root).as_posix().encode() + b'\0' + source.read_bytes())
         yield ['dotnet', str(assembly)], env, dict(
             source_sha256=source_hash.hexdigest(),
-            integration='stock-json-no-injected-adapter',
+            integration='public-api-in-process-host' if benchmark_host else 'stock-json-no-injected-adapter',
             revision=subprocess.check_output(['git', '-C', str(submodule), 'rev-parse', 'HEAD'], text=True).strip(),
             game_dll_sha256=hashlib.sha256((lib / 'sts2.dll').read_bytes()).hexdigest(),
             assembly_sha256=hashlib.sha256(assembly.read_bytes()).hexdigest())

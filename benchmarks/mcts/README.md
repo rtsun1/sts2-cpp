@@ -1,5 +1,42 @@
 # Replay-based MCTS baseline
 
+## Native search without protocol or startup overhead
+
+```sh
+cmake --build --preset release --target mcts_search_bridge mcts_in_process
+python3 tools/oracle/run_native_mcts.py \
+  --reference-submodule /path/to/prepared/sts2-cli \
+  --iterations 100 --horizon 64 --warmups 1 --samples 3 --verify-cpp \
+  --output-dir /tmp/mcts-native-in-process
+```
+
+This separate Linux x64 profile, `mcts-native-in-process-replay-v1`, invokes the
+same C++ UCT implementation through a C ABI and managed delegates. Callbacks call
+the unchanged public `RunSimulator.StartRun`, `ExecuteAction` and `CleanUp`
+methods directly. Each sample runs entirely inside one .NET process. The timer
+excludes process startup, configuration JSON parsing and final report JSON/IPC.
+Managed stdout/stderr are suppressed during timed search. Root reconstruction,
+public-method decision dictionary/description construction, polling waits,
+tree work and managed/native callback costs are included. It still reconstructs
+roots through setup and prefix replay; it does not snapshot native combat state.
+
+The temporary stock build includes an alternate benchmark entry point, leaving
+the upstream submodule and its gameplay/action implementation unchanged. Stock
+startup assumes process-lifetime ownership of its card selector and event
+handlers. Benchmark-only teardown captures and disposes selector scopes using a
+Harmony postfix and removes the old simulator's own event handlers before cleanup.
+This bookkeeping is necessary for process reuse; it adds no replacement action
+scheduler or gameplay transitions. Public root values are checked after every
+reconstruction, and measured sample result fields must remain identical.
+
+`--verify-cpp` runs an untimed C++ checked/trusted state-verification search and
+compares every native sample's action and search statistics against its result.
+This is sampled equivalence, not proof of complete hidden native state isolation.
+Reports retain the host source, assembly, prepared game DLL and bridge hashes.
+The supported prefixes currently contain ordinary actions for the supplied
+single-enemy starter-deck scenarios; other prefix operation kinds fail explicitly.
+The stock JSON measurement remains available through `run_mcts.py`.
+
 ## In-process C++ search
 
 Build `mcts_in_process` to run the same UCT implementation directly against typed
