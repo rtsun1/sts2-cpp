@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Run the same C++ UCT search against replay-backed C++ and native workers."""
+"""Run shared C++ UCT against a C++ worker and stock sts2-cli JSON."""
 import argparse
 import contextlib
 import hashlib
 import json
-import os
 from pathlib import Path
 import time
 
-from reference_runtime import JsonProcess, reference_build, require, wire_json
+from reference_runtime import JsonProcess, require, wire_json
+
+from mcts_stock import stock_build, StockBackend
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -55,24 +56,31 @@ def combat_observation(response):
     state = dict(hp=hp, max_hp=max_hp, prompt=view['prompt'])
     if combat is not None:
         state['combat'] = {key: combat[key] for key in
-                           ('hp', 'max_hp', 'block', 'energy', 'turn', 'enemy_hp', 'enemy_max_hp',
-                            'draw', 'discard', 'exhaust')}
-        state['hand'] = [{key: card[key] for key in ('id', 'cost', 'upgraded')}
+                           ('hp', 'max_hp', 'block', 'energy', 'enemy_hp', 'enemy_max_hp', 'draw', 'discard')}
+        state['hand'] = [{key: card[key] for key in ('id', 'cost')}
                          for card in combat['hand']]
     return dict(terminal=terminal, value=value, actions=actions, state=state)
 
 
 class ReplayBackend:
     """One live backend; each restore resets and replays the scenario prefix."""
-    def __init__(self, host, native, scenario, project=combat_observation):
-        self.host, self.native, self.scenario = host, native, scenario
+    def __init__(self, host, scenario, project=combat_observation, cpp_execution='trusted'):
+        self.host, self.scenario = host, scenario
         self.project = project
+        self.cpp_execution = cpp_execution
         self.requests = 0
         self.root = None
         self.last_response = None
 
+    def timing(self, enabled=None):
+        operation = dict(cmd='timing')
+        if enabled is not None:
+            operation['enabled'] = enabled
+        request = operation
+        return self.host.send(request)['timing']
+
     def operation(self, operation):
-        request = dict(cmd='benchmark_operation', operation=operation, stop_on_death=True) if self.native else operation
+        request = operation
         self.requests += 1
         response = self.host.send(request)
         require(response.get('ok'), f'Backend operation failed: {response}')
@@ -81,32 +89,34 @@ class ReplayBackend:
 
     def restore(self):
         if self.root is not None:
-            # Native reset requires outstanding reward tasks to settle. Use the
-            # same explicit cleanup action in both backends; it is timed but is
-            # not part of the searched combat or its score.
+            # Discard outstanding rewards before resetting the C++ worker.
             if self.last_response['observation']['prompt'] == 'rewards':
                 self.operation(dict(cmd='action', action=dict(kind='skip_rewards')))
             self.requests += 1
-            reset = self.host.send(dict(cmd='oracle_reset', audit=False) if self.native else dict(cmd='reset'))
+            reset = self.host.send(dict(cmd='reset'))
             require(reset.get('reset'), 'Backend reset failed')
         response = self.operation(dict(cmd='start', setup=self.scenario['setup']))
         for operation in self.scenario['operations']:
             response = self.operation(operation)
+        response = self.operation(dict(cmd='mcts_root', execution=self.cpp_execution))
         observation = self.project(response)
         require(not observation['terminal'], 'Scenario must end at a decision within the workload')
-        # Check the complete public response, not only the search projection.
+        # Check the complete worker root projection on every reconstruction.
         if self.root is None:
             self.root = response['observation']
         require(self.root == response['observation'], 'Root replay drifted')
         return observation
 
     def step(self, action):
-        return self.project(self.operation(dict(cmd='action', action=action)))
+        actions = self.project(self.last_response)['actions']
+        return self.project(self.operation(dict(cmd='mcts_step', index=actions.index(action))))
 
 
 def run_search(args, backend, log_prefix):
     search = JsonProcess([str(args.runner.resolve())], None, log_prefix, args.timeout, False)
     digest = hashlib.sha256()
+    instrument = getattr(args, "instrument", False)
+    backend.timing(instrument)
     started = time.perf_counter()
     try:
         message = search.send(dict(iterations=args.iterations, horizon=args.horizon, seed=args.seed))
@@ -121,7 +131,11 @@ def run_search(args, backend, log_prefix):
             message = search.send(reply)
         elapsed = time.perf_counter() - started
         require(search.process.wait(timeout=args.timeout) == 0, 'Search process failed')
-        return dict(result=message, seconds=elapsed, transitions_per_second=message['transitions'] / elapsed,
+        worker_timing = backend.timing() if instrument else None
+        worker_seconds = sum(float(value['seconds']) for value in worker_timing.values()) if instrument else None
+        return dict(worker_timing=worker_timing, worker_seconds=worker_seconds,
+                    unattributed_seconds=elapsed - worker_seconds if instrument else None,
+                    result=message, seconds=elapsed, transitions_per_second=message['transitions'] / elapsed,
                     backend_requests=backend.requests, trace_sha256=digest.hexdigest())
     finally:
         search.close()
@@ -130,9 +144,11 @@ def run_search(args, backend, log_prefix):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--backend', choices=('cpp', 'native', 'both'), default='both')
+    parser.add_argument('--instrument', action='store_true', help='Accumulate exclusive worker timings')
+    parser.add_argument('--cpp-execution', choices=('trusted', 'checked'), default='trusted')
     parser.add_argument('--runner', type=Path, default=REPO / 'build/release/mcts_runner')
     parser.add_argument('--worker', type=Path, default=REPO / 'build/release/public_benchmark_worker')
-    parser.add_argument('--game-dir', type=Path)
+    parser.add_argument('--native-lib', type=Path, help='Prepared upstream headless lib directory')
     parser.add_argument('--reference-submodule', type=Path, default=REPO / 'sts2-cli')
     parser.add_argument('--scenario', type=Path, default=REPO / 'benchmarks/mcts/shrinker.json')
     parser.add_argument('--iterations', type=int, default=100)
@@ -143,31 +159,37 @@ def main():
     args = parser.parse_args()
     require(0 < args.iterations <= 10000000 and 0 < args.horizon <= 100000, 'Invalid search budget')
     require(0 <= args.seed < 2**64 and args.timeout > 0, 'Invalid seed or timeout')
-    require(args.backend == 'cpp' or args.game_dir is not None, '--game-dir required for native backend')
+    require(not args.instrument or args.backend == 'cpp', 'Stock native JSON has no internal timing API')
     args.output_dir.mkdir(parents=True, exist_ok=False)
     scenario_bytes = args.scenario.read_bytes()
     scenario = json.loads(scenario_bytes)
-    report = dict(status='running', profile='mcts-replay-combat-v1', iterations=args.iterations,
+    report = dict(status='running', profile='mcts-stock-json-v3', iterations=args.iterations,
+                  cpp_execution=args.cpp_execution, instrumented=args.instrument,
                   horizon=args.horizon, seed=args.seed, scenario_sha256=hashlib.sha256(scenario_bytes).hexdigest(),
                   runner_sha256=hashlib.sha256(args.runner.read_bytes()).hexdigest(),
-                  timing='Includes search, root reset/setup/prefix replay, checked actions, projection, JSON and IPC; excludes worker startup/build.',
+                  timing='Includes search, checked root setup/prefix replay, root validation, selected C++ execution mode, JSON and IPC; native uses stock output and includes fresh process startup per simulation; excludes initial preparation/build.',
                   backends={})
     try:
         with contextlib.ExitStack() as stack:
             for name in ('cpp', 'native') if args.backend == 'both' else (args.backend,):
                 if name == 'native':
-                    os.environ['STS2_REFERENCE_SUBMODULE'] = str(args.reference_submodule.resolve())
-                    command, env, provenance = stack.enter_context(reference_build(
-                        args.game_dir, args.output_dir, extra_sources=(Path(__file__),), configuration='Release'))
+                    command, env, provenance = stack.enter_context(stock_build(
+                        args.reference_submodule, args.native_lib or args.reference_submodule / 'lib', args.output_dir))
                     report['reference'] = provenance
+                    backend = StockBackend(command, env, args.output_dir, args.timeout, scenario)
+                    try:
+                        backend.restore()
+                        backend.requests = 0
+                        report['backends'][name] = run_search(args, backend, args.output_dir / f'{name}-search')
+                    finally:
+                        backend.close()
+                    continue
                 else:
                     command, env = [str(args.worker.resolve())], None
                     report['cpp_worker_sha256'] = hashlib.sha256(args.worker.read_bytes()).hexdigest()
                 host = JsonProcess(command, env, args.output_dir / name, args.timeout, False)
                 try:
-                    if name == 'native':
-                        require(host.receive().get('type') == 'ready', 'Missing native handshake')
-                    backend = ReplayBackend(host, name == 'native', scenario)
+                    backend = ReplayBackend(host, scenario, cpp_execution=args.cpp_execution)
                     # Untimed initialization makes setup errors explicit before measurement.
                     backend.restore()
                     backend.requests = 0
