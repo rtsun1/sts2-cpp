@@ -9,8 +9,9 @@ inline constexpr std::string_view game_build = "0.111.0+41cef1ea";
 inline constexpr std::string_view game_digest = "0861bfa1df347538d932f22d580e75420f08082792eb914e53b4882764acdbe9";
 inline constexpr std::uint32_t rules_revision = 1;
 enum class CardId : std::uint16_t { strike, defend, bash, survivor, purity, armaments, headbutt, burning_pact, true_grit, inflame, shockwave, tremble, uppercut, count };
-enum class Opcode : std::uint8_t { damage, block, vulnerable, discard_choice, finish, exhaust_choice, upgrade_choice, topdeck_choice, exhaust_one, draw, exhaust_random, strength, weak, upgrade_all };
-struct Instruction { Opcode opcode; std::int32_t base = 0; };
+enum class Opcode : std::uint8_t { damage, block, vulnerable, request_choice, discard_choice, finish, exhaust_choice, upgrade_choice, topdeck_choice, draw, exhaust_random, strength, weak, upgrade_all };
+enum class CardChoice : std::uint8_t { hand_one, hand_optional, discard_one, upgradable_hand };
+struct Instruction { Opcode opcode; std::int32_t base = 0; CardChoice choice = CardChoice::hand_one; };
 enum class CardRarity : std::uint8_t { basic, common, uncommon };
 enum class CardKind : std::uint8_t { skill, attack, power };
 enum class CardKeyword : std::uint8_t {

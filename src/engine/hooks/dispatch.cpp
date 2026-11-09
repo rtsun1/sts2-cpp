@@ -26,7 +26,7 @@ bool eligible(const RunState& state, const HookListener& listener) noexcept {
         state.combat().exhaust_relics.begin() + state.combat().exhaust_relic_count;
 }
 HandlerResult resume_listener(RunState& state, Scratch& scratch, HookListener listener,
-    HandlerProgress& progress, std::uint32_t* expected_selection_count, const HitResult* hit) {
+    HandlerProgress& progress, const HitResult* hit) {
     // Once started, the handler completes against its captured identity even if
     // its eligibility changes while its child runs.
     if (progress.stage == 0 && !eligible(state, listener)) return HandlerResult::complete;
@@ -36,7 +36,7 @@ HandlerResult resume_listener(RunState& state, Scratch& scratch, HookListener li
     switch (listener.handler) {
     case HookHandler::centennial_puzzle: return centennial_puzzle_after_damage_received(state, progress, *hit);
     case HookHandler::dark_embrace: return dark_embrace_after_card_exhausted(state, progress, amount);
-    case HookHandler::stratagem: return stratagem_after_shuffle(state, progress, *expected_selection_count, amount);
+    case HookHandler::stratagem: return stratagem_after_shuffle(state, progress, amount);
     case HookHandler::charons_ashes:
         charons_ashes_after_card_exhausted(state, scratch); return HandlerResult::complete;
     case HookHandler::joss_paper: return joss_paper_after_card_exhausted(state, scratch, progress);
@@ -105,15 +105,13 @@ RangeProgress capture_draw_listeners(RunState&, bool) {
     return {};
 }
 HandlerResult resume_listeners(RunState& state, Scratch& scratch, RangeProgress& listeners,
-    HandlerProgress& progress, const Ruleset&, std::uint32_t* expected_selection_count, const HitResult* hit) {
+    HandlerProgress& progress, const Ruleset&, const HitResult* hit) {
     if (listeners.count == 0) return HandlerResult::complete;
     while (listeners.cursor < listeners.count) {
         if (progress.stage == 0 && !consume(scratch)) return HandlerResult::execution_budget;
         const auto listener = state.captured_hook_listeners()[listeners.begin + listeners.cursor];
-        if (listener.handler == HookHandler::stratagem && !expected_selection_count)
-            throw std::logic_error("Shuffle handler without prompt progress");
         STS2_CHECK_INVARIANT(listener.handler != HookHandler::centennial_puzzle || hit != nullptr);
-        const auto outcome = resume_listener(state, scratch, listener, progress, expected_selection_count, hit);
+        const auto outcome = resume_listener(state, scratch, listener, progress, hit);
         // Scheduling can relocate the owning operation. Do not touch references
         // after a yielding handler; the interpreter runs its child next.
         if (outcome != HandlerResult::complete) return outcome;

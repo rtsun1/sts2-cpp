@@ -11,7 +11,7 @@
 #include <string_view>
 
 namespace sts2::engine {
-enum class CombatPhase : std::uint8_t { uninitialized, play, discard_choice, combat_won, player_died, card_choice, invalid };
+enum class CombatPhase : std::uint8_t { uninitialized, play, card_choice, combat_won, player_died, invalid };
 // Sufficient summaries for the audited single-player consumers. Card types are
 // immutable in supported content; mutable-type mechanics need a fresh audit.
 struct CombatCounters {
@@ -27,7 +27,7 @@ struct CombatData {
     std::int32_t energy = 0;
     std::int32_t turn = 0;
     bool enemy_side = false;
-    bool burning_blood = true;
+    bool burning_blood = true;  // Do we really need this? Don't we have a collection of active relics?
     bool centennial_puzzle = false;
     bool centennial_puzzle_used = false;
     CardPool cards {};
@@ -47,6 +47,8 @@ struct CombatData {
     PromptId next_prompt {1};
     std::uint32_t next_power_instance = 0;
     std::uint32_t next_creation_order = 0;
+    // Temporary answer handoff; the requester consumes or transfers it before yielding.
+    RangeProgress selected_cards {};
     template<class Self, class Visit> static void visit_sequences(Self& r, Visit visit) noexcept {
         visit(r.cards.slots); visit(r.cards.free); visit(r.card_extra); visit(r.enchantment_runtime); visit(r.cost_modifiers);
         for (auto& zone : r.zones) visit(zone);

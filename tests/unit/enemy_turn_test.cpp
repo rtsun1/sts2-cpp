@@ -26,6 +26,7 @@ TEST(EnemyTurn, CentennialChoiceBlocksAttackCompletionAndResumesAfterCheckpoint)
     ASSERT_TRUE(valid_run(state));
     ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+    EXPECT_EQ(state.combat().selected_cards, RangeProgress{});
     EXPECT_TRUE(state.combat().enemy_side);
     EXPECT_EQ(state.player().hp, 73);
     EXPECT_EQ(state.combat().turn, 1);
@@ -77,6 +78,7 @@ TEST(EnemyTurn, LaterEnemyWaitsAndCheckedTrustedSelectionsHaveEqualFutures) {
     ASSERT_EQ(apply_action_trusted(trusted, end, trusted_scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(state, trusted);
     ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+    EXPECT_EQ(state.combat().selected_cards, RangeProgress{});
     EXPECT_EQ(state.player().hp, 73);
     EXPECT_EQ(state.creature(second)->block, 17);
     EXPECT_TRUE(state.combat().centennial_puzzle_used);

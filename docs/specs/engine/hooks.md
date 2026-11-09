@@ -31,8 +31,8 @@ Use explicit compiled functions between modules, as ADR 0006 requires.
   progress and operands. Hooks advances supplied listener ranges without owning
   an operation frame.
 - A content handler may request a prompt through execution. Execution owns the
-  prompt lifecycle and reusable selection resolution; content specifies the
-  requested operation and constraints.
+  prompt lifecycle and answer capture; content specifies candidate eligibility and
+  selection bounds, then consumes the answer and applies its own effect.
 - Saved state uses copyable values and identities. Temporary local pointers or
   references are allowed, but must not be retained as saved progress or used
   after the owning storage may relocate.
@@ -161,9 +161,11 @@ modulo only when resumed. No separate completion entry is pushed. Stateless
 handlers remain ordinary calls. More complicated future content can require saved
 operands beyond this stage; such a layout change needs review.
 
-Work-unit budget charges are preserved rather than charged on every phase change.
-Selected-card application is charged per operand; a direct instruction's single
-exhaust mutation is already covered by that instruction. Shuffle retains the
+Operation phase changes do not each consume a work unit. Selected exhausts are
+charged per operand; a direct random-exhaust instruction covers its own single
+mutation. Selection and effect instructions each consume a work unit, including
+forced choices; their split can increase budgets relative to the prior combined
+instructions. Shuffle retains the
 former interrupted-draw charge only when listeners actually interrupted the old
 path. A resumed tail-await handler adds no charge solely for returning again;
 Joss Paper's actual reset retains its former completion charge.
@@ -214,14 +216,32 @@ only advances the listener cursor after completion. A stage is saved before chil
 work, so revisiting the same listener does not repeat its initial effect. Finishing
 one dispatch releases its captured range before the next card's fresh capture.
 
-Stratagem retains the requested selection count in its shuffle operation. The
-interpreter returns at `card_choice`. Accepted cards move to hand (or discard if
-full) synchronously in supported content, then the handler finishes and the
-interrupted draw resumes. Full native pile-change hooks remain outside this slice.
+Selection prompts store only an identity and bounds; candidates live in shared
+selection storage. `record_selection` copies an ordered answer into continuation
+operand storage and publishes its range in `CombatData::selected_cards`. The
+requester immediately takes that range and clears the answer slot. Synchronous
+consumers release the operands after applying their effect; a suspending consumer
+transfers the range into its own frame before scheduling child work. Answers must
+not remain in the shared slot at any published boundary, including nested prompts.
+
+Card programs use a `request_choice` instruction followed by an effect instruction.
+The request advances the instruction cursor before yielding; resumption starts at
+the effect instruction. Empty and forced single-card choices use the same handoff
+without publishing a prompt. Optional choices still require input. Each instruction
+is atomic; an exhaust effect transfers its operands to `ExhaustCardsFrame`, which
+owns hook suspension and cleanup. Both instructions consume execution budget; the
+exhaust operation retains its per-card charges. No throughput claim is made.
+
+Stratagem consumes the answer in its resumed content handler. Accepted cards move
+to hand (or discard if full) synchronously in supported content, then the handler
+finishes and the interrupted draw resumes. Validation derives selection bounds
+from the waiting request instruction or captured Stratagem listener. Observation
+similarly derives effect descriptions from the requester rather than saved prompt
+metadata. Full native pile-change hooks remain outside this slice.
 
 ## Compatibility and verification
 
-Run checkpoint revision 20 embeds combat payload revision 3. They encode all six
+Run checkpoint revision 21 embeds combat payload revision 4. They encode all six
 frame alternatives, the captured enemy order, AI completion flags, Centennial
 Puzzle state, embedded listener ranges, and handler stages. Earlier run/payload
 revisions are rejected. Historical revision numbers below describe prior layouts.
@@ -248,3 +268,10 @@ Historical four-operation verification: all 279 release checks pass, and differe
 budget/trace and sanitizer probes pass. See the
 [verification report](architecture-verification.md#operation-owned-hook-progress-2026-11-01)
 for normal/LTO timing results, allocation observations, and scope limits.
+
+Selection handoff verification (2026-11-07): the Debug build completed without
+compiler warnings. All 321 registered checks passed across the full-suite run and
+a targeted recorder rerun. The full run initially passed 320 checks; the recorder
+check needed the pinned `sts2-cli` submodule initialized in the worktree, then
+passed without source changes. All 235 engine checks and 23 replay-parity checks
+passed in the full run. `git diff --check` passed. No benchmark was run.

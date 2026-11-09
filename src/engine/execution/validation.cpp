@@ -43,9 +43,10 @@ bool valid_continuations(const RunState& state, const Ruleset& rules) noexcept {
         } else if (const auto* shuffle = std::get_if<ShuffleFrame>(&frame)) {
             if (shuffle->phase > ShufflePhase::hooks || shuffle->handler.stage > 1 ||
                 !range_valid(shuffle->listeners, state.captured_hook_listeners().size(), captured_end)) return false;
-            if (shuffle->phase == ShufflePhase::reorder && (shuffle->listeners.count != 0 || shuffle->handler.stage != 0 || shuffle->expected_selection_count != 0)) return false;
+            if (shuffle->phase == ShufflePhase::reorder && (shuffle->listeners.count != 0 || shuffle->handler.stage != 0)) return false;
             if (shuffle->handler.stage != 0 && shuffle->listeners.cursor >= shuffle->listeners.count) return false;
-            if (shuffle->expected_selection_count != 0 && (shuffle->handler.stage != 1 || &frame != &state.execution().back() || state.combat().phase != CombatPhase::card_choice)) return false;
+            if (shuffle->handler.stage == 1 && (&frame != &state.execution().back() ||
+                state.combat().phase != CombatPhase::card_choice)) return false;
             for (std::uint32_t i = 0; i < shuffle->listeners.count; ++i)
                 if (state.captured_hook_listeners()[shuffle->listeners.begin + i].handler != HookHandler::stratagem) return false;
         } else if (const auto* turn = std::get_if<EnemyTurnFrame>(&frame)) {

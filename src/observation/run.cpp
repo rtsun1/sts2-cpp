@@ -80,12 +80,8 @@ RunObservation observe(const RunState& state) {
         for (auto handle : view.combat->hand) {
             if (auto card = observe_card(state, handle)) view.hand_cards.push_back(*card);
         }
-        if (state.combat().phase == CombatPhase::discard_choice) {
-            view.prompt = PublicPrompt::discard;
-            view.minimum_selection = view.maximum_selection = 1;
-        }
         if (view.combat->selection) {
-            view.prompt = PublicPrompt::card_selection;
+            view.prompt = view.combat->selection->effect == SelectionEffect::discard ? PublicPrompt::discard : PublicPrompt::card_selection;
             view.minimum_selection = view.combat->selection->minimum;
             view.maximum_selection = view.combat->selection->maximum;
             view.submits_immediately = true;

@@ -228,7 +228,7 @@ TEST(MultiCreature, SuspendedCardTargetRetainsItsIdentityAcrossCloneAndRestore) 
     ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
     const auto prompt = state.combat().selection.id;
     ASSERT_EQ(apply_action(state, test::selection_input(state, state.selection_candidates().front(), prompt), scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(state.combat().selection.effect, SelectionEffect::add_to_hand);
+    ASSERT_EQ(observe_combat(state).selection->effect, SelectionEffect::add_to_hand);
     // Resume a real damage program after the controlled interruption, as in the
     // existing retained-target regression. No fixture-only handler is installed.
     state.cards().get(pact)->definition = CardId::strike;

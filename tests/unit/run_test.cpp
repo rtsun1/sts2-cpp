@@ -465,11 +465,11 @@ TEST(PublicRun, CommonNestedPromptCloneUsesNoAllocationAndBudgetFailureIsOperati
     EXPECT_FALSE(observe(clone).valid);
     EXPECT_EQ(checkpoint(state).bytes, saved);
 }
-TEST(PublicRun, NestedPromptRejectsMalformedResultDestinationBeforePublishingQueries) {
+TEST(PublicRun, NestedPromptRejectsMalformedRequesterProgressBeforePublishingQueries) {
     RunState state; Scratch scratch; NestedPromptInfo info;
     reach_nested_shuffle_prompt(state, info);
     ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
-    ++state.combat().selection.continuation_depth;
+    std::get<ShuffleFrame>(state.execution().back()).handler.stage = 0;
     EXPECT_FALSE(valid_run(state));
     const auto boundary = state.data.boundary;
     const auto candidate = state.selection_candidates().front();
@@ -811,7 +811,7 @@ TEST(PublicRun, PlayedCostExpiresAfterSuspendedCardResumes) {
     ASSERT_NE(survivor, hand.end());
     state.cost_modifiers().push_back({survivor->handle, CostModifierKind::absolute, CostExpiry::played, 0});
     ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, survivor->handle, {}}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(state.combat().phase, CombatPhase::discard_choice);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
     EXPECT_EQ(state.cost_modifiers().size(), 1u);
     RunState restored;
     ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
@@ -1348,7 +1348,7 @@ TEST(TrustedActions, DiscardAndAutomaticSelectionPromptsAgree) {
     CardHandle source{};
     for (auto card : state.zone(Zone::hand)) if (state.cards().get(card)->definition == CardId::survivor) source = card;
     ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, source}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(state.combat().phase, CombatPhase::discard_choice);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
     compare_action_paths(state, true, 2);
     const std::array headbutt{CardSpec{CardId::headbutt}, CardSpec{CardId::defend}, CardSpec{CardId::defend}};
     ASSERT_EQ(initialize_combat_scenario(state, {}, headbutt).status, StepStatus::awaiting_input);
@@ -1357,7 +1357,7 @@ TEST(TrustedActions, DiscardAndAutomaticSelectionPromptsAgree) {
         ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, card}, scratch).status, StepStatus::awaiting_input);
     for (auto card : state.zone(Zone::hand)) if (state.cards().get(card)->definition == CardId::headbutt) source = card;
     ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, source, state.enemy_handle()}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_TRUE(state.combat().selection.automatic_at_maximum);
+    ASSERT_EQ(state.combat().selection.minimum, state.combat().selection.maximum);
     compare_action_paths(state, true, 2);
 }
 TEST(TrustedActions, CombatEntryAllocationFailureAgreesWithoutRollback) {

@@ -42,49 +42,42 @@ StepResult resume_card_program(RunState& state, Scratch& scratch, const Ruleset&
             }
             break;
         }
-        case Opcode::exhaust_one:
-            if (state.zone(Zone::hand).size() == 1) {
-                const auto card = state.zone(Zone::hand).front();
-                const auto cards = capture_exhaust_cards(state, std::span(&card, 1));
-                state.execution().push_back(ExhaustCardsFrame{.cards = cards, .source_zone = Zone::hand, .charge_card_step = false});
+        case Opcode::request_choice: {
+            const auto zone = instruction.choice == CardChoice::discard_one ? Zone::discard : Zone::hand;
+            const bool upgrade = instruction.choice == CardChoice::upgradable_hand;
+            const bool optional = instruction.choice == CardChoice::hand_optional;
+            if (zone == Zone::discard && !state.has_living_enemies()) break;
+            const auto eligible = [upgrade](const RunState& s, CardHandle card) {
+                return !upgrade || !s.cards().get(card)->upgraded;
+            };
+            request_selection(state, zone, optional ? 0 : 1, static_cast<std::uint32_t>(amount), eligible);
+            if (state.combat().phase == CombatPhase::card_choice) return result(state);
+            break;
+        }
+        case Opcode::exhaust_choice: {
+            const auto cards = take_selection(state);
+            if (cards.count != 0) {
+                state.execution().push_back(ExhaustCardsFrame{.cards = cards, .source_zone = Zone::hand});
                 return result(state);
-            } else if (!state.zone(Zone::hand).empty()) {
-                if (state.combat().next_prompt.value == UINT32_MAX) return fail(state, Restriction::capacity);
-                begin_selection(state, SelectionEffect::exhaust, Zone::hand, 1, 1, false); return result(state);
             }
             break;
-        case Opcode::topdeck_choice: {
-            const auto& candidates = state.zone(Zone::discard);
-            if (!state.has_living_enemies() || candidates.empty()) break;
-            if (candidates.size() == 1) {
-                const auto card = candidates.front(); move_card(state, Zone::discard, Zone::draw, card);
-                auto pile = state.zone(Zone::draw); std::rotate(pile.begin(), pile.end() - 1, pile.end());
-            } else {
-                if (state.combat().next_prompt.value == UINT32_MAX) return fail(state, Restriction::capacity);
-                begin_selection(state, SelectionEffect::topdeck, Zone::discard, 1, 1, true); return result(state);
+        }
+        case Opcode::upgrade_choice: case Opcode::topdeck_choice: case Opcode::discard_choice: {
+            const auto cards = take_selection(state);
+            for (std::uint32_t i = 0; i < cards.count; ++i) {
+                const auto card = state.continuation_cards()[cards.begin + i];
+                if (instruction.opcode == Opcode::upgrade_choice) state.cards().get(card)->upgraded = true;
+                else if (instruction.opcode == Opcode::discard_choice) discard_card(state, scratch, card);
+                else {
+                    move_card(state, Zone::discard, Zone::draw, card);
+                    auto pile = state.zone(Zone::draw); std::rotate(pile.begin(), pile.end() - 1, pile.end());
+                }
             }
+            release_selection_cards(state, cards);
             break;
         }
         case Opcode::upgrade_all:
             for (auto card : state.zone(Zone::hand)) state.cards().get(card)->upgraded = true;
-            break;
-        case Opcode::upgrade_choice: {
-            std::size_t count = 0;
-            for (auto card : state.zone(Zone::hand)) count += !state.cards().get(card)->upgraded;
-            if (count <= 1) {
-                for (auto card : state.zone(Zone::hand)) state.cards().get(card)->upgraded = true;
-            } else {
-                if (state.combat().next_prompt.value == UINT32_MAX) return fail(state, Restriction::capacity);
-                begin_selection(state, SelectionEffect::upgrade, Zone::hand, 1, 1, false); return result(state);
-            }
-            break;
-        }
-        case Opcode::exhaust_choice:
-            if (!state.zone(Zone::hand).empty()) {
-                if (state.combat().next_prompt.value == UINT32_MAX) return fail(state, Restriction::capacity);
-                begin_selection(state, SelectionEffect::exhaust, Zone::hand, 0, static_cast<std::uint32_t>(amount), false);
-                return result(state);
-            }
             break;
         case Opcode::damage: {
             const auto hit = damage(*target, amount, state.player(), state.overflow);
@@ -111,12 +104,6 @@ StepResult resume_card_program(RunState& state, Scratch& scratch, const Ruleset&
             }
             break;
         }
-        case Opcode::discard_choice:
-            if (state.zone(Zone::hand).size() == 1) {
-                const auto discarded = state.zone(Zone::hand).front();
-                discard_card(state, scratch, discarded);
-            } else if (!state.zone(Zone::hand).empty()) { state.combat().phase = CombatPhase::discard_choice; return result(state); }
-            break;
         case Opcode::finish: {
             const auto card = frame.source; const auto play = frame.play; state.execution().pop_back();
             for (auto it = state.cost_modifiers().begin(); it != state.cost_modifiers().end();) {

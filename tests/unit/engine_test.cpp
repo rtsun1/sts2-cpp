@@ -238,7 +238,7 @@ TEST(Engine, SurvivorSuspendsInsideEffectAndCloneRestoreResumeIndependently) {
     auto s = initial(config); Scratch scratch;
     const auto survivor = find_card(s, CardId::survivor);
     ASSERT_EQ(play(s, survivor, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(s.combat().phase, CombatPhase::discard_choice); EXPECT_EQ(s.player().block, 8);
+    ASSERT_EQ(s.combat().phase, CombatPhase::card_choice); EXPECT_EQ(s.player().block, 8);
     EXPECT_EQ(s.zone(Zone::play), std::vector<CardHandle>{survivor}); EXPECT_EQ(s.execution().size(), 1u);
     EXPECT_TRUE(valid_combat(s));
     const auto saved = checkpoint(s); RunState branch, restored; clone_into(branch, s);
@@ -419,7 +419,7 @@ TEST(CombatMechanics, SurvivorBoundariesAndPileOrderingMatchLiveNativeCases) {
                 }
                 EXPECT_EQ(s.zone_views()[i], zone) << names[i];
             }
-            EXPECT_EQ(s.combat().phase == CombatPhase::discard_choice, !expected["pending_choice"].is_null());
+            EXPECT_EQ(s.combat().phase == CombatPhase::card_choice, !expected["pending_choice"].is_null());
             const auto& native = expected["rng"]["rngs"]["shuffle"]; const auto& rng = s.data.rng.get(RunStream::shuffle).state();
             EXPECT_EQ(rng.counter, native["counter"]);
             for (unsigned i = 0; i < 4; ++i) EXPECT_EQ(rng.words[i], native["s" + std::to_string(i)]);

@@ -83,7 +83,7 @@ void export_native_combat(Json& out, const RunState& run, const RecordedCombat& 
     if (run.has_combat() && (run.enemies().size() != 1 || run.combat().enemy_side))
         throw std::invalid_argument("Multi-enemy/active enemy-side native diagnostics are not mapped");
     if (run.data.combat && run.combat().phase == CombatPhase::card_choice &&
-        run.combat().selection.effect == SelectionEffect::add_to_hand)
+        !run.execution().empty() && std::holds_alternative<ShuffleFrame>(run.execution().back()))
         throw std::invalid_argument("Stratagem pile selection has no native diagnostic mapping yet");
     for (const auto& power : recorded.powers) {
         if (power.definition == PowerId::dark_embrace || power.definition == PowerId::stratagem)
@@ -117,7 +117,7 @@ void export_native_combat(Json& out, const RunState& run, const RecordedCombat& 
         (run.combat().phase != CombatPhase::combat_won && recorded.card_generation != run.data.combat_generation))
         throw std::invalid_argument("Missing exporter history for this execution; attach at creation");
     const bool won = run.combat().phase == CombatPhase::combat_won, died = run.combat().phase == CombatPhase::player_died, terminal = won || died;
-    const bool choosing = run.combat().phase == CombatPhase::discard_choice || run.combat().phase == CombatPhase::card_choice;
+    const bool choosing = run.combat().phase == CombatPhase::card_choice;
     Json piles = Json::object(); constexpr std::array<const char*, 5> zone_names{"Hand", "Draw", "Discard", "Exhaust", "Play"};
     const auto zones = run.zone_views();
     for (std::size_t i = 0; i < zones.size(); ++i) {
@@ -253,10 +253,9 @@ void export_native_combat(Json& out, const RunState& run, const RecordedCombat& 
         combat["active_card_plays"].push_back({{"card_play", play_ref(frame.play)},
             {"result_location", {{"player", "/players/0"}, {"pile_type", run.cards().get(frame.source)->definition == CardId::purity ? "Exhaust" : "Discard"}, {"position", "Bottom"}}}});
         Json candidates = Json::array();
-        if (run.combat().phase == CombatPhase::card_choice) { for (auto h : run.selection_candidates()) candidates.push_back(card_ref(h)); }
-        else { for (auto h : run.zone(Zone::hand)) candidates.push_back(card_ref(h)); }
+        for (auto h : run.selection_candidates()) candidates.push_back(card_ref(h));
         out["pending_choice"] = {{"player", "/players/0"}, {"sources", Json::array({card_ref(frame.source)})},
-            {"candidates", candidates}, {"min_select", run.combat().phase == CombatPhase::card_choice ? run.combat().selection.minimum : 1}, {"max_select", run.combat().phase == CombatPhase::card_choice ? run.combat().selection.maximum : 1}, {"require_manual_confirmation", run.cards().get(frame.source)->definition == CardId::purity}, {"cancelable", false}};
+            {"candidates", candidates}, {"min_select", run.combat().selection.minimum}, {"max_select", run.combat().selection.maximum}, {"require_manual_confirmation", run.cards().get(frame.source)->definition == CardId::purity}, {"cancelable", false}};
     }
     out["combat"] = std::move(combat); out["run_flow"] = nullptr;
     out["current_room"] = {{"encounter_id", "ENCOUNTER.SHRINKER_BEETLE_WEAK"}, {"encounter_state", Json::object()}, {"event_id", nullptr},

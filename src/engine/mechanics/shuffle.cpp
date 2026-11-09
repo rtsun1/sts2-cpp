@@ -29,7 +29,7 @@ StepResult resume_shuffle(RunState& state, Scratch& scratch, const Ruleset& rule
             (void)consume(scratch); // Reserved by the draw request before yielding.
         frame.phase = ShufflePhase::hooks;
     }
-    const auto outcome = resume_listeners(state, scratch, frame.listeners, frame.handler, rules, &frame.expected_selection_count);
+    const auto outcome = resume_listeners(state, scratch, frame.listeners, frame.handler, rules);
     if (outcome == HandlerResult::yield) return result(state);
     if (outcome == HandlerResult::execution_budget) return fail(state, Restriction::execution_budget);
     state.execution().pop_back();

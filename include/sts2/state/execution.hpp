@@ -7,7 +7,6 @@
 
 namespace sts2::engine {
 // Every suspended operand is owned here, never on the C++ call stack or in Scratch.
-enum class SelectionEffect : std::uint8_t { none, exhaust, upgrade, topdeck, add_to_hand };
 enum class ExhaustRelic : std::uint8_t { charons_ashes, joss_paper };
 struct RangeProgress {
     std::uint32_t begin = 0, count = 0, cursor = 0;
@@ -41,7 +40,6 @@ struct ExhaustCardsFrame {
 };
 struct ShuffleFrame {
     RangeProgress listeners {};
-    std::uint32_t expected_selection_count = 0;
     HandlerProgress handler {};
     ShufflePhase phase = ShufflePhase::reorder;
     // Preserve the former interrupted-draw charge when shuffle listeners exist.
@@ -79,11 +77,7 @@ using ExecutionFrame = std::variant<CardProgramFrame, DrawFrame, ExhaustCardsFra
 static_assert(std::is_trivially_copyable_v<ExecutionFrame>);
 struct CardSelection {
     PromptId id {};
-    SelectionEffect effect = SelectionEffect::none;
-    Zone zone = Zone::hand;
     std::uint32_t minimum = 0, maximum = 0;
-    bool automatic_at_maximum = false;
-    std::uint32_t continuation_depth = 0;
     friend bool operator==(const CardSelection&, const CardSelection&) = default;
 };
 // Captured candidates refer to existing content instances, not a registration pool.

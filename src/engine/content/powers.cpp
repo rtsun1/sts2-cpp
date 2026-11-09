@@ -13,22 +13,31 @@ HandlerResult dark_embrace_after_card_exhausted(RunState& state, HandlerProgress
     state.execution().push_back(DrawFrame{.remaining = amount, .from_hand_draw = false});
     return HandlerResult::yield;
 }
-HandlerResult stratagem_after_shuffle(RunState& state, HandlerProgress& progress,
-    std::uint32_t& expected_selection_count, int amount) {
-    if (progress.stage != 0) {
-        expected_selection_count = 0;
+HandlerResult stratagem_after_shuffle(RunState& state, HandlerProgress& progress, int amount) {
+    switch (progress.stage) {
+    case 0: {
+        if (amount <= 0 || state.zone(Zone::draw).empty()) return HandlerResult::complete;
+        const auto count = std::min(static_cast<std::uint32_t>(amount), static_cast<std::uint32_t>(state.zone(Zone::draw).size()));
+        if (state.zone(Zone::draw).size() <= count) {
+            while (!state.zone(Zone::draw).empty()) add_to_hand(state, Zone::draw, state.zone(Zone::draw).front());
+            return HandlerResult::complete;
+        }
+        progress.stage = 1;
+        request_selection(state, Zone::draw, count, count,
+            [](const RunState&, CardHandle) { return true; });
+        return HandlerResult::yield;
+    }
+    case 1: {
+        const auto selected = take_selection(state);
+        for (std::uint32_t i = 0; i < selected.count; ++i) {
+            const auto card = state.continuation_cards()[selected.begin + i];
+            add_to_hand(state, Zone::draw, card);
+        }
+        release_selection_cards(state, selected);
         return HandlerResult::complete;
     }
-    if (amount <= 0 || state.zone(Zone::draw).empty()) return HandlerResult::complete;
-    const auto count = std::min(static_cast<std::uint32_t>(amount), static_cast<std::uint32_t>(state.zone(Zone::draw).size()));
-    if (state.zone(Zone::draw).size() <= count) {
-        while (!state.zone(Zone::draw).empty()) add_to_hand(state, Zone::draw, state.zone(Zone::draw).front());
-        return HandlerResult::complete;
+    default: throw std::logic_error("Invalid stratagem handler stage");
     }
-    progress.stage = 1;
-    expected_selection_count = count;
-    begin_selection(state, SelectionEffect::add_to_hand, Zone::draw, count, count, true);
-    return HandlerResult::yield;
 }
 PowerModifier artifact_before_power_application(const CreatureState& creature, const OverflowStorage& owner, PowerId id, int amount) noexcept {
     const bool debuff = (id == PowerId::strength || id == PowerId::dexterity) ? amount < 0 :

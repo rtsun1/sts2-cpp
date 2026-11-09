@@ -1,5 +1,6 @@
 #include "../support/selection_input.hpp"
 #include "sts2/engine/action.hpp"
+#include "sts2/observation/observe.hpp"
 #include "sts2/persistence/checkpoint.hpp"
 #include "../../src/engine/hooks/dispatch.hpp"
 #include "../../src/engine/execution/interpreter.hpp"
@@ -22,7 +23,7 @@ void exhaust_into_shuffle(RunState& state, Scratch& scratch) {
     auto& combat = state;
     const auto prompt = combat.combat().selection.id;
     ASSERT_EQ(apply_action(state, test::selection_input(state, combat.selection_candidates().front(), prompt), scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(state.combat().selection.effect, SelectionEffect::add_to_hand);
+    ASSERT_EQ(observe_combat(state).selection->effect, SelectionEffect::add_to_hand);
 }
 StepResult select(RunState& state, Scratch& scratch, CardHandle card) {
     return apply_action(state, test::selection_input(state, card, state.combat().selection.id), scratch);
@@ -60,6 +61,7 @@ TEST(HookDispatch, StackedStratagemAcceptsCompleteOrderedSelectionAcrossCloneAnd
     ASSERT_EQ(select(state, scratch, first).status, StepStatus::invalid_action);
     EXPECT_EQ(state, before);
     ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+    EXPECT_EQ(state.combat().selected_cards, RangeProgress{});
     const auto saved = checkpoint(state).bytes;
     RunState clone = state, restored;
     ASSERT_EQ(restore(restored, saved, scratch), RestoreStatus::restored);
@@ -117,6 +119,7 @@ TEST(HookDispatch, StratagemRunsAgainOnTheNextShuffle) {
         combat.execution().push_back(DrawFrame{.remaining = 1, .from_hand_draw = false});
         ASSERT_EQ(advance_combat(state, scratch).status, StepStatus::awaiting_input);
         ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+    EXPECT_EQ(state.combat().selected_cards, RangeProgress{});
         EXPECT_NE(state.combat().selection.id, previous);
         previous = state.combat().selection.id;
         const auto selected = state.selection_candidates().front();

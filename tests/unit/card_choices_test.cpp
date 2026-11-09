@@ -242,7 +242,7 @@ TEST(CardChoices, HeadbuttSelectsDiscardAndAutomaticallyReturnsItToTop) {
     ASSERT_EQ(apply_combat(state, {state.data.boundary, CombatInputKind::play_card, source, state.enemy_handle()}, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
     const auto chosen = state.selection_candidates().back();
-    EXPECT_TRUE(state.combat().selection.automatic_at_maximum);
+    EXPECT_EQ(state.combat().selection.minimum, state.combat().selection.maximum);
     EXPECT_EQ(selection_space(state)->candidates.size(), 2u);
     ASSERT_EQ(choose(state, scratch, std::span<const CardHandle>(&chosen, 1)).status, StepStatus::awaiting_input);
     EXPECT_EQ(state.combat().phase, CombatPhase::play);
@@ -402,15 +402,66 @@ TEST(CardChoices, DiscardSelectionRejectsStaleHandlesBeforeMutation) {
     CombatConfig config; config.deck = deck; RunState state; Scratch scratch;
     ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(play(state, find(state, CardId::survivor), scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(state.combat().phase, CombatPhase::discard_choice);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
     auto card = state.zone(Zone::hand).front(); ++card.generation;
     const auto before = checkpoint(state).bytes;
-    EXPECT_EQ(apply_selection(state, {state.data.boundary, {}, std::span<const CardHandle>(&card, 1)}, scratch).reason, Restriction::stale_card);
+    EXPECT_EQ(apply_selection(state, {state.data.boundary, state.combat().selection.id, std::span<const CardHandle>(&card, 1)}, scratch).reason, Restriction::stale_card);
     EXPECT_EQ(checkpoint(state).bytes, before);
     // Matching a corrupt pile entry must not bypass checked identity validation.
     state.zone(Zone::hand).front() = card;
     const auto corrupted = state;
-    EXPECT_EQ(apply_selection(state, {state.data.boundary, {}, std::span<const CardHandle>(&card, 1)}, scratch).reason, Restriction::stale_card);
+    EXPECT_EQ(apply_selection(state, {state.data.boundary, state.combat().selection.id, std::span<const CardHandle>(&card, 1)}, scratch).reason, Restriction::invalid_state);
     EXPECT_EQ(state, corrupted);
+}
+}
+
+namespace sts2::engine {
+TEST(CardChoices, UnconsumedAnswerIsNotAPublicBoundary) {
+    RunState state; Scratch scratch;
+    ASSERT_EQ(initialize_combat(state, {}, scratch).status, StepStatus::awaiting_input);
+    const auto before = state;
+    state.combat().selected_cards = {0, 1, 0};
+    EXPECT_NE(state, before);
+    EXPECT_FALSE(valid_combat(state));
+    EXPECT_THROW(checkpoint(state), std::invalid_argument);
+}
+}
+
+namespace sts2::engine {
+TEST(CardChoices, PreviousSelectionCheckpointFormatsAreRejectedAtomically) {
+    RunState state; Scratch scratch;
+    const std::array deck{CardSpec{CardId::purity}, CardSpec{CardId::strike}, CardSpec{CardId::defend}};
+    CombatConfig config; config.deck = deck;
+    ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(play(state, find(state, CardId::purity), scratch).status, StepStatus::awaiting_input);
+    const auto saved = checkpoint(state).bytes;
+    auto previous_run = saved;
+    test::checkpoint_u32(previous_run, 8, 20);
+    test::checksum_checkpoint(previous_run);
+    EXPECT_EQ(restore(state, previous_run, scratch), RestoreStatus::incompatible);
+    EXPECT_EQ(checkpoint(state).bytes, saved);
+    auto previous_combat = saved;
+    const auto payload = test::combat_payload_range(previous_combat);
+    test::checkpoint_u32(previous_combat, payload.begin + 8, 3);
+    test::checksum_combat_and_run(previous_combat);
+    EXPECT_EQ(restore(state, previous_combat, scratch), RestoreStatus::incompatible);
+    EXPECT_EQ(checkpoint(state).bytes, saved);
+}
+}
+
+namespace sts2::engine {
+TEST(CardChoices, UpgradePromptRejectsStalePileIdentityBeforeMutation) {
+    RunState state; Scratch scratch;
+    const std::array deck{CardSpec{CardId::armaments}, CardSpec{CardId::strike}, CardSpec{CardId::defend}};
+    CombatConfig config; config.deck = deck;
+    ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(play(state, find(state, CardId::armaments), scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+    ++state.zone(Zone::hand).front().generation;
+    const auto before = state;
+    const auto candidate = state.selection_candidates().front();
+    const SelectionInput answer{state.data.boundary, state.combat().selection.id, std::span(&candidate, 1)};
+    EXPECT_EQ(apply_selection(state, answer, scratch).reason, Restriction::invalid_state);
+    EXPECT_EQ(state, before);
 }
 }

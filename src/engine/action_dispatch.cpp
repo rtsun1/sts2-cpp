@@ -35,8 +35,6 @@ std::optional<SelectionSpace> selection_space(const RunState& state) noexcept {
         const auto& prompt = state.combat().selection;
         return SelectionSpace{state.data.boundary, prompt.id, state.selection_candidates(), prompt.minimum, prompt.maximum};
     }
-    if (state.combat().phase == CombatPhase::discard_choice)
-        return SelectionSpace{state.data.boundary, {}, state.zone(Zone::hand), 1, 1};
     return std::nullopt;
 }
 std::size_t ActionSpaceView::size() const noexcept {

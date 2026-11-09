@@ -77,6 +77,7 @@ int main() {
                     const auto view = observe(run);
                     if (!view.combat || !view.combat->selection) throw std::invalid_argument("No active selection");
                     const auto& selection = *view.combat->selection;
+                    const bool automatic = selection.effect == SelectionEffect::topdeck || selection.effect == SelectionEffect::add_to_hand;
                     CardHandle card;
                     if (kind != "confirm_selection") {
                         const auto index = action.at("candidate_index").get<std::size_t>();
@@ -96,7 +97,7 @@ int main() {
                     }
                     // Historical partial inputs consumed time/boundaries. Keep this
                     // transport compatibility out of engine gameplay execution.
-                    if (kind != "confirm_selection" && !(run.combat().selection.automatic_at_maximum && edited.size() == selection.maximum)) {
+                    if (kind != "confirm_selection" && !(automatic && edited.size() == selection.maximum)) {
                         if (run.data.boundary.value == UINT32_MAX || !run.data.clock.advance_action()) throw std::runtime_error("Legacy clock exhausted");
                         ++run.data.boundary.value;
                         execution.trace.emit(run, {CombatEventKind::combat_updated});
@@ -137,6 +138,7 @@ int main() {
         }
         if (view.combat && view.combat->selection) {
             const auto& selection = *view.combat->selection;
+            const bool automatic = selection.effect == SelectionEffect::topdeck || selection.effect == SelectionEffect::add_to_hand;
             Json candidates = Json::array(), selected = Json::array();
             for (auto handle : selection.candidates) {
                 const auto card = inspect_card(state, handle);
@@ -150,8 +152,8 @@ int main() {
                 selected.push_back(at - selection.candidates.begin());
             }
             response["selection"] = {{"prompt", selection.id.value}, {"minimum", selection.minimum}, {"maximum", selection.maximum},
-                {"automatic_at_maximum", state.combat().selection.automatic_at_maximum}, {"selected_count", edited_selection.size()},
-                {"can_confirm", (!state.combat().selection.automatic_at_maximum && edited_selection.size() >= selection.minimum)}, {"candidates", candidates}, {"selected_indices", selected}};
+                {"automatic_at_maximum", automatic}, {"selected_count", edited_selection.size()},
+                {"can_confirm", (!automatic && edited_selection.size() >= selection.minimum)}, {"candidates", candidates}, {"selected_indices", selected}};
         }
         std::cout << response.dump() << std::endl;
     } catch (const std::exception& error) {

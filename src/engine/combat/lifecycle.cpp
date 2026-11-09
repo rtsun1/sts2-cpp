@@ -27,6 +27,7 @@ void end_combat(RunState& state, Scratch& scratch, bool won) {
     state.data.phase = won ? RunPhase::combat_done : RunPhase::complete;
     state.execution().clear(); state.enemy_turn_order().clear(); state.cost_modifiers().clear();
     state.combat().centennial_puzzle_used = false;
+    state.combat().selected_cards = {};
     state.continuation_cards().clear(); state.captured_hook_listeners().clear(); clear_selection(state);
     if (won) {
         for (auto& slot : state.creatures().slots()) if (slot.live) slot.value.clear_powers();

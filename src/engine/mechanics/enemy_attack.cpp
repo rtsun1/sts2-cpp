@@ -19,7 +19,7 @@ StepResult resume_enemy_attack(RunState& state, Scratch& scratch, const Ruleset&
         if (state.player().hp != 0) frame.listeners = capture_damage_received_listeners(state);
     }
     if (frame.phase == EnemyAttackPhase::hooks) {
-        const auto outcome = resume_listeners(state, scratch, frame.listeners, frame.handler, rules, nullptr, &frame.hit);
+        const auto outcome = resume_listeners(state, scratch, frame.listeners, frame.handler, rules, &frame.hit);
         if (outcome == HandlerResult::yield) return result(state);
         if (outcome == HandlerResult::execution_budget) return fail(state, Restriction::execution_budget);
         frame.phase = EnemyAttackPhase::finish;

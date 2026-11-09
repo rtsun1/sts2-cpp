@@ -4,6 +4,7 @@
 #include <string>
 
 namespace sts2::engine {
+enum class SelectionEffect : std::uint8_t { none, exhaust, upgrade, topdeck, add_to_hand, discard };
 struct CardSelectionView {
     PromptId id;
     SelectionEffect effect;

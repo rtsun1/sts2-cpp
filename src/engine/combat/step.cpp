@@ -56,8 +56,7 @@ StepResult execute_combat(RunState& state, const Input& input, Scratch& scratch,
     if (!state.data.clock.advance_action()) return fail(state, Restriction::clock_exhausted);
     scratch.steps = 0;
     if constexpr (std::is_same_v<Input, SelectionInput>) {
-        const auto selected = apply_card_selection(state, input, scratch, rules);
-        if (selected.status == StepStatus::engine_error || selected.status == StepStatus::resource_limit) return selected;
+        record_selection(state, input);
     } else {
         if (input.kind == CombatInputKind::end_turn) {
             const auto ended = end_player_turn(state, scratch, rules);

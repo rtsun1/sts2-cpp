@@ -427,7 +427,7 @@ TEST(CompleteStateClone, PendingChoicePreservesSourceAfterUnreferencedCardRemova
     ASSERT_TRUE(source.cards().erase(strike));
     ASSERT_TRUE(valid_combat(source)); // Export-only history no longer roots this slot.
     ASSERT_EQ(apply_combat(source, {source.data.boundary, CombatInputKind::play_card, survivor}, scratch).status, StepStatus::awaiting_input);
-    ASSERT_EQ(source.combat().phase, CombatPhase::discard_choice);
+    ASSERT_EQ(source.combat().phase, CombatPhase::card_choice);
     source.execution().reserve(200);
     const auto encoded = checkpoint(source).bytes;
     RunState cloned, restored; clone_into(cloned, source);

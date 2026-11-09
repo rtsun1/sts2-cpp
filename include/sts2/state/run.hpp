@@ -369,6 +369,7 @@ inline bool RunState::combat_equals(const RunState& other) const {
         && combat().exhaust_relics == other.combat().exhaust_relics
         && combat().exhaust_relic_count == other.combat().exhaust_relic_count
         && combat().selection == other.combat().selection
+        && combat().selected_cards == other.combat().selected_cards
         && combat().next_prompt == other.combat().next_prompt
         && combat().next_power_instance == other.combat().next_power_instance
         && combat().next_creation_order == other.combat().next_creation_order

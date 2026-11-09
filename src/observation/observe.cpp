@@ -5,6 +5,23 @@
 #include <algorithm>
 
 namespace sts2::engine {
+namespace {
+SelectionEffect selection_effect(const RunState& state, const Ruleset& rules) noexcept {
+    if (state.execution().empty()) return SelectionEffect::none;
+    if (std::holds_alternative<ShuffleFrame>(state.execution().back())) return SelectionEffect::add_to_hand;
+    const auto* program = std::get_if<CardProgramFrame>(&state.execution().back());
+    const auto* source = program ? state.cards().get(program->source) : nullptr;
+    const auto* definition = source ? rules.card(source->definition) : nullptr;
+    if (!definition || program->instruction >= definition->program(source->upgraded).size()) return SelectionEffect::none;
+    switch (definition->program(source->upgraded)[program->instruction].opcode) {
+    case Opcode::exhaust_choice: return SelectionEffect::exhaust;
+    case Opcode::upgrade_choice: return SelectionEffect::upgrade;
+    case Opcode::topdeck_choice: return SelectionEffect::topdeck;
+    case Opcode::discard_choice: return SelectionEffect::discard;
+    default: return SelectionEffect::none;
+    }
+}
+}
 std::size_t EnemyObservationRange::size() const noexcept { return state_ ? state_->enemies().size() : 0; }
 std::optional<EnemyObservation> EnemyObservationRange::at(std::size_t index) const noexcept {
     if (!state_ || index >= size()) return std::nullopt;
@@ -20,7 +37,7 @@ CombatObservationView observe_combat(const RunState& s) noexcept {
     CombatObservationView view{game_build, s.data.boundary, s.combat().phase, s.player().hp, s.player().max_hp, s.player().block, s.combat().energy,
         s.combat().turn, s.enemy().hp, s.enemy().max_hp, s.enemy().power_amount(PowerId::vulnerable, s.overflow), intent.attack, s.player().has_power(PowerId::shrink, s.overflow), intent.move,
         s.zone(Zone::hand), s.zone(Zone::draw).size(), s.zone(Zone::discard).size(), s.zone(Zone::exhaust).size(), std::nullopt, s.player().power_amount(PowerId::strength, s.overflow), s.player().power_amount(PowerId::dexterity, s.overflow), s.player().power_amount(PowerId::weak, s.overflow), s.enemy().power_amount(PowerId::weak, s.overflow), EnemyObservationRange(s)};
-    if (s.combat().phase == CombatPhase::card_choice) view.selection = CardSelectionView{s.combat().selection.id, s.combat().selection.effect, s.selection_candidates(), s.combat().selection.minimum, s.combat().selection.maximum};
+    if (s.combat().phase == CombatPhase::card_choice) view.selection = CardSelectionView{s.combat().selection.id, selection_effect(s, Ruleset::pinned()), s.selection_candidates(), s.combat().selection.minimum, s.combat().selection.maximum};
     return view;
 }
 std::optional<CardView> observe_card(const RunState& s, CardHandle h, const Ruleset& rules, CreatureHandle target) noexcept {

@@ -98,7 +98,7 @@ bool valid_run(const RunState& state) noexcept {
         for (const auto& slot : state.cards().slots()) if (slot.generation < state.data.combat_generation) return false;
         if (!valid_combat(state) || !linked_cards(state, state.deck())) return false;
         if (state.data.phase == RunPhase::combat) {
-            if ((state.combat().phase != CombatPhase::play && state.combat().phase != CombatPhase::discard_choice && state.combat().phase != CombatPhase::card_choice)) return false;
+            if ((state.combat().phase != CombatPhase::play && state.combat().phase != CombatPhase::card_choice)) return false;
         } else if (state.data.phase == RunPhase::complete) {
             if (!state.data.direct_combat || state.combat().phase != CombatPhase::player_died) return false;
         } else if (state.data.phase == RunPhase::combat_done) {
