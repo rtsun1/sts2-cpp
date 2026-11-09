@@ -9,7 +9,7 @@
 #include "../mechanics/cards.hpp"
 #include "../mechanics/energy.hpp"
 #include "../mechanics/powers.hpp"
-#include "../content/monsters.hpp"
+#include "../content/enemies.hpp"
 #include "../hooks/dispatch.hpp"
 #include <algorithm>
 #include <limits>

@@ -39,6 +39,9 @@ HandlerResult stratagem_after_shuffle(RunState& state, HandlerProgress& progress
     default: throw std::logic_error("Invalid stratagem handler stage");
     }
 }
+void shrink_after_applier_death(RunState& state, Scratch& scratch, CreatureHandle owner, const PowerInstance& power, CreatureHandle dead) {
+    if (power.has_applier && power.applier == dead) remove_power(state, scratch, owner, power.instance);
+}
 PowerModifier artifact_before_power_application(const CreatureState& creature, const OverflowStorage& owner, PowerId id, int amount) noexcept {
     const bool debuff = (id == PowerId::strength || id == PowerId::dexterity) ? amount < 0 :
         id == PowerId::shrink || ((id == PowerId::weak || id == PowerId::vulnerable) && amount >= 0);

@@ -1,5 +1,5 @@
 #include "sts2/observation/observe.hpp"
-#include "../engine/content/monsters.hpp"
+#include "../engine/content/enemies.hpp"
 #include "../engine/content/powers.hpp"
 #include "../engine/mechanics/cards.hpp"
 #include <algorithm>
@@ -29,7 +29,7 @@ std::optional<EnemyObservation> EnemyObservationRange::at(std::size_t index) con
     const auto& enemy = *state_->creature(handle);
     const auto intent = gameplay::visible_enemy_intent(*state_, handle);
     return EnemyObservation{handle, enemy.hp, enemy.max_hp, enemy.block,
-        enemy.power_amount(PowerId::vulnerable, state_->overflow), enemy.power_amount(PowerId::weak, state_->overflow), intent.attack, intent.move};
+        enemy.power_amount(PowerId::vulnerable, state_->overflow), enemy.power_amount(PowerId::weak, state_->overflow), intent.attack, intent.move, enemy.enemy_type};
 }
 CombatObservationView observe_combat(const RunState& s) noexcept {
     if (!s.valid_combat_storage()) { CombatObservationView invalid{}; invalid.phase = CombatPhase::invalid; return invalid; }

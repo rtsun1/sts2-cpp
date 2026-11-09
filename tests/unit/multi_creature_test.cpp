@@ -4,7 +4,7 @@
 #include "sts2/persistence/checkpoint.hpp"
 #include "sts2/json_io/native_run.hpp"
 #include "../../src/engine/mechanics/cards.hpp"
-#include "../../src/engine/content/monsters.hpp"
+#include "../../src/engine/content/enemies.hpp"
 #include "../support/continuation_fixture.hpp"
 #include <gtest/gtest.h>
 #include <vector>
@@ -102,8 +102,8 @@ TEST(MultiCreature, IndependentMovesActInPoolOrderAndStopAfterLethalDamage) {
     for (int player_hp : {80, 5}) {
         RunState state; Scratch scratch; two_beetles(state, 40, player_hp);
         const auto first = state.enemies()[0], second = state.enemies()[1];
-        state.creature(first)->enemy_ai.selected = BeetleMove::chomp;
-        state.creature(second)->enemy_ai.selected = BeetleMove::stomp;
+        state.creature(first)->enemy_ai.selected = EnemyMove::second;
+        state.creature(second)->enemy_ai.selected = EnemyMove::third;
         std::vector<CreatureHandle> actors;
         scratch.trace = {&actors, [](void* context, const RunState&, const CombatEvent& event) {
             if (event.kind == CombatEventKind::damaged) static_cast<std::vector<CreatureHandle>*>(context)->push_back(event.actor);
@@ -113,12 +113,12 @@ TEST(MultiCreature, IndependentMovesActInPoolOrderAndStopAfterLethalDamage) {
             EXPECT_EQ(result.status, StepStatus::awaiting_input);
             EXPECT_EQ(state.player().hp, 60);
             EXPECT_EQ(actors, (std::vector<CreatureHandle>{first, second}));
-            EXPECT_EQ(state.creature(first)->enemy_ai.selected, BeetleMove::stomp);
-            EXPECT_EQ(state.creature(second)->enemy_ai.selected, BeetleMove::chomp);
+            EXPECT_EQ(state.creature(first)->enemy_ai.selected, EnemyMove::third);
+            EXPECT_EQ(state.creature(second)->enemy_ai.selected, EnemyMove::second);
         } else {
             EXPECT_EQ(result.status, StepStatus::player_died);
             EXPECT_EQ(actors, (std::vector<CreatureHandle>{first}));
-            EXPECT_EQ(state.creature(second)->enemy_ai.selected, BeetleMove::stomp);
+            EXPECT_EQ(state.creature(second)->enemy_ai.selected, EnemyMove::third);
         }
         EXPECT_TRUE(valid_run(state));
     }
@@ -134,7 +134,7 @@ TEST(MultiCreature, EitherKillOrderLeavesSurvivorTargetableAndHealsOnlyAfterLast
         EXPECT_EQ(validate_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, card, first}), Restriction::invalid_target);
         for (const auto& action : get_actions(state)) if (const auto* input = std::get_if<CombatInput>(&action.input)) EXPECT_NE(input->target, first);
         ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
-        EXPECT_EQ(state.creature(survivor)->enemy_ai.selected, BeetleMove::chomp);
+        EXPECT_EQ(state.creature(survivor)->enemy_ai.selected, EnemyMove::second);
         ASSERT_EQ(play(state, scratch, CardId::strike, survivor).status, StepStatus::awaiting_input);
         EXPECT_EQ(state.creature(survivor)->hp, 2); // Its Shrink reduced Strike to four.
         ASSERT_EQ(play(state, scratch, CardId::strike, survivor).status, StepStatus::combat_won);
@@ -151,13 +151,13 @@ TEST(MultiCreature, EnemySideSpawnAndReplacementSkipTheCurrentTraversal) {
         RunState state; Scratch scratch;
         CombatConfig config; config.enemy_count = replacement ? 2 : 1; config.enemy_hp = 40;
         ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
-        const auto first = state.enemy_handle(); state.creature(first)->enemy_ai.selected = BeetleMove::chomp;
+        const auto first = state.enemy_handle(); state.creature(first)->enemy_ai.selected = EnemyMove::second;
         TurnIntervention intervention{&state, first};
         if (replacement) { intervention.replaced = state.enemies()[1]; intervention.encounter_slot = 1; }
         scratch.trace = {&intervention, TurnIntervention::receive};
         ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
         ASSERT_TRUE(intervention.done);
-        EXPECT_EQ(state.creature(intervention.spawned)->enemy_ai.selected, BeetleMove::shrink);
+        EXPECT_EQ(state.creature(intervention.spawned)->enemy_ai.selected, EnemyMove::first);
         EXPECT_FALSE(state.creature(intervention.spawned)->skip_current_enemy_turn);
         EXPECT_EQ(state.player().hp, 73);
         if (replacement) {
@@ -167,7 +167,7 @@ TEST(MultiCreature, EnemySideSpawnAndReplacementSkipTheCurrentTraversal) {
         }
         scratch.trace = {};
         ASSERT_EQ(apply_action(state, CombatInput{state.data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
-        EXPECT_EQ(state.creature(intervention.spawned)->enemy_ai.selected, BeetleMove::chomp);
+        EXPECT_EQ(state.creature(intervention.spawned)->enemy_ai.selected, EnemyMove::second);
         EXPECT_TRUE(valid_run(state));
     }
 }
@@ -189,7 +189,7 @@ TEST(MultiCreature, SideEndCreationKeepsItsFlagUntilDurationWorkFinishes) {
     ASSERT_TRUE(context.spawned.present());
     EXPECT_TRUE(context.flagged);
     EXPECT_FALSE(state.creature(context.spawned)->skip_current_enemy_turn);
-    EXPECT_EQ(state.creature(context.spawned)->enemy_ai.selected, BeetleMove::shrink);
+    EXPECT_EQ(state.creature(context.spawned)->enemy_ai.selected, EnemyMove::first);
     EXPECT_EQ(state.creature(first)->power_amount(PowerId::weak, state.overflow), 0);
     EXPECT_TRUE(valid_run(state));
 }
@@ -197,7 +197,7 @@ TEST(MultiCreature, SideEndCreationKeepsItsFlagUntilDurationWorkFinishes) {
 TEST(MultiCreature, PlayerSideCreationIsEligibleAndEnemyAiSurvivesRestore) {
     RunState state; Scratch scratch; two_beetles(state);
     const auto first = state.enemies()[0], second = state.enemies()[1];
-    state.creature(first)->enemy_ai.selected = BeetleMove::chomp;
+    state.creature(first)->enemy_ai.selected = EnemyMove::second;
     ASSERT_TRUE(state.creatures().erase(second));
     const auto spawned = state.create_enemy_at(1, {40, 40});
     ASSERT_TRUE(spawned.present());
@@ -207,8 +207,8 @@ TEST(MultiCreature, PlayerSideCreationIsEligibleAndEnemyAiSurvivesRestore) {
     EXPECT_EQ(state, clone); EXPECT_EQ(state, restored);
     for (auto* branch : {&clone, &restored}) {
         ASSERT_EQ(apply_action(*branch, CombatInput{branch->data.boundary, CombatInputKind::end_turn}, scratch).status, StepStatus::awaiting_input);
-        EXPECT_EQ(branch->creature(first)->enemy_ai.selected, BeetleMove::stomp);
-        EXPECT_EQ(branch->creature(spawned)->enemy_ai.selected, BeetleMove::chomp);
+        EXPECT_EQ(branch->creature(first)->enemy_ai.selected, EnemyMove::third);
+        EXPECT_EQ(branch->creature(spawned)->enemy_ai.selected, EnemyMove::second);
         EXPECT_FALSE(branch->creature(spawned)->skip_current_enemy_turn);
         EXPECT_FALSE(branch->combat().enemy_side);
         EXPECT_TRUE(valid_run(*branch));

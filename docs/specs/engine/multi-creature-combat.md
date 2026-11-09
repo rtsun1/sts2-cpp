@@ -13,9 +13,9 @@ config.enemy_count = 2;
 const auto result = initialize_combat(state, config, scratch);
 ```
 
-Configured setup accepts one or two beetles. Native summoning encounters,
-multiplayer, allies and additional monster implementations are outside this
-milestone.
+Configured setup accepts one or two beetles, a Fuzzy Wurm Crawler, or Overgrowth
+Crawlers (beetle then crawler). Native summoning encounters, multiplayer, and
+allies remain outside this milestone.
 
 ## Ownership, positions and membership
 
@@ -81,9 +81,11 @@ current enemy move completes, before another enemy acts.
 `create_enemy_at` sets `skip_current_enemy_turn` when creation occurs during the
 enemy side. Player-side creation remains eligible for the upcoming enemy turn.
 Replacement generations start with their own AI and eligibility. Side-end power
-work completes before skip flags are cleared. Enemy turns execute synchronously
-with a local traversal index; no enemy-turn cursor or resume path is stored.
-Callbacks are not new suspension boundaries.
+work completes before skip flags are cleared. Enemy turns capture actor handles
+once and store their cursor in `EnemyTurnFrame`. Each attack uses an
+`EnemyAttackFrame`, allowing damage hooks and their nested choices to suspend
+without repeating damage or advancing to later actors. Diagnostic callbacks
+remain synchronous. See the [integration contract](../../planning/enemy-combat-integration.md).
 
 Existing single-target effects use captured identities. Existing Shockwave and
 Charon's Ashes effects traverse living enemies. Power application, snapshots and
@@ -119,3 +121,12 @@ fields and ignores storage addresses and inline/overflow capacity.
 Existing recording and replay-parity checks remain part of the validation suite.
 Passing tests establishes their tested scope, not full-game correctness. No
 benchmarks were run for this change, and no performance improvement is claimed.
+
+## Additional encounter compositions
+
+`CombatConfig.encounter` and direct seeded combat setup now also accept
+`ENCOUNTER.FUZZY_WURM_CRAWLER_WEAK` and `ENCOUNTER.OVERGROWTH_CRAWLERS`. The latter
+creates Shrinker then Crawler without setting `enemy_count`. Natural run travel
+uses the generated encounter queue. The authored two-beetle override remains
+available only for Shrinker setup. See the
+[enemy generalization scope](../../planning/enemy-encounter-generalization.md).

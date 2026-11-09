@@ -4,9 +4,11 @@
 #include <cstdint>
 
 namespace sts2::engine {
-enum class BeetleMove : std::uint8_t { shrink, chomp, stomp };
+enum class EnemyId : std::uint8_t { shrinker_beetle, fuzzy_wurm_crawler, count };
+// Local index interpreted by the owning enemy definition.
+enum class EnemyMove : std::uint8_t { first, second, third };
 struct EnemyAiState {
-    BeetleMove selected = BeetleMove::shrink;
+    EnemyMove selected = EnemyMove::first;
     bool performed = false;
     friend bool operator==(const EnemyAiState&, const EnemyAiState&) = default;
 };

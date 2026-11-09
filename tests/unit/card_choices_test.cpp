@@ -435,11 +435,13 @@ TEST(CardChoices, PreviousSelectionCheckpointFormatsAreRejectedAtomically) {
     ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
     ASSERT_EQ(play(state, find(state, CardId::purity), scratch).status, StepStatus::awaiting_input);
     const auto saved = checkpoint(state).bytes;
-    auto previous_run = saved;
-    test::checkpoint_u32(previous_run, 8, 20);
-    test::checksum_checkpoint(previous_run);
-    EXPECT_EQ(restore(state, previous_run, scratch), RestoreStatus::incompatible);
-    EXPECT_EQ(checkpoint(state).bytes, saved);
+    for (auto revision : {20u, 21u}) {
+        auto previous_run = saved;
+        test::checkpoint_u32(previous_run, 8, revision);
+        test::checksum_checkpoint(previous_run);
+        EXPECT_EQ(restore(state, previous_run, scratch), RestoreStatus::incompatible);
+        EXPECT_EQ(checkpoint(state).bytes, saved);
+    }
     auto previous_combat = saved;
     const auto payload = test::combat_payload_range(previous_combat);
     test::checkpoint_u32(previous_combat, payload.begin + 8, 3);

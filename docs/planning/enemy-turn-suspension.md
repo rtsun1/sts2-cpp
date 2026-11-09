@@ -1,5 +1,8 @@
 # Suspendable enemy turns
 
+This records the original independent task. Its enemy scope and checkpoint version
+are superseded by the [integration contract](enemy-combat-integration.md).
+
 Scope: implement the supported beetle enemy turn with cloneable continuation
 state, including actual Centennial Puzzle draws that can shuffle and invoke
 Stratagem's selection. This branch does not add enemies or encounters. Review

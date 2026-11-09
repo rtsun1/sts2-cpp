@@ -6,6 +6,7 @@ enum class HandlerResult : std::uint8_t;
 HandlerResult dark_embrace_after_card_exhausted(RunState&, HandlerProgress&, int amount);
 HandlerResult stratagem_after_shuffle(RunState& state, HandlerProgress& progress, int amount);
 PowerModifier artifact_before_power_application(const CreatureState&, const OverflowStorage&, PowerId, int amount) noexcept;
+void shrink_after_applier_death(RunState&, Scratch&, CreatureHandle owner, const PowerInstance&, CreatureHandle dead);
 void artifact_after_power_application(RunState&, Scratch&, CreatureState&, PowerModifier, bool enemy, bool enemy_side, CreatureHandle target);
 // Combine the supported damage modifiers before one final rounding operation.
 int modify_attack_damage(const CreatureState& target, int base, const CreatureState& source, const OverflowStorage&) noexcept;

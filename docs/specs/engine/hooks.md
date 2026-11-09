@@ -132,11 +132,11 @@ names. Operation frames own both batch progress and current hook progress.
 
 Enemy turns capture ordered creature handles once, including their generations.
 The combat resumer owns actor traversal and side completion; the mechanics
-resumer owns one enemy-to-player attack and its received-damage dispatch.
+resumer owns one beetle or crawler attack and its received-damage dispatch.
 Centennial Puzzle owns its used flag and three individually awaited one-card
 draws. A nested Stratagem selection blocks damage completion and later enemies.
 Next moves advance at the following normal player-side start. See the
-[enemy-turn implementation contract](../../planning/enemy-turn-suspension.md).
+[combined implementation contract](../../planning/enemy-combat-integration.md).
 
 `resume_frame` delegates to operation-specific functions. Each processes work
 until completion, a child request, input, or failure. A parent records progress
@@ -241,9 +241,9 @@ metadata. Full native pile-change hooks remain outside this slice.
 
 ## Compatibility and verification
 
-Run checkpoint revision 21 embeds combat payload revision 4. They encode all six
+Run checkpoint revision 22 embeds combat payload revision 4. They encode all six
 frame alternatives, the captured enemy order, AI completion flags, Centennial
-Puzzle state, embedded listener ranges, and handler stages. Earlier run/payload
+Puzzle state, enemy and encounter identities, embedded listener ranges, and handler stages. Earlier run/payload
 revisions are rejected. Historical revision numbers below describe prior layouts.
 The new powers and Stratagem's combat-pile prompt have no complete native diagnostic
 JSON mapping yet and are explicitly rejected by the exporter. Existing native recordings are unchanged.
@@ -275,3 +275,12 @@ a targeted recorder rerun. The full run initially passed 320 checks; the recorde
 check needed the pinned `sts2-cli` submodule initialized in the worktree, then
 passed without source changes. All 235 engine checks and 23 replay-parity checks
 passed in the full run. `git diff --check` passed. No benchmark was run.
+
+## Supported synchronous death handler
+
+`after_creature_death` dispatches the supported Shrink listener to
+`shrink_after_applier_death` in content. The named handler checks the applier
+identity and calls the reusable power-removal mutation. Card damage and Charon's
+Ashes notify it after a lethal hit so killing Shrinker while another enemy survives
+removes its Shrink. This bounded synchronous dispatch does not implement every
+native death listener or a suspendable death operation.

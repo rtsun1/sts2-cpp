@@ -14,7 +14,8 @@ struct CardSelectionView {
 struct EnemyObservation {
     CreatureHandle handle;
     std::int32_t hp, max_hp, block, vulnerable, weak, attack;
-    BeetleMove intent;
+    EnemyMove intent;
+    EnemyId definition;
 };
 class EnemyObservationRange {
     const RunState* state_ = nullptr;
@@ -31,7 +32,7 @@ struct CombatObservationView {
     std::int32_t hp, max_hp, block, energy, turn, enemy_hp, enemy_max_hp;
     std::int32_t enemy_vulnerable, enemy_attack;
     bool shrunk;
-    BeetleMove intent;
+    EnemyMove intent;
     std::span<const CardHandle> hand;
     std::size_t draw_count, discard_count, exhaust_count;
     std::optional<CardSelectionView> selection;

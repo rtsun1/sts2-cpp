@@ -1,6 +1,6 @@
 #include "enemy_turn.hpp"
 #include "lifecycle.hpp"
-#include "../content/monsters.hpp"
+#include "../content/enemies.hpp"
 #include "../mechanics/cards.hpp"
 #include "../mechanics/energy.hpp"
 #include "../mechanics/powers.hpp"

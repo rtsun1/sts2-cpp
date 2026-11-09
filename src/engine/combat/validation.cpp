@@ -111,7 +111,7 @@ bool valid_combat(const RunState& state, const Ruleset& rules) noexcept {
     if (!joss && state.data.joss_paper_counter != 0) return false;
     if (!state.combat().centennial_puzzle && state.combat().centennial_puzzle_used) return false;
     if (static_cast<unsigned>(state.combat().phase) > static_cast<unsigned>(CombatPhase::invalid) ||
-        static_cast<unsigned>(state.enemy().enemy_ai.selected) > static_cast<unsigned>(BeetleMove::stomp) ||
+        static_cast<unsigned>(state.enemy().enemy_ai.selected) > static_cast<unsigned>(EnemyMove::third) ||
         state.seed().empty() || state.seed().size() > 4096 || state.data.numeric_seed != game_seed(state.seed()) ||
         state.combat().rules != rules_revision || state.combat().phase == CombatPhase::uninitialized || state.combat().phase == CombatPhase::invalid ||
         state.data.boundary.value == 0 || state.player().max_hp < 1 || state.player().hp < 0 || state.player().hp > state.player().max_hp ||

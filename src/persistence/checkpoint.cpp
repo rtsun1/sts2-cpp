@@ -107,7 +107,7 @@ std::uint64_t content_fingerprint() {
         }
     }
     // Version exceptional enemy/power/relic handlers and clock/RNG semantics too.
-    w.text("shrinker-a0:niche:38-40:late-victory:retained-death:duration-history:shrink70:chomp7:stomp13;vulnerable150;burning-blood6;survivor1;action_clock_v1;xoshiro256ss-v1;enemy-turn-continuations-v1;centennial-puzzle3");
+    w.text("enemies-a0:beetle38-40:crawler55-57:goop4:inhale7:local-moves:player-start-roll:unique-hp:late-victory:retained-death:duration-history:shrink70:chomp7:stomp13;vulnerable150;burning-blood6;survivor1;action_clock_v1;xoshiro256ss-v1;enemy-turn-continuations-v1;centennial-puzzle3");
     return digest(w.data);
 }
 Checkpoint persistence::encode_combat(const RunState& s) {

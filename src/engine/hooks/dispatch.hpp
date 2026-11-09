@@ -13,6 +13,7 @@ RangeProgress capture_damage_received_listeners(RunState&);
 // The operation owns the range/stage; dispatch never pushes or pops its frame.
 HandlerResult resume_listeners(RunState&, Scratch&, RangeProgress&, HandlerProgress&, const Ruleset&,
     const HitResult* hit = nullptr);
+void after_creature_death(RunState&, Scratch&, CreatureHandle);
 void after_enemy_turn(RunState&, Scratch&);
 void retain_removed_power(RunState&, CreatureHandle, const PowerInstance&) noexcept;
 }

@@ -23,6 +23,7 @@ void charons_ashes_after_card_exhausted(RunState& state, Scratch& scratch) {
         if (state.creature(handle)->hp <= 0) continue;
         const auto hit = receive_damage(*state.creature(handle), 3);
         emit(state, scratch, CombatEventKind::damaged, false, true, {}, 4, 0, hit, true, false, state.data.player, handle);
+        if (hit.killed) after_creature_death(state, scratch, handle);
     }
 }
 HandlerResult joss_paper_after_card_exhausted(RunState& state, Scratch& scratch, HandlerProgress& progress) {

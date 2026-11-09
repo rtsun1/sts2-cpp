@@ -7,6 +7,7 @@
 #include "../combat/lifecycle.hpp"
 #include "../combat/trace.hpp"
 #include "../mechanics/exhaust.hpp"
+#include "../hooks/dispatch.hpp"
 #include <algorithm>
 #include <limits>
 
@@ -82,6 +83,7 @@ StepResult resume_card_program(RunState& state, Scratch& scratch, const Ruleset&
         case Opcode::damage: {
             const auto hit = damage(*target, amount, state.player(), state.overflow);
             emit(state, scratch, CombatEventKind::damaged, false, true, frame.source, 0, 0, hit, true, false, state.data.player, frame.target);
+            if (hit.killed) after_creature_death(state, scratch, frame.target);
             emit(state, scratch, CombatEventKind::attacked, false, false, frame.source, 0, 0, hit, true, false, state.data.player, frame.target);
             break;
         }

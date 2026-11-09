@@ -11,6 +11,8 @@ struct SeededConfig {
     std::uint8_t ascension = 0;
     std::array<std::string_view, 3> acts = {"ACT.OVERGROWTH", "ACT.HIVE", "ACT.GLORY"};
     ClockConfig clock;
+    // Direct combat setup only; natural run travel uses the generated room queue.
+    std::string_view encounter = "ENCOUNTER.SHRINKER_BEETLE_WEAK";
 };
 enum class RunInputKind : std::uint8_t { choose_option, proceed, travel, abandon, take_reward, skip_rewards, choose_reward_card, reward_alternative, discard_potion };
 struct RunInput {
