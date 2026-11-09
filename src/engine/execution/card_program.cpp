@@ -44,15 +44,11 @@ StepResult resume_card_program(RunState& state, Scratch& scratch, const Ruleset&
         }
         case Opcode::request_choice: {
             const auto zone = instruction.choice == CardChoice::discard_one ? Zone::discard : Zone::hand;
-            const bool upgrade = instruction.choice == CardChoice::upgradable_hand;
+            const auto eligibility = instruction.choice == CardChoice::upgradable_hand ? SelectionEligibility::upgradable : SelectionEligibility::all;
             const bool optional = instruction.choice == CardChoice::hand_optional;
             if (zone == Zone::discard && !state.has_living_enemies()) break;
-            const auto eligible = [upgrade](const RunState& s, CardHandle card) {
-                return !upgrade || !s.cards().get(card)->upgraded;
-            };
-            request_selection(state, zone, optional ? 0 : 1, static_cast<std::uint32_t>(amount), eligible);
-            if (state.combat().phase == CombatPhase::card_choice) return result(state);
-            break;
+            request_selection(state, zone, optional ? 0 : 1, static_cast<std::uint32_t>(amount), eligibility);
+            return result(state);
         }
         case Opcode::exhaust_choice: {
             const auto cards = take_selection(state);

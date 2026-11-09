@@ -284,7 +284,8 @@ TEST(ExecutionFrames, DrawYieldsToShuffleBeforeDrawingAnyCards) {
     EXPECT_EQ(std::get<DrawFrame>(combat.execution().front()).remaining, 3);
     EXPECT_EQ(combat.zone(Zone::hand).size(), hand_size);
     gameplay::resume_frame(combat, scratch, Ruleset::pinned());
-    EXPECT_EQ(combat.combat().phase, CombatPhase::card_choice);
+    EXPECT_TRUE(combat.combat().selection_requested);
+    EXPECT_EQ(combat.combat().phase, CombatPhase::play);
     EXPECT_EQ(combat.zone(Zone::hand).size(), hand_size);
     EXPECT_EQ(scratch.steps, 2u);
 }

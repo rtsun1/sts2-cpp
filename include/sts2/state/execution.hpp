@@ -75,9 +75,12 @@ struct EnemyAttackFrame {
 };
 using ExecutionFrame = std::variant<CardProgramFrame, DrawFrame, ExhaustCardsFrame, ShuffleFrame, EnemyTurnFrame, EnemyAttackFrame>;
 static_assert(std::is_trivially_copyable_v<ExecutionFrame>);
+enum class SelectionEligibility : std::uint8_t { all, upgradable };
 struct CardSelection {
     PromptId id {};
     std::uint32_t minimum = 0, maximum = 0;
+    Zone zone = Zone::hand;
+    SelectionEligibility eligibility = SelectionEligibility::all;
     friend bool operator==(const CardSelection&, const CardSelection&) = default;
 };
 // Captured candidates refer to existing content instances, not a registration pool.
@@ -90,4 +93,35 @@ struct HookListener {
     friend bool operator==(const HookListener&, const HookListener&) = default;
 };
 static_assert(std::is_trivially_copyable_v<HookListener>);
+// Boundaries mark child frame groups whose native caller may continue at input.
+// The caller records its post-child progress before opening the boundary.
+struct DetachmentBoundary {
+    std::uint32_t depth = 0;
+    std::uint32_t join = 0;
+    friend bool operator==(const DetachmentBoundary&, const DetachmentBoundary&) = default;
+};
+enum class PendingChoicePhase : std::uint8_t { free, pending, active };
+struct PendingChoice {
+    InlineSequence<ExecutionFrame, 2> frames {};
+    InlineSequence<HookListener, 8> listeners {};
+    InlineSequence<CardHandle, 16> cards {};
+    InlineSequence<DetachmentBoundary, 2> detachment_boundaries {};
+    CardSelection selection {};
+    PendingChoicePhase phase = PendingChoicePhase::free;
+    std::uint32_t depth = 0;
+    std::uint32_t previous = 0;
+    std::uint32_t join = 0;
+    std::uint32_t waiting_join = 0;
+    // While active, listeners/cards/detachment_boundaries hold the parked parent's arena.
+    bool equals(const OverflowStorage& owner, const PendingChoice& other,
+                const OverflowStorage& other_owner) const {
+        return phase == other.phase && depth == other.depth && previous == other.previous &&
+            join == other.join && waiting_join == other.waiting_join && selection == other.selection &&
+            frames.equals(owner, other.frames, other_owner) &&
+            listeners.equals(owner, other.listeners, other_owner) && cards.equals(owner, other.cards, other_owner) &&
+            detachment_boundaries.equals(owner, other.detachment_boundaries, other_owner);
+    }
+};
+static_assert(std::is_trivially_copyable_v<PendingChoice>);
+
 }

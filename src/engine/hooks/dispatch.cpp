@@ -55,9 +55,13 @@ void after_power_application(RunState& state, Scratch& scratch, CreatureState& c
     artifact_after_power_application(state, scratch, creature, modifier, enemy, enemy_side, target);
 }
 void retain_removed_power(RunState& state, CreatureHandle owner, const PowerInstance& power) noexcept {
-    for (auto& listener : state.captured_hook_listeners())
-        if (listener.owner == owner && listener.power_instance == power.instance)
-            listener.removed_power_amount = power.amount;
+    const auto retain = [&](auto listeners) {
+        for (auto& listener : listeners)
+            if (listener.owner == owner && listener.power_instance == power.instance)
+                listener.removed_power_amount = power.amount;
+    };
+    retain(state.captured_hook_listeners());
+    for (auto& entry : state.pending_choices()) retain(entry.listeners.values(state.combat_overflow));
 }
 RangeProgress capture_exhaust_listeners(RunState& state) {
     const auto begin = static_cast<std::uint32_t>(state.captured_hook_listeners().size());

@@ -3,6 +3,7 @@
 #include "sts2/persistence/checkpoint.hpp"
 #include "../support/checkpoint_fixture.hpp"
 #include "storage_allocator.hpp"
+#include "../../src/engine/execution/selection.hpp"
 #include <gtest/gtest.h>
 #include <algorithm>
 
@@ -324,8 +325,9 @@ TEST(CardChoices, LegacyCheckpointWithPartialEditsIsRejectedAtomically) {
     ASSERT_EQ(play(state, find(state, CardId::purity), scratch).status, StepStatus::awaiting_input);
     const auto before = checkpoint(state).bytes;
     auto bytes = before;
-    // Reserved legacy selected-count precedes seven counters, the power ID and digest.
-    bytes[test::combat_payload_range(bytes).end() - 8 - 32 - 4] = std::byte{1};
+    // Reserved legacy selected-count precedes seven counters, the power ID,
+    // 24 bytes of empty frame-group metadata, and the digest.
+    bytes[test::combat_payload_range(bytes).end() - 8 - 24 - 32 - 4] = std::byte{1};
     test::checksum_combat_and_run(bytes);
     EXPECT_EQ(restore(state, bytes, scratch), RestoreStatus::malformed);
     EXPECT_EQ(checkpoint(state).bytes, before);
@@ -463,5 +465,68 @@ TEST(CardChoices, UpgradePromptRejectsStalePileIdentityBeforeMutation) {
     const SelectionInput answer{state.data.boundary, state.combat().selection.id, std::span(&candidate, 1)};
     EXPECT_EQ(apply_selection(state, answer, scratch).reason, Restriction::invalid_state);
     EXPECT_EQ(state, before);
+}
+}
+
+namespace sts2::engine {
+TEST(CardChoices, SelectionRequestDefersEligibilityUntilPresentationWithoutInspectingFrames) {
+    const std::array deck{CardSpec{CardId::strike}, CardSpec{CardId::strike}, CardSpec{CardId::defend}, CardSpec{CardId::defend}};
+    CombatConfig config; config.deck = deck; RunState state; Scratch scratch;
+    ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
+    const auto first = state.zone(Zone::hand)[0], second = state.zone(Zone::hand)[1];
+    state.cards().get(first)->upgraded = true;
+    gameplay::request_selection(state, Zone::hand, 1, 3, SelectionEligibility::upgradable);
+    EXPECT_TRUE(state.execution().empty());
+    EXPECT_TRUE(state.combat().selection_requested);
+    EXPECT_EQ(state.combat().phase, CombatPhase::play);
+    EXPECT_TRUE(state.selection_candidates().empty());
+    EXPECT_EQ(state.combat().selected_cards, RangeProgress{});
+    state.cards().get(second)->upgraded = true;
+    EXPECT_FALSE(gameplay::present_selection(state, Ruleset::pinned()));
+    EXPECT_EQ(state.combat().phase, CombatPhase::card_choice);
+    EXPECT_EQ(state.selection_candidates().size(), 2u);
+    EXPECT_EQ(state.combat().selection.maximum, 2u);
+    for (auto card : state.selection_candidates()) EXPECT_FALSE(state.cards().get(card)->upgraded);
+}
+
+TEST(CardChoices, PresentationAloneResolvesAutomaticSelection) {
+    const std::array deck{CardSpec{CardId::strike}, CardSpec{CardId::defend}};
+    CombatConfig config; config.deck = deck; RunState state; Scratch scratch;
+    ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
+    const auto first = state.zone(Zone::hand)[0], second = state.zone(Zone::hand)[1];
+    state.cards().get(first)->upgraded = true;
+    gameplay::request_selection(state, Zone::hand, 1, 1, SelectionEligibility::upgradable);
+    EXPECT_EQ(state.combat().selected_cards, RangeProgress{});
+    EXPECT_TRUE(state.selection_candidates().empty());
+    EXPECT_TRUE(gameplay::present_selection(state, Ruleset::pinned()));
+    const auto selected = gameplay::take_selection(state);
+    ASSERT_EQ(selected.count, 1u);
+    EXPECT_EQ(state.continuation_cards()[selected.begin], second);
+    EXPECT_FALSE(state.cards().get(second)->upgraded);
+    EXPECT_EQ(state.combat().selection, CardSelection{});
+    EXPECT_EQ(state.combat().phase, CombatPhase::play);
+    gameplay::release_selection_cards(state, selected);
+    EXPECT_TRUE(valid_combat(state));
+}
+
+TEST(CardChoices, CheckedBoundaryRejectsSelectionDescriptorMismatchBeforeMutation) {
+    const std::array deck{CardSpec{CardId::armaments}, CardSpec{CardId::strike}, CardSpec{CardId::defend}};
+    CombatConfig config; config.deck = deck; RunState state; Scratch scratch;
+    ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(play(state, find(state, CardId::armaments), scratch).status, StepStatus::awaiting_input);
+    EXPECT_EQ(state.combat().selection.zone, Zone::hand);
+    EXPECT_EQ(state.combat().selection.eligibility, SelectionEligibility::upgradable);
+    RunState restored;
+    ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
+    EXPECT_EQ(restored, state);
+    for (bool change_zone : {false, true}) {
+        RunState invalid = state;
+        if (change_zone) invalid.combat().selection.zone = Zone::draw;
+        else invalid.combat().selection.eligibility = SelectionEligibility::all;
+        const auto before = invalid;
+        const std::array selected{invalid.selection_candidates().front()};
+        EXPECT_EQ(choose(invalid, scratch, selected).reason, Restriction::invalid_state);
+        EXPECT_EQ(invalid, before);
+    }
 }
 }

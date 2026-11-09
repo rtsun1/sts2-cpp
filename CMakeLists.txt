@@ -22,6 +22,7 @@ add_library(sts2_engine
   src/engine/execution/card_program.cpp
   src/engine/execution/validation.cpp
   src/engine/execution/selection.cpp
+  src/engine/execution/pending_choices.cpp
   src/engine/mechanics/block.cpp
   src/engine/mechanics/cards.cpp
   src/engine/mechanics/draw.cpp
@@ -132,7 +133,7 @@ if(BUILD_TESTING)
   target_link_libraries(state_primitives_test PRIVATE sts2_engine GTest::gtest_main)
   add_executable(inline_storage_test tests/unit/inline_storage_test.cpp)
   target_link_libraries(inline_storage_test PRIVATE sts2_engine GTest::gtest_main)
-  add_executable(engine_test tests/unit/enemy_turn_test.cpp tests/unit/multi_creature_test.cpp tests/unit/engine_test.cpp tests/unit/card_choices_test.cpp tests/unit/hooks_test.cpp tests/unit/map_test.cpp tests/unit/setup_test.cpp tests/unit/run_test.cpp tests/unit/state_clone_test.cpp tests/unit/card_extra_test.cpp tests/unit/card_modifiers_test.cpp tests/parity/seeded_run_test.cpp)
+  add_executable(engine_test tests/unit/pending_choices_test.cpp tests/unit/enemy_turn_test.cpp tests/unit/multi_creature_test.cpp tests/unit/engine_test.cpp tests/unit/card_choices_test.cpp tests/unit/hooks_test.cpp tests/unit/map_test.cpp tests/unit/setup_test.cpp tests/unit/run_test.cpp tests/unit/state_clone_test.cpp tests/unit/card_extra_test.cpp tests/unit/card_modifiers_test.cpp tests/parity/seeded_run_test.cpp)
   target_link_libraries(engine_test PRIVATE sts2_json_io sts2_parity nlohmann_json::nlohmann_json GTest::gtest_main)
   target_compile_definitions(engine_test PRIVATE
     STS2_DEFENSIVE_VALIDATION=$<BOOL:${STS2_DEFENSIVE_VALIDATION}>

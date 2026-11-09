@@ -315,6 +315,18 @@ struct RunState {
     auto enchantment_runtime() const noexcept { return SequenceView(combat().enchantment_runtime, combat_overflow); }
     auto cost_modifiers() noexcept { return SequenceView(combat().cost_modifiers, combat_overflow); }
     auto cost_modifiers() const noexcept { return SequenceView(combat().cost_modifiers, combat_overflow); }
+    auto pending_choices() noexcept { return SequenceView(combat().pending_choices, combat_overflow); }
+    auto pending_choices() const noexcept { return SequenceView(combat().pending_choices, combat_overflow); }
+    auto pending_choice_order() noexcept { return SequenceView(combat().pending_choice_order, combat_overflow); }
+    auto pending_choice_order() const noexcept { return SequenceView(combat().pending_choice_order, combat_overflow); }
+    auto detachment_boundaries() noexcept { return SequenceView(combat().detachment_boundaries, combat_overflow); }
+    auto detachment_boundaries() const noexcept { return SequenceView(combat().detachment_boundaries, combat_overflow); }
+    bool pending_frames_equal(const RunState& other) const {
+        if (pending_choices().size() != other.pending_choices().size()) return false;
+        for (std::size_t i = 0; i < pending_choices().size(); ++i)
+            if (!pending_choices()[i].equals(combat_overflow, other.pending_choices()[i], other.combat_overflow)) return false;
+        return true;
+    }
     auto execution() noexcept { return SequenceView(combat().execution, combat_overflow); }
     auto execution() const noexcept { return SequenceView(combat().execution, combat_overflow); }
     auto enemy_turn_order() noexcept { return SequenceView(combat().enemy_turn_order, combat_overflow); }
@@ -370,6 +382,13 @@ inline bool RunState::combat_equals(const RunState& other) const {
         && combat().exhaust_relic_count == other.combat().exhaust_relic_count
         && combat().selection == other.combat().selection
         && combat().selected_cards == other.combat().selected_cards
+        && combat().selection_requested == other.combat().selection_requested
+        && combat().active_choice == other.combat().active_choice
+        && combat().waiting_join == other.combat().waiting_join
+        && combat().next_frame_join == other.combat().next_frame_join
+        && pending_frames_equal(other)
+        && pending_choice_order() == other.pending_choice_order()
+        && detachment_boundaries() == other.detachment_boundaries()
         && combat().next_prompt == other.combat().next_prompt
         && combat().next_power_instance == other.combat().next_power_instance
         && combat().next_creation_order == other.combat().next_creation_order

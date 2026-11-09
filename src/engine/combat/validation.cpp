@@ -94,13 +94,35 @@ bool valid_combat(const RunState& state, const Ruleset& rules) noexcept {
     if (!state.valid_combat_storage() || state.enemies().empty()) return false;
     if (!state.data.player.present() || !state.enemy_handle().present() || state.data.player == state.enemy_handle()) return false;
     if (!state.valid_combat_storage() || !state.cards().valid()) return false;
-    if (state.combat().exhaust_relic_count > state.combat().exhaust_relics.size() ||
-        (state.data.joss_paper_counter >= 5 && std::none_of(state.execution().begin(), state.execution().end(), [&](const auto& frame) {
+    const auto awaiting_joss = [](std::span<const ExecutionFrame> frames, std::span<const HookListener> listeners) {
+        return std::any_of(frames.begin(), frames.end(), [&](const auto& frame) {
             const auto* exhaust = std::get_if<ExhaustCardsFrame>(&frame);
             if (!exhaust || exhaust->phase != ExhaustPhase::hooks || exhaust->handler.stage != 1 || exhaust->listeners.cursor >= exhaust->listeners.count) return false;
             const auto index = std::uint64_t(exhaust->listeners.begin) + exhaust->listeners.cursor;
-            return index < state.captured_hook_listeners().size() && state.captured_hook_listeners()[static_cast<std::size_t>(index)].handler == HookHandler::joss_paper;
-        }))) return false;
+            return index < listeners.size() && listeners[static_cast<std::size_t>(index)].handler == HookHandler::joss_paper;
+        });
+    };
+    // Pending entries hold either their own arena or an active child's parked
+    // parent arena. Inspect matching frame segments rather than global ranges.
+    bool joss_pending = false;
+    if (state.data.joss_paper_counter >= 5) {
+        auto end = state.execution().size();
+        auto slot = state.combat().active_choice;
+        auto listeners = std::span<const HookListener>(state.captured_hook_listeners());
+        for (std::size_t n = 0; n <= state.pending_choices().size(); ++n) {
+            if (slot > state.pending_choices().size()) return false;
+            const auto base = slot ? state.pending_choices()[slot - 1].depth : 0;
+            if (base > end) return false;
+            joss_pending |= awaiting_joss(std::span<const ExecutionFrame>(state.execution()).subspan(base, end - base), listeners);
+            if (!slot) break;
+            const auto& entry = state.pending_choices()[slot - 1];
+            end = base; slot = entry.previous; listeners = entry.listeners.values(state.combat_overflow);
+        }
+        for (const auto& entry : state.pending_choices()) if (entry.phase == PendingChoicePhase::pending)
+            joss_pending |= awaiting_joss(entry.frames.values(state.combat_overflow), entry.listeners.values(state.combat_overflow));
+    }
+    if (state.combat().exhaust_relic_count > state.combat().exhaust_relics.size() ||
+        (state.data.joss_paper_counter >= 5 && !joss_pending)) return false;
     bool joss = false;
     for (std::size_t i = 0; i < state.combat().exhaust_relics.size(); ++i) {
         if (i >= state.combat().exhaust_relic_count) { if (state.combat().exhaust_relics[i] != ExhaustRelic{}) return false; continue; }

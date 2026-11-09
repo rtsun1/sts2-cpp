@@ -239,9 +239,85 @@ from the waiting request instruction or captured Stratagem listener. Observation
 similarly derives effect descriptions from the requester rather than saved prompt
 metadata. Full native pile-change hooks remain outside this slice.
 
+## Detached frame groups
+
+`DetachmentBoundary` records an explicit pause-or-completion boundary through
+`begin_detachable_frames`. The caller records its post-child progress first,
+then pushes the complete child frame group. That group must own all of its
+unfinished handler work; a boundary cannot leave the child's saved handler stage
+in the caller. Hooks still do not push or pop operation frames. Existing supported
+draw/exhaust/shuffle/damage-received hooks retain full-await semantics. No existing
+hook has been relabeled detachable without native evidence. Death-hook content,
+including Gremlin Horn and Speedster, remains outside the implemented content.
+
+A selection request does not publish `card_choice`. At an explicit boundary,
+execution parks the unfinished suffix in `pending_choices`, advances the remaining
+frames, and presents queued work in FIFO order at an input boundary or join. An
+ordinary blocking choice behind older queued work parks its entire active group.
+The active queue entry remains allocated until its frames finish. Further choices
+from that entry retain its queue position. Each restored entry records its own
+base depth and previous active slot. Completion returns to the queue decision
+before running frames below the base; equal-depth tail replacement within the
+group does not count as completion.
+
+Each group owns a LIFO operand arena. Parking copies the suffix's cards/listeners
+and rebases frame ranges, leaving the caller's ranges in place. Activation swaps
+arenas into the existing hot fields; finishing swaps the parent's arena back.
+No per-access arena lookup or general range allocator is added. Captured power
+removal updates visit queued and parked arenas too. Boundaries require disjoint
+parent/child range ownership. Crossing a boundary with a retained reference into
+another group's operand range is invalid.
+
+`create_frame_join` supplies an identity stored by the owning operation;
+`begin_detachable_frames` associates children with it, and `wait_for_frame_join`
+marks the owner's synchronization checkpoint. The owner records its next phase
+before waiting. Join lookup includes active entries as well as parked ones.
+Older queued choices are processed before joined children, while unrelated later
+entries do not block a completed join. There is no global join registry or general
+task scheduler. Native action eligibility distinctions are not implemented by
+this machinery.
+
+### Candidate timing and native evidence
+
+The retained pinned decompilation for assembly SHA-256
+`0861bfa1df347538d932f22d580e75420f08082792eb914e53b4882764acdbe9`
+shows `CardSelectCmd.FromCombatPile` awaiting `SignalPlayerChoiceBegun` before
+reading `pile.Cards` (lines 453–478), and `FromHand` capturing its hand list after
+the same await (lines 817–834). `HookPlayerChoiceContext` awaits its generated
+action's `ExecutionStartedTask` before returning from that signal (lines 177–205).
+These are static findings, not a live multi-choice recording.
+
+Selection requests retain their zone, `SelectionEligibility`, bounds and prompt
+identity as copyable values. `request_selection` only records this description;
+it never collects candidates or resolves automatic selections. `present_selection`
+is the sole owner of those tasks for both ordinary and queued requests. It uses
+the recorded zone and shared eligibility predicate directly, with no refresh flag,
+saved callback or inference from the active frame. Queued entries retain that
+request and their frames, not candidate snapshots. The bounds used by Stratagem are captured before the pause,
+so later power changes do not alter an outstanding request. Empty selections and
+candidate counts at or below the minimum resolve automatically without publishing
+another input boundary or advancing the action clock. Ordinary automatic selections also resolve through presentation before the next
+effect instruction runs. New eligibility rules extend the stored eligibility
+representation and its shared predicate; checked boundaries verify that the
+request descriptor agrees with its owning content/program.
+
+### Storage and validation
+
+All group state is trivially copyable, with independently owned overflow following
+existing `InlineSequence` patterns. The common operand accessors are unchanged.
+Checked boundaries validate queued requests, frame ranges, active chains and
+nested storage; trusted execution adds no state/legality validator. Existing
+budget, capacity, identity-exhaustion and allocation-failure handling remain.
+Combat completion cancels queued/active work. Native diagnostic JSON export
+explicitly rejects detached groups until their mapping is implemented.
+
+The layout probe with GCC/C++23 reports `CombatData` at 5,132 bytes (previously
+4,596), `RunState` at 35,008 bytes (previously 34,472), and `ExecutionFrame`
+unchanged at 48 bytes. These measurements describe state footprint, not throughput.
+
 ## Compatibility and verification
 
-Run checkpoint revision 21 embeds combat payload revision 4. They encode all six
+Run checkpoint revision 23 embeds combat payload revision 6. They encode all six
 frame alternatives, the captured enemy order, AI completion flags, Centennial
 Puzzle state, embedded listener ranges, and handler stages. Earlier run/payload
 revisions are rejected. Historical revision numbers below describe prior layouts.
@@ -275,3 +351,24 @@ a targeted recorder rerun. The full run initially passed 320 checks; the recorde
 check needed the pinned `sts2-cli` submodule initialized in the worktree, then
 passed without source changes. All 235 engine checks and 23 replay-parity checks
 passed in the full run. `git diff --check` passed. No benchmark was run.
+
+Detached-frame verification (2026-11-09): Debug and defensive-validation builds
+completed without compiler warnings. The full Debug suite passed all 337 checks,
+including 251 engine checks and 23 replay-parity checks. A final checked/trusted
+queued-answer equivalence test was then added; the rebuilt focused suite passed
+all 17 pending-choice checks. The defensive build passed all 73 selected
+pending-choice, hook, operation-frame, card-choice, trusted-action and enemy-turn
+checks. `git diff --check` passed. Logs are retained at
+`/tmp/detached-full-tests.log`, `/tmp/detached-pending-final.log`, and
+`/tmp/detached-defensive-final.log`. The tests exercise explicit boundaries around
+real supported operations; they do not establish native death-hook scheduling
+parity. No rollout-throughput benchmark was run.
+
+Selection presentation ownership verification (2026-11-09): the Debug full suite
+passed all 341 checks (255 engine and 23 replay-parity checks). All 76 selected
+checks passed with defensive validation enabled. The focused selection/queue/hook/
+frame run passed all 61 checks, including regressions for request-only recording,
+live eligibility at presentation without frame inspection, automatic resolution,
+and descriptor validation/checkpoint roundtrip. Both builds completed without
+compiler warnings; `git diff --check` passed. Logs are retained under
+`/tmp/selection-ownership-{build,full,focused,defensive-build,defensive}.log`.

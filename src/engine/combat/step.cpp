@@ -5,6 +5,7 @@
 #include "lifecycle.hpp"
 #include "trace.hpp"
 #include "../execution/interpreter.hpp"
+#include "../execution/pending_choices.hpp"
 #include "../execution/selection.hpp"
 #include "../mechanics/cards.hpp"
 #include "../mechanics/energy.hpp"
@@ -34,10 +35,11 @@ StepResult end_player_turn(RunState& state, Scratch& scratch, const Ruleset& rul
 } // namespace
 StepResult advance_combat_trusted(RunState& state, Scratch& scratch, const Ruleset& rules) noexcept try {
     STS2_CHECK_INVARIANT(state.valid_combat_storage() && valid_powers(state) && valid_card_extra(state) && valid_card_modifiers(state));
-    if (state.combat().phase != CombatPhase::play || state.execution().empty()) return result(state);
-    while (!state.execution().empty()) {
+    if (state.combat().phase != CombatPhase::play) return result(state);
+    while (advance_pending_choices(state)) {
         const auto step = resume_frame(state, scratch, rules);
         if (step.status == StepStatus::engine_error || step.status == StepStatus::resource_limit || state.combat().phase != CombatPhase::play) return step;
+        clear_finished_detachment_boundaries(state);
     }
     if (!state.has_living_enemies() && state.combat().phase == CombatPhase::play) end_combat(state, scratch, true);
     return result(state);

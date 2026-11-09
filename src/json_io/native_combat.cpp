@@ -80,6 +80,8 @@ void export_rewards(Json& out, const RunState& run) {
 }
 }
 void export_native_combat(Json& out, const RunState& run, const RecordedCombat& recorded) {
+    if (run.has_combat() && !run.pending_choice_order().empty())
+        throw std::invalid_argument("Detached frames have no native diagnostic mapping yet");
     if (run.has_combat() && (run.enemies().size() != 1 || run.combat().enemy_side))
         throw std::invalid_argument("Multi-enemy/active enemy-side native diagnostics are not mapped");
     if (run.data.combat && run.combat().phase == CombatPhase::card_choice &&
