@@ -38,6 +38,10 @@ it reports allocation counts and state footprint. It does not establish full-gam
 throughput or a speedup over the reference. Kernel transitions depend on immutable
 compiled rules, with no runtime dependency on `sts2-cli`, JSON, files or game assemblies.
 
+The [basic MCTS runner](benchmarks/mcts/README.md) runs a shared C++ UCT search
+against the engine and the pinned `sts2-cli` through reset/replay workers. Its
+end-to-end timings include reconstruction, JSON and transport overhead.
+
 ## Tests
 
 Tests use GoogleTest and are individually registered with CTest under the `engine`,

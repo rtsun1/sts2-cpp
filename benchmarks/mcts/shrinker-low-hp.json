@@ -1,0 +1,19 @@
+{
+  "setup": {
+    "kind": "seeded_run",
+    "character": "Ironclad",
+    "ascension": 0,
+    "seed": "KERNELRUN14",
+    "clock": {"kind": "action_clock_v1", "epoch_seconds": 1700000000, "seconds_per_action": 1}
+  },
+  "operations": [
+    {"cmd": "action", "action": {"kind": "choose_option", "option_index": 0}},
+    {"cmd": "action", "action": {"kind": "select_map_node", "col": 2, "row": 1}},
+    {"cmd": "action", "action": {"kind": "end_turn"}},
+    {"cmd": "action", "action": {"kind": "end_turn"}},
+    {"cmd": "action", "action": {"kind": "end_turn"}},
+    {"cmd": "action", "action": {"kind": "end_turn"}},
+    {"cmd": "action", "action": {"kind": "end_turn"}},
+    {"cmd": "action", "action": {"kind": "end_turn"}}
+  ]
+}

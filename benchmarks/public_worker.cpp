@@ -4,12 +4,17 @@
 #include <algorithm>
 #include "sts2/persistence/checkpoint.hpp"
 #include <iostream>
+#include "mcts/combat.hpp"
 
 // Benchmark-scoped transport; this is not a stable public JSON contract.
 namespace {
 using namespace sts2::engine;
 using Json = nlohmann::json;
 Json project(const RunState& state, Json& capabilities) {
+    sts2::benchmark::WorkerTiming::Scope timing("projection");
+    if (state.player().hp <= 0)
+        return Json{{"prompt", "dead"}, {"hp", state.player().hp}, {"max_hp", state.player().max_hp},
+            {"combat", nullptr}, {"choices", Json::array()}};
     const auto view = observe(state);
     Json result{{"profile", "warm-public-structured-v1"}, {"hp", view.hp}, {"max_hp", view.max_hp}, {"gold", view.gold},
         {"deck", Json::array()}, {"relics", Json::array()}, {"potions", Json::array()},
@@ -103,14 +108,38 @@ int main() {
     using namespace sts2::engine;
     using Json = nlohmann::json;
     RunState state; Scratch scratch;
+    sts2::benchmark::CombatSearch search;
     for (std::string line; std::getline(std::cin, line);) try {
         const auto request = Json::parse(line); const auto command = request.at("cmd").get<std::string>();
+        if (command == "timing") {
+            using Timing = sts2::benchmark::WorkerTiming;
+            if (request.contains("enabled")) {
+                Timing::enabled = request.at("enabled").get<bool>();
+                Timing::totals.clear();
+            }
+            std::cout << Json{{"ok", true}, {"timing", Timing::snapshot()}}.dump() << std::endl;
+            continue;
+        }
+        if (command == "mcts_root" || command == "mcts_step") {
+            if (command == "mcts_root") {
+                const auto execution = request.at("execution").get<std::string>();
+                if (execution != "checked" && execution != "trusted") throw std::invalid_argument("Unknown MCTS execution mode");
+                search.begin(state, execution == "trusted");
+            } else search.apply(state, request.at("index").get<std::size_t>(), scratch);
+            std::cout << search.project(state).dump() << std::endl;
+            continue;
+        }
+        search = sts2::benchmark::CombatSearch{};
         if (command == "reset") {
-            RunState empty; state = std::move(empty); scratch = Scratch{};
+            {
+                sts2::benchmark::WorkerTiming::Scope timing("reconstruction");
+                RunState empty; state = std::move(empty); scratch = Scratch{};
+            }
             std::cout << Json{{"reset", true}, {"type", "oracle_reset"}, {"singleton_listeners", Json::object()}}.dump() << std::endl;
             continue;
         }
         if (command == "start") {
+            sts2::benchmark::WorkerTiming::Scope timing("reconstruction");
             initialize_json_run(state, request.at("setup"));
         } else if (command == "query_audit") {
             const auto before = checkpoint(state).bytes;
@@ -126,6 +155,7 @@ int main() {
             continue;
         } else if (command != "query") {
             auto apply = [&](RunState& run) {
+                sts2::benchmark::WorkerTiming::Scope timing("reconstruction");
                 if (command == "scenario_enter_combat") return enter_combat_scenario(run, run.data.boundary, request.at("encounter").get<std::string>());
                 if (command != "action") throw std::invalid_argument("Unknown command");
                 const auto& action = request.at("action"); const auto kind = action.at("kind").get<std::string>();
@@ -162,6 +192,7 @@ int main() {
         const auto observation = project(state, capabilities);
         std::cout << Json{{"ok", true}, {"observation", observation}, {"capabilities", capabilities}}.dump() << std::endl;
     } catch (const std::exception& error) {
+        search = sts2::benchmark::CombatSearch{};
         std::cout << Json{{"ok", false}, {"error", error.what()}}.dump() << std::endl;
     }
 }

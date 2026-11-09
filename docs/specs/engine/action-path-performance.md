@@ -9,8 +9,10 @@ been migrated to that interface for compilation; no new measurements were collec
 for the selection migration. Selection-related verification below describes the
 historical incremental interface at the measured commit.
 
-This report measures supported examples and synthetic branching;
-there is no MCTS runner and no whole-simulation throughput claim.
+This report measures supported examples and synthetic branching. There was no
+MCTS runner at measurement time and no whole-simulation throughput claim. The
+subsequent [replay-based MCTS runner](../../../benchmarks/mcts/README.md) uses a
+separate end-to-end timing profile.
 
 ## Configuration and method
 
