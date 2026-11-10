@@ -32,6 +32,8 @@ struct Writer {
             i32(value->hit.blocked); i32(value->hit.unblocked); i32(value->hit.overkill);
             u8(value->hit.block_broken); u8(value->hit.fully_blocked); u8(value->hit.killed);
             i32(value->base_damage); u8(value->handler.stage); u8(static_cast<std::uint8_t>(value->phase));
+        } else if (const auto* value = std::get_if<DeathFrame>(&f)) {
+            range(value->listeners); u32(value->target.slot); u32(value->target.generation);
         }
     }
     void card_extra(const CardExtraData& data) {
@@ -85,6 +87,7 @@ struct Reader {
             f.hit.block_broken = boolean(); f.hit.fully_blocked = boolean(); f.hit.killed = boolean();
             f.base_damage = i32(); f.handler.stage = u8(); f.phase = static_cast<EnemyAttackPhase>(u8()); return f;
         }
+        case 6: { const auto listeners = range(); const CreatureHandle target{u32(), u32()}; return DeathFrame{listeners, target}; }
         default: throw std::invalid_argument("Unknown execution frame");
         }
     }
@@ -107,15 +110,15 @@ std::uint64_t content_fingerprint() {
         }
     }
     // Version exceptional enemy/power/relic handlers and clock/RNG semantics too.
-    w.text("enemies-a0:beetle38-40:crawler55-57:goop4:inhale7:local-moves:player-start-roll:unique-hp:late-victory:retained-death:duration-history:shrink70:chomp7:stomp13;vulnerable150;burning-blood6;survivor1;action_clock_v1;xoshiro256ss-v1;enemy-turn-continuations-v1;centennial-puzzle3");
+    w.text("enemies-a0:beetle38-40:crawler55-57:goop4:inhale7:local-moves:player-start-roll:unique-hp:late-victory:retained-death:duration-history:shrink70:chomp7:stomp13;vulnerable150;burning-blood6;survivor1;action_clock_v1;xoshiro256ss-v1;enemy-turn-continuations-v1;centennial-puzzle3;gremlin-horn-death-detachment-v1;ordinary-choice-caller-priority-v1");
     return digest(w.data);
 }
 Checkpoint persistence::encode_combat(const RunState& s) {
     if (!valid_combat(s)) throw std::invalid_argument("Cannot checkpoint invalid simulation");
     Writer w;
-    w.text("STS2CB02"); w.u32(4); w.u32(s.combat().rules); w.text(game_digest); w.u64(content_fingerprint());
+    w.text("STS2CB02"); w.u32(8); w.u32(s.combat().rules); w.text(game_digest); w.u64(content_fingerprint());
     w.u8(static_cast<std::uint8_t>(s.combat().phase)); w.i32(s.combat().energy); w.i32(s.combat().turn);
-    w.u8(s.combat().enemy_side); w.u8(s.combat().burning_blood); w.u8(s.combat().centennial_puzzle); w.u8(s.combat().centennial_puzzle_used); w.u32(s.combat().next_creation_order);
+    w.u8(s.combat().enemy_side); w.u8(s.combat().burning_blood); w.u8(s.combat().gremlin_horn); w.u8(s.combat().centennial_puzzle); w.u8(s.combat().centennial_puzzle_used); w.u32(s.combat().next_creation_order);
     w.u8(s.combat().exhaust_relic_count); for (auto relic : s.combat().exhaust_relics) w.u8(static_cast<std::uint8_t>(relic));
     w.u32(s.cards().data.highest_generation);
     w.u32(static_cast<std::uint32_t>(s.cards().slots().size()));
@@ -149,7 +152,7 @@ Checkpoint persistence::encode_combat(const RunState& s) {
     w.u32(static_cast<std::uint32_t>(s.enemy_turn_order().size())); for (auto actor : s.enemy_turn_order()) { w.u32(actor.slot); w.u32(actor.generation); }
     w.u32(static_cast<std::uint32_t>(s.execution().size())); for (const auto& frame : s.execution()) w.frame(frame);
     w.u32(s.combat().next_prompt.value); w.u32(s.combat().selection.id.value);
-    w.u32(s.combat().selection.minimum); w.u32(s.combat().selection.maximum); w.range(s.combat().selected_cards);
+    w.u32(s.combat().selection.minimum); w.u32(s.combat().selection.maximum); w.u8(static_cast<std::uint8_t>(s.combat().selection.zone)); w.u8(static_cast<std::uint8_t>(s.combat().selection.eligibility)); w.range(s.combat().selected_cards);
     w.u32(static_cast<std::uint32_t>(s.selection_candidates().size()));
     for (auto card : s.selection_candidates()) w.handle(card);
     w.u32(0); // Reserved legacy partial-selection count.
@@ -161,6 +164,21 @@ Checkpoint persistence::encode_combat(const RunState& s) {
     w.u32(s.combat().counters.non_hand_draws_this_turn);
     w.u32(s.combat().counters.finished_ethereal);
     w.u32(s.combat().next_power_instance);
+    w.u32(s.combat().active_choice); w.u32(s.combat().waiting_join); w.u32(s.combat().next_frame_join);
+    w.u32(static_cast<std::uint32_t>(s.detachment_boundaries().size()));
+    for (auto boundary : s.detachment_boundaries()) { w.u32(boundary.depth); w.u32(boundary.join); }
+    w.u32(static_cast<std::uint32_t>(s.pending_choice_order().size())); for (auto slot : s.pending_choice_order()) w.u32(slot);
+    w.u32(static_cast<std::uint32_t>(s.pending_choices().size()));
+    for (const auto& entry : s.pending_choices()) {
+        w.u8(static_cast<std::uint8_t>(entry.phase)); w.u32(entry.depth); w.u32(entry.previous); w.u32(entry.join); w.u32(entry.waiting_join);
+        w.u32(entry.selection.id.value); w.u32(entry.selection.minimum); w.u32(entry.selection.maximum); w.u8(static_cast<std::uint8_t>(entry.selection.zone)); w.u8(static_cast<std::uint8_t>(entry.selection.eligibility));
+        const auto frames = entry.frames.values(s.combat_overflow); w.u32(static_cast<std::uint32_t>(frames.size())); for (const auto& frame : frames) w.frame(frame);
+        const auto listeners = entry.listeners.values(s.combat_overflow); w.u32(static_cast<std::uint32_t>(listeners.size()));
+        for (const auto& listener : listeners) { w.u32(listener.owner.slot); w.u32(listener.owner.generation); w.u32(listener.power_instance); w.i32(listener.removed_power_amount); w.u8(static_cast<std::uint8_t>(listener.handler)); }
+        const auto cards = entry.cards.values(s.combat_overflow); w.u32(static_cast<std::uint32_t>(cards.size())); for (auto card : cards) w.handle(card);
+        const auto boundaries = entry.detachment_boundaries.values(s.combat_overflow); w.u32(static_cast<std::uint32_t>(boundaries.size()));
+        for (auto boundary : boundaries) { w.u32(boundary.depth); w.u32(boundary.join); }
+    }
     w.u64(digest(w.data));
     return {std::move(w.data)};
 }
@@ -171,13 +189,13 @@ RestoreStatus persistence::decode_combat(RunState& s, std::span<const std::byte>
         if (trailer.u64() != digest(bytes.first(bytes.size() - 8))) return RestoreStatus::malformed;
         Reader r{bytes.first(bytes.size() - 8)};
         for (char c : std::string_view("STS2CB02")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
-        if (r.u32() != 4 || r.u32() != rules_revision) return RestoreStatus::incompatible;
+        if (r.u32() != 8 || r.u32() != rules_revision) return RestoreStatus::incompatible;
         for (char c : game_digest) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
         if (r.u64() != content_fingerprint()) return RestoreStatus::incompatible;
         s.data.combat.emplace();
         s.combat().phase = static_cast<CombatPhase>(r.u8());
         s.combat().energy = r.i32(); s.combat().turn = r.i32();
-        s.combat().enemy_side = r.boolean(); s.combat().burning_blood = r.boolean(); s.combat().centennial_puzzle = r.boolean(); s.combat().centennial_puzzle_used = r.boolean(); s.combat().next_creation_order = r.u32();
+        s.combat().enemy_side = r.boolean(); s.combat().burning_blood = r.boolean(); s.combat().gremlin_horn = r.boolean(); s.combat().centennial_puzzle = r.boolean(); s.combat().centennial_puzzle_used = r.boolean(); s.combat().next_creation_order = r.u32();
         s.combat().exhaust_relic_count = r.u8(); for (auto& relic : s.combat().exhaust_relics) relic = static_cast<ExhaustRelic>(r.u8());
         const auto highest_generation = r.u32();
         const auto count = r.u32();
@@ -234,7 +252,7 @@ RestoreStatus persistence::decode_combat(RunState& s, std::span<const std::byte>
         const auto frames = r.count(6, limits.continuations);
         for (std::uint32_t i = 0; i < frames; ++i) s.execution().push_back(r.frame());
         s.combat().next_prompt.value = r.u32(); s.combat().selection.id.value = r.u32();
-        s.combat().selection.minimum = r.u32(); s.combat().selection.maximum = r.u32(); s.combat().selected_cards = r.range();
+        s.combat().selection.minimum = r.u32(); s.combat().selection.maximum = r.u32(); s.combat().selection.zone = static_cast<Zone>(r.u8()); s.combat().selection.eligibility = static_cast<SelectionEligibility>(r.u8()); s.combat().selected_cards = r.range();
         const auto candidates = r.u32(); if (candidates > count) return RestoreStatus::malformed;
         for (std::uint32_t i = 0; i < candidates; ++i) s.selection_candidates().push_back(r.handle());
         if (r.u32() != 0) return RestoreStatus::malformed;
@@ -246,6 +264,31 @@ RestoreStatus persistence::decode_combat(RunState& s, std::span<const std::byte>
         s.combat().counters.non_hand_draws_this_turn = r.u32();
         s.combat().counters.finished_ethereal = r.u32();
         s.combat().next_power_instance = r.u32();
+        s.combat().active_choice = r.u32(); s.combat().waiting_join = r.u32(); s.combat().next_frame_join = r.u32();
+        const auto boundaries = r.count(8, limits.continuations);
+        for (std::uint32_t i = 0; i < boundaries; ++i) s.detachment_boundaries().push_back({r.u32(), r.u32()});
+        const auto ordered = r.count(4, limits.continuations);
+        for (std::uint32_t i = 0; i < ordered; ++i) s.pending_choice_order().push_back(r.u32());
+        const auto entries = r.count(47, limits.continuations);
+        std::uint64_t total_frames = frames;
+        for (std::uint32_t i = 0; i < entries; ++i) {
+            s.pending_choices().push_back({});
+            auto& entry = s.pending_choices().back();
+            entry.phase = static_cast<PendingChoicePhase>(r.u8()); entry.depth = r.u32(); entry.previous = r.u32(); entry.join = r.u32(); entry.waiting_join = r.u32();
+            entry.selection = {PromptId{r.u32()}, r.u32(), r.u32(), static_cast<Zone>(r.u8()), static_cast<SelectionEligibility>(r.u8())};
+            const auto nframes = r.count(6, limits.continuations); total_frames += nframes;
+            if (total_frames > limits.continuations) return RestoreStatus::resource_limit;
+            for (std::uint32_t j = 0; j < nframes; ++j) entry.frames.push_back(s.combat_overflow, r.frame());
+            const auto nlisteners = r.count(17, std::uint64_t(limits.continuations) * 4096);
+            for (std::uint32_t j = 0; j < nlisteners; ++j) {
+                HookListener listener; listener.owner = {r.u32(), r.u32()}; listener.power_instance = r.u32(); listener.removed_power_amount = r.i32(); listener.handler = static_cast<HookHandler>(r.u8());
+                entry.listeners.push_back(s.combat_overflow, listener);
+            }
+            const auto ncards = r.count(8, std::uint64_t(limits.continuations) * 16);
+            for (std::uint32_t j = 0; j < ncards; ++j) entry.cards.push_back(s.combat_overflow, r.handle());
+            const auto nboundaries = r.count(8, limits.continuations);
+            for (std::uint32_t j = 0; j < nboundaries; ++j) entry.detachment_boundaries.push_back(s.combat_overflow, {r.u32(), r.u32()});
+        }
         // Run restoration supplies its newly parsed canonical pool here. Borrow
         // only identity resolution; parsed records/overflow remain transactional.
         const RunState& validation = s;

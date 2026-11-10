@@ -32,6 +32,7 @@ Json variables(const CombatCard& c) {
     case CardId::shockwave: return {{"Power", c.upgraded ? 5 : 3}};
     case CardId::tremble: return {{"VulnerablePower", c.upgraded ? 4 : 3}};
     case CardId::uppercut: return {{"Damage", 13}, {"Power", c.upgraded ? 2 : 1}};
+    case CardId::dagger_throw: return {{"Damage", c.upgraded ? 12 : 9}};
     case CardId::count: break;
     }
     throw std::invalid_argument("Unsupported card variables");
@@ -82,6 +83,8 @@ void export_rewards(Json& out, const RunState& run) {
 void export_native_combat(Json& out, const RunState& run, const RecordedCombat& recorded) {
     if (run.data.combat_encounter != no_content && SetupRules::name(run.data.combat_encounter) != "ENCOUNTER.SHRINKER_BEETLE_WEAK")
         throw std::invalid_argument("Crawler and mixed encounters have no complete native diagnostic mapping yet");
+    if (run.has_combat() && !run.pending_choice_order().empty())
+        throw std::invalid_argument("Detached frames have no native diagnostic mapping yet");
     if (run.has_combat() && (run.enemies().size() != 1 || run.combat().enemy_side))
         throw std::invalid_argument("Multi-enemy/active enemy-side native diagnostics are not mapped");
     if (run.data.combat && run.combat().phase == CombatPhase::card_choice &&

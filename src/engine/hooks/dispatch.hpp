@@ -10,6 +10,10 @@ RangeProgress capture_exhaust_listeners(RunState&);
 RangeProgress capture_shuffle_listeners(RunState&);
 RangeProgress capture_draw_listeners(RunState&, bool early);
 RangeProgress capture_damage_received_listeners(RunState&);
+RangeProgress capture_death_listeners(RunState&);
+void after_death(RunState&, HookListener, CreatureHandle dead);
+// Advances the continuing dispatch before returning a named child handler.
+bool next_death_listener(RunState&, RangeProgress&, HookListener&);
 // The operation owns the range/stage; dispatch never pushes or pops its frame.
 HandlerResult resume_listeners(RunState&, Scratch&, RangeProgress&, HandlerProgress&, const Ruleset&,
     const HitResult* hit = nullptr);

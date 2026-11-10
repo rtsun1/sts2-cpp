@@ -28,6 +28,13 @@ void end_combat(RunState& state, Scratch& scratch, bool won) {
     state.execution().clear(); state.enemy_turn_order().clear(); state.cost_modifiers().clear();
     state.combat().centennial_puzzle_used = false;
     state.combat().selected_cards = {};
+    state.combat().active_choice = 0; state.combat().waiting_join = 0;
+    state.pending_choice_order().clear(); state.detachment_boundaries().clear();
+    for (auto& entry : state.pending_choices()) {
+        entry.frames.clear(); entry.listeners.clear(); entry.cards.clear();
+        entry.detachment_boundaries.clear(); entry.selection = {};
+        entry.phase = PendingChoicePhase::free; entry.depth = entry.previous = entry.join = entry.waiting_join = 0;
+    }
     state.continuation_cards().clear(); state.captured_hook_listeners().clear(); clear_selection(state);
     if (won) {
         for (auto& slot : state.creatures().slots()) if (slot.live) slot.value.clear_powers();
@@ -48,7 +55,10 @@ void end_combat(RunState& state, Scratch& scratch, bool won) {
         // scalars/identity progress, but release its completed collection graph.
         auto terminal = state.combat();
         OverflowStorage owner(state.combat_overflow.allocator());
-        terminal.for_each_sequence([](auto& sequence) { sequence = std::remove_reference_t<decltype(sequence)>{}; });
+        for (auto& entry : terminal.pending_choices.values(state.combat_overflow)) {
+            entry.frames = {}; entry.listeners = {}; entry.cards = {}; entry.detachment_boundaries = {};
+        }
+        terminal.for_each_sequence(state.combat_overflow, [](auto& sequence) { sequence = std::remove_reference_t<decltype(sequence)>{}; });
         state.combat() = terminal;
         state.combat_overflow = std::move(owner);
     }

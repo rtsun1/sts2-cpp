@@ -22,6 +22,7 @@ bool pile_choice_less(const RunState& state, CardHandle a, CardHandle b, const R
 }
 void clear_selection(RunState& state) {
     state.combat().selection = {}; state.selection_candidates().clear();
+    state.combat().selection_requested = false;
 }
 
 void record_selection(RunState& state, const SelectionInput& input) {
@@ -30,6 +31,34 @@ void record_selection(RunState& state, const SelectionInput& input) {
     state.combat().selected_cards = {begin, static_cast<std::uint32_t>(input.cards.size()), 0};
     clear_selection(state);
     state.combat().phase = CombatPhase::play;
+}
+bool selection_card_eligible(const RunState& state, CardHandle card, SelectionEligibility eligibility) noexcept {
+    return eligibility == SelectionEligibility::all || !state.cards().get(card)->upgraded;
+}
+void request_selection(RunState& state, Zone zone, std::uint32_t minimum,
+    std::uint32_t maximum, SelectionEligibility eligibility) {
+    clear_selection(state);
+    if (state.combat().next_prompt.value == UINT32_MAX) throw std::length_error("prompt identity exhausted");
+    state.combat().selection = {state.combat().next_prompt, minimum, maximum, zone, eligibility};
+    ++state.combat().next_prompt.value;
+    state.combat().selection_requested = true;
+}
+// Returns false if execution should pause for player input, true if selection is complete.
+bool present_selection(RunState& state, const Ruleset& rules) {
+    const auto& request = state.combat().selection;
+    state.selection_candidates().clear();
+    for (auto card : state.zone(request.zone))
+        if (selection_card_eligible(state, card, request.eligibility)) state.selection_candidates().push_back(card);
+    if (request.zone == Zone::draw) sort_selection_candidates(state, rules);
+    const auto count = static_cast<std::uint32_t>(state.selection_candidates().size());
+    if (count == 0 || count <= state.combat().selection.minimum) {
+        record_selection(state, {state.data.boundary, {}, std::span<const CardHandle>(state.selection_candidates())});
+        return true;
+    }
+    state.combat().selection.maximum = std::min(state.combat().selection.maximum, count);
+    state.combat().selection_requested = false;
+    state.combat().phase = CombatPhase::card_choice;
+    return false;
 }
 Restriction validate_selection_input(const RunState& state, const SelectionInput& input) noexcept {
     if (state.combat().phase != CombatPhase::card_choice) return Restriction::wrong_phase;
@@ -48,9 +77,9 @@ Restriction validate_selection_input(const RunState& state, const SelectionInput
     return Restriction::none;
 }
 
-void sort_selection_candidates(RunState& state) {
+void sort_selection_candidates(RunState& state, const Ruleset& rules) {
     game_sort<CardHandle>(state.selection_candidates(), [&](auto a, auto b) {
-        return pile_choice_less(state, a, b, Ruleset::pinned());
+        return pile_choice_less(state, a, b, rules);
     });
 }
 RangeProgress take_selection(RunState& state) noexcept {
@@ -68,23 +97,31 @@ bool valid_selection(const RunState& state, const Ruleset& rules) noexcept {
     if (state.combat().phase != CombatPhase::card_choice)
         return state.execution().empty() && state.zone(Zone::play).empty() &&
             state.combat().selection == CardSelection{} && state.selection_candidates().empty();
-    const auto& p = state.combat().selection;
-    if (state.execution().empty() || p.id.value == 0 || p.id.value >= state.combat().next_prompt.value ||
-        p.minimum > p.maximum || p.maximum == 0) return false;
+    return valid_frame_selection(state, rules, state.execution(), state.captured_hook_listeners(),
+        state.combat().selection, state.selection_candidates());
+}
+bool valid_frame_selection(const RunState& state, const Ruleset& rules, std::span<const ExecutionFrame> frames,
+    std::span<const HookListener> listeners, const CardSelection& p, std::span<const CardHandle> candidates,
+    bool pending) noexcept {
+    if (frames.empty() || p.id.value == 0 || p.id.value >= state.combat().next_prompt.value ||
+        p.minimum > p.maximum || p.maximum == 0 || p.zone >= Zone::count || p.eligibility > SelectionEligibility::upgradable) return false;
     Zone zone = Zone::hand;
     std::uint32_t minimum = 1, maximum = 1;
-    bool upgrade = false;
-    const auto& frame = state.execution().back();
+    auto eligibility = SelectionEligibility::all;
+    const auto& frame = frames.back();
     if (const auto* shuffle = std::get_if<ShuffleFrame>(&frame)) {
         if (shuffle->phase != ShufflePhase::hooks || shuffle->handler.stage != 1 ||
+            shuffle->listeners.begin > listeners.size() ||
+            shuffle->listeners.count > listeners.size() - shuffle->listeners.begin ||
             shuffle->listeners.cursor >= shuffle->listeners.count) return false;
-        const auto& listener = state.captured_hook_listeners()[shuffle->listeners.begin + shuffle->listeners.cursor];
-        if (listener.handler != HookHandler::stratagem) return false;
-        const auto* owner = state.creature(listener.owner);
-        const auto* power = owner ? owner->find_power_instance(listener.power_instance, state.overflow) : nullptr;
-        const auto amount = power ? power->amount : listener.removed_power_amount;
-        if (amount <= 0 || static_cast<std::size_t>(amount) >= state.zone(Zone::draw).size()) return false;
-        zone = Zone::draw; minimum = maximum = static_cast<std::uint32_t>(amount);
+        const auto& listener = listeners[shuffle->listeners.begin + shuffle->listeners.cursor];
+        if (listener.handler != HookHandler::stratagem || listener.owner != state.data.player ||
+            listener.power_instance >= state.combat().next_power_instance) return false;
+        // Request bounds are authoritative for ordinary and detached choices.
+        // Changing/removing the live power cannot rewrite an outstanding request.
+        if (p.minimum == 0 || p.minimum != p.maximum) return false;
+        zone = Zone::draw;
+        minimum = maximum = p.minimum;
     } else if (const auto* program = std::get_if<CardProgramFrame>(&frame)) {
         const auto* source = state.cards().get(program->source);
         const auto* definition = source ? rules.card(source->definition) : nullptr;
@@ -100,27 +137,29 @@ bool valid_selection(const RunState& state, const Ruleset& rules) noexcept {
         maximum = static_cast<std::uint32_t>(instruction.base);
         if (instruction.choice == CardChoice::hand_optional) minimum = 0;
         if (instruction.choice == CardChoice::discard_one) zone = Zone::discard;
-        upgrade = instruction.choice == CardChoice::upgradable_hand;
+        if (instruction.choice == CardChoice::upgradable_hand) eligibility = SelectionEligibility::upgradable;
     } else return false;
-    maximum = std::min(maximum, static_cast<std::uint32_t>(state.selection_candidates().size()));
+    if (p.zone != zone || p.eligibility != eligibility) return false;
+    if (pending) return p.minimum == minimum && p.maximum == maximum;
+    maximum = std::min(maximum, static_cast<std::uint32_t>(candidates.size()));
     if (p.minimum != minimum || p.maximum != maximum) return false;
     if (zone == Zone::draw) {
-        if (state.selection_candidates().size() != state.zone(zone).size()) return false;
-        for (std::size_t i = 0; i < state.selection_candidates().size(); ++i) {
-            const auto card = state.selection_candidates()[i];
+        if (candidates.size() != state.zone(zone).size() || candidates.size() <= minimum) return false;
+        for (std::size_t i = 0; i < candidates.size(); ++i) {
+            const auto card = candidates[i];
             if (!state.cards().get(card) || std::find(state.zone(zone).begin(), state.zone(zone).end(), card) == state.zone(zone).end()) return false;
-            for (std::size_t j = 0; j < i; ++j) if (state.selection_candidates()[j] == card) return false;
-            if (i != 0 && pile_choice_less(state, card, state.selection_candidates()[i - 1], rules)) return false;
+            for (std::size_t j = 0; j < i; ++j) if (candidates[j] == card) return false;
+            if (i != 0 && pile_choice_less(state, card, candidates[i - 1], rules)) return false;
         }
     } else {
         std::size_t offered = 0;
         for (auto card : state.zone(zone)) {
             const auto* value = state.cards().get(card);
             if (!value) return false;
-            if (upgrade && value->upgraded) continue;
-            if (offered >= state.selection_candidates().size() || state.selection_candidates()[offered++] != card) return false;
+            if (!selection_card_eligible(state, card, p.eligibility)) continue;
+            if (offered >= candidates.size() || candidates[offered++] != card) return false;
         }
-        if (offered != state.selection_candidates().size() || offered == 0 || (minimum == 1 && offered <= 1)) return false;
+        if (offered != candidates.size() || offered == 0 || (minimum == 1 && offered <= 1)) return false;
     }
     return true;
 }

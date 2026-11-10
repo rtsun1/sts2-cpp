@@ -30,6 +30,8 @@ constexpr std::array tremble = {Instruction{Opcode::vulnerable, 3}, Instruction{
 constexpr std::array tremble_upgraded = {Instruction{Opcode::vulnerable, 4}, Instruction{Opcode::finish}};
 constexpr std::array uppercut = {Instruction{Opcode::damage, 13}, Instruction{Opcode::weak, 1}, Instruction{Opcode::vulnerable, 1}, Instruction{Opcode::finish}};
 constexpr std::array uppercut_upgraded = {Instruction{Opcode::damage, 13}, Instruction{Opcode::weak, 2}, Instruction{Opcode::vulnerable, 2}, Instruction{Opcode::finish}};
+constexpr std::array dagger_throw = {Instruction{Opcode::damage, 9}, Instruction{Opcode::draw, 1}, Instruction{Opcode::request_choice, 1}, Instruction{Opcode::discard_choice}, Instruction{Opcode::finish}};
+constexpr std::array dagger_throw_upgraded = {Instruction{Opcode::damage, 12}, Instruction{Opcode::draw, 1}, Instruction{Opcode::request_choice, 1}, Instruction{Opcode::discard_choice}, Instruction{Opcode::finish}};
 constexpr std::array definitions = {
     CardDefinition{"CARD.STRIKE_IRONCLAD", "Strike", 1, true, {strike, strike_upgraded}, CardRarity::basic, CardKind::attack},
     CardDefinition{"CARD.DEFEND_IRONCLAD", "Defend", 1, false, {defend, defend_upgraded}},
@@ -43,7 +45,8 @@ constexpr std::array definitions = {
     CardDefinition{"CARD.INFLAME", "Inflame", 1, false, {inflame, inflame_upgraded}, CardRarity::uncommon, CardKind::power},
     CardDefinition{"CARD.SHOCKWAVE", "Shockwave", 2, false, {shockwave, shockwave_upgraded}, CardRarity::uncommon, CardKind::skill, exhaust},
     CardDefinition{"CARD.TREMBLE", "Tremble", 1, true, {tremble, tremble_upgraded}, CardRarity::common, CardKind::skill, exhaust},
-    CardDefinition{"CARD.UPPERCUT", "Uppercut", 2, true, {uppercut, uppercut_upgraded}, CardRarity::uncommon, CardKind::attack}};
+    CardDefinition{"CARD.UPPERCUT", "Uppercut", 2, true, {uppercut, uppercut_upgraded}, CardRarity::uncommon, CardKind::attack},
+    CardDefinition{"CARD.DAGGER_THROW", "Dagger Throw", 1, true, {dagger_throw, dagger_throw_upgraded}, CardRarity::common, CardKind::attack}};
 }
 const CardDefinition* Ruleset::card(CardId id) const noexcept {
     const auto index = static_cast<std::size_t>(id);

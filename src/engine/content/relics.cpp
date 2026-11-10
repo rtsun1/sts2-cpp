@@ -4,8 +4,19 @@
 #include "../hooks/dispatch.hpp"
 #include "../combat/lifecycle.hpp"
 #include "../combat/trace.hpp"
+#include <stdexcept>
 
 namespace sts2::engine::gameplay {
+void gremlin_horn_after_death(RunState& state, CreatureHandle dead) {
+    // Native Gremlin Horn reacts only to an opposing-side death.
+    if (dead == state.data.player) return;
+    if (state.combat().energy == INT32_MAX) throw std::length_error("Energy capacity exhausted");
+    ++state.combat().energy;
+    if (!state.has_living_enemies() || state.player().hp == 0) return;
+    // No work follows the native awaited draw. This child owns the complete
+    // unfinished listener; the continuing death caller stores no handler stage.
+    state.execution().push_back(DrawFrame{.remaining = 1, .from_hand_draw = false});
+}
 HandlerResult centennial_puzzle_after_damage_received(RunState& state, HandlerProgress& progress, const HitResult& hit) {
     if (progress.stage == 0) {
         if (hit.unblocked <= 0 || state.player().hp == 0 || state.combat().centennial_puzzle_used)

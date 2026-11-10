@@ -86,17 +86,18 @@ bool valid_run(const RunState& state) noexcept {
     };
     if (state.data.combat && state.data.combat_generation == 0) return false;
     if (state.data.combat) {
-        std::size_t listener = 0; bool burning_blood = false, centennial_puzzle = false;
+        std::size_t listener = 0; bool burning_blood = false, centennial_puzzle = false, gremlin_horn = false;
         for (auto relic : state.relics()) {
             const auto name = SetupRules::name(relic);
             burning_blood |= name == "RELIC.BURNING_BLOOD";
+            gremlin_horn |= name == "RELIC.GREMLIN_HORN";
             centennial_puzzle |= name == "RELIC.CENTENNIAL_PUZZLE";
             if (name == "RELIC.CHARONS_ASHES" || name == "RELIC.JOSS_PAPER") {
                 const auto expected = name == "RELIC.CHARONS_ASHES" ? ExhaustRelic::charons_ashes : ExhaustRelic::joss_paper;
                 if (listener >= state.combat().exhaust_relic_count || state.combat().exhaust_relics[listener++] != expected) return false;
             }
         }
-        if (listener != state.combat().exhaust_relic_count || state.combat().burning_blood != burning_blood || state.combat().centennial_puzzle != centennial_puzzle) return false;
+        if (listener != state.combat().exhaust_relic_count || state.combat().burning_blood != burning_blood || state.combat().centennial_puzzle != centennial_puzzle || state.combat().gremlin_horn != gremlin_horn) return false;
         for (const auto& slot : state.cards().slots()) if (slot.generation < state.data.combat_generation) return false;
         if (!valid_combat(state) || !linked_cards(state, state.deck())) return false;
         if (state.data.phase == RunPhase::combat) {

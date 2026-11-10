@@ -28,6 +28,7 @@ struct CombatData {
     std::int32_t turn = 0;
     bool enemy_side = false;
     bool burning_blood = true;  // Do we really need this? Don't we have a collection of active relics?
+    bool gremlin_horn = false;
     bool centennial_puzzle = false;
     bool centennial_puzzle_used = false;
     CardPool cards {};
@@ -49,14 +50,27 @@ struct CombatData {
     std::uint32_t next_creation_order = 0;
     // Temporary answer handoff; the requester consumes or transfers it before yielding.
     RangeProgress selected_cards {};
-    template<class Self, class Visit> static void visit_sequences(Self& r, Visit visit) noexcept {
+    bool selection_requested = false;
+    InlineSequence<PendingChoice, 1> pending_choices {};
+    InlineSequence<std::uint32_t, 2> pending_choice_order {};
+    InlineSequence<DetachmentBoundary, 2> detachment_boundaries {};
+    std::uint32_t active_choice = 0; // Slot + 1; zero is ordinary execution.
+    std::uint32_t waiting_join = 0;
+    std::uint32_t next_frame_join = 1;
+    template<class Self, class Owner, class Visit> static void visit_sequences(Self& r, Owner& owner, Visit visit) noexcept {
         visit(r.cards.slots); visit(r.cards.free); visit(r.card_extra); visit(r.enchantment_runtime); visit(r.cost_modifiers);
         for (auto& zone : r.zones) visit(zone);
         visit(r.execution); visit(r.enemy_turn_order); visit(r.selection_candidates);
         visit(r.captured_hook_listeners); visit(r.continuation_cards);
+        visit(r.pending_choices); visit(r.pending_choice_order); visit(r.detachment_boundaries);
+        // Validate the outer sequence before dereferencing nested storage.
+        if (r.pending_choices.valid(owner)) for (auto& entry : r.pending_choices.values(owner)) {
+            visit(entry.frames); visit(entry.listeners); visit(entry.cards);
+            visit(entry.detachment_boundaries);
+        }
     }
-    template<class Visit> void for_each_sequence(Visit visit) const noexcept { visit_sequences(*this, visit); }
-    template<class Visit> void for_each_sequence(Visit visit) noexcept { visit_sequences(*this, visit); }
+    template<class Visit> void for_each_sequence(const OverflowStorage& owner, Visit visit) const noexcept { visit_sequences(*this, owner, visit); }
+    template<class Visit> void for_each_sequence(OverflowStorage& owner, Visit visit) noexcept { visit_sequences(*this, owner, visit); }
 };
 static_assert(std::is_trivially_copyable_v<CombatData>);
 struct RunState;
@@ -92,6 +106,7 @@ struct CombatConfig {
     std::int32_t player_max_hp = 80;
     std::int32_t enemy_hp = 0; // Zero rolls each enemy's native A0 HP range.
     bool burning_blood = true;
+    bool gremlin_horn = false;
     bool centennial_puzzle = false;
     std::uint32_t enemy_count = 1; // Legacy authored override: 2 duplicates Shrinker; other encounters use their composition.
     std::uint32_t card_generation = 1;

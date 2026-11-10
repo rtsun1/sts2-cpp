@@ -20,6 +20,12 @@ finish before its parent continues is therefore unsafe beyond the ordinary
 await-to-completion paths. The exact runtime ordering of the complete
 Speedster/Gremlin Horn/Stratagem chain remains unrecorded.
 
+A subsequent [runtime scenario trace](../../planning/detachment-scenario-handoff.md)
+now covers lethal Strike and Dagger Throw with Gremlin Horn/Stratagem. It confirms
+death cleanup before Horn's choice and establishes ordinary caller-choice priority
+before queued hook activation. Its local-only input seam and supported scope are
+recorded there; the complete Speedster chain remains outside that evidence.
+
 ## Artifact identity and validation
 
 - Artifact: installed `data_sts2_windows_x86_64/sts2.dll`.

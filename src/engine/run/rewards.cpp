@@ -25,7 +25,8 @@ StepResult generate_combat_rewards_impl(RunState& run) {
     if (!character) return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
     if constexpr (CheckSupport) {
         for (auto id : run.relics()) if (SetupRules::name(id) != "RELIC.BURNING_BLOOD" && SetupRules::name(id) != "RELIC.GOLDEN_PEARL" &&
-            SetupRules::name(id) != "RELIC.CHARONS_ASHES" && SetupRules::name(id) != "RELIC.JOSS_PAPER")
+            SetupRules::name(id) != "RELIC.CHARONS_ASHES" && SetupRules::name(id) != "RELIC.JOSS_PAPER" &&
+            SetupRules::name(id) != "RELIC.GREMLIN_HORN")
             return {StepStatus::unsupported_content, {}, Restriction::unsupported_setup};
     }
     try {

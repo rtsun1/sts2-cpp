@@ -16,15 +16,10 @@ HandlerResult dark_embrace_after_card_exhausted(RunState& state, HandlerProgress
 HandlerResult stratagem_after_shuffle(RunState& state, HandlerProgress& progress, int amount) {
     switch (progress.stage) {
     case 0: {
-        if (amount <= 0 || state.zone(Zone::draw).empty()) return HandlerResult::complete;
-        const auto count = std::min(static_cast<std::uint32_t>(amount), static_cast<std::uint32_t>(state.zone(Zone::draw).size()));
-        if (state.zone(Zone::draw).size() <= count) {
-            while (!state.zone(Zone::draw).empty()) add_to_hand(state, Zone::draw, state.zone(Zone::draw).front());
-            return HandlerResult::complete;
-        }
+        if (amount <= 0) return HandlerResult::complete;
+        const auto count = static_cast<std::uint32_t>(amount);
         progress.stage = 1;
-        request_selection(state, Zone::draw, count, count,
-            [](const RunState&, CardHandle) { return true; });
+        request_selection(state, Zone::draw, count, count);
         return HandlerResult::yield;
     }
     case 1: {
