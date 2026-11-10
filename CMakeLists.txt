@@ -30,6 +30,7 @@ add_library(sts2_engine
   src/engine/mechanics/exhaust.cpp
   src/engine/mechanics/shuffle.cpp
   src/engine/mechanics/damage.cpp
+  src/engine/mechanics/death.cpp
   src/engine/mechanics/energy.cpp
   src/engine/mechanics/powers.cpp
   src/engine/run/initialize.cpp
@@ -142,6 +143,7 @@ if(BUILD_TESTING)
     KERNEL_RUN_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/parity/fixtures/reference/run-death/states.json"
     KERNEL_MAP_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/maps-v1.json"
     KERNEL_RNG_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/kernel-rng-v1.json"
+    KERNEL_DETACHMENT_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/death-detachment-native-v1.json"
     KERNEL_SURVIVOR_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/kernel-survivor-v1.json"
     KERNEL_COMBAT_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/parity/fixtures/reference/combat-victory/states.json"
     KERNEL_COMBAT_ACTIONS="${CMAKE_CURRENT_SOURCE_DIR}/tests/parity/fixtures/reference/combat-victory/actions.json")

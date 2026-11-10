@@ -10,6 +10,9 @@ std::uint32_t apply_power(RunState& s, Scratch& scratch, PowerId id, int amount,
     auto* recipient = target.present() ? s.creature(target) : (enemy ? &s.enemy() : &s.player());
     if (!recipient) throw std::invalid_argument("Stale power target");
     const auto owner_handle = s.creature_handle(*recipient);
+    // Native PowerCmd ignores a creature whose combat membership ended at death.
+    // A living retained identity can still be the target of an existing effect.
+    if (owner_handle != s.data.player && recipient->hp == 0 && !s.is_enemy(owner_handle)) return UINT32_MAX;
     auto& creature = *recipient;
     if (!has_applier) applier = {};
     if (has_applier && !applier.present()) applier = applier_enemy ? s.enemy_handle() : s.data.player;

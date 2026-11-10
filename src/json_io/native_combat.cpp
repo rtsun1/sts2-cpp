@@ -32,6 +32,7 @@ Json variables(const CombatCard& c) {
     case CardId::shockwave: return {{"Power", c.upgraded ? 5 : 3}};
     case CardId::tremble: return {{"VulnerablePower", c.upgraded ? 4 : 3}};
     case CardId::uppercut: return {{"Damage", 13}, {"Power", c.upgraded ? 2 : 1}};
+    case CardId::dagger_throw: return {{"Damage", c.upgraded ? 12 : 9}};
     case CardId::count: break;
     }
     throw std::invalid_argument("Unsupported card variables");

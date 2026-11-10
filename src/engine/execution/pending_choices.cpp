@@ -122,11 +122,10 @@ bool advance_pending_choices(RunState& state) {
         if (!state.detachment_boundaries().empty()) {
             const auto boundary = state.detachment_boundaries().back();
             park_choice(state, boundary.depth, boundary.join);
-        } else if (!state.combat().active_choice && !state.pending_choice_order().empty()) {
-            // An ordinary blocking choice follows older detached work. Park its
-            // whole group and present the older choice first.
-            park_choice(state, group_base(state), 0);
         } else {
+            // The executing action retains priority through its own ordinary
+            // choices. Detached hook actions wait until this group completes
+            // or reaches an explicit join; FIFO orders their later activation.
             return present_selection(state, Ruleset::pinned());
         }
     }

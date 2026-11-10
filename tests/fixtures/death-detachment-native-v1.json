@@ -1,0 +1,714 @@
+{
+  "profile": "native-death-detachment-v1",
+  "cases": [
+    {
+      "case_name": "strike",
+      "observations": [
+        {
+          "stage": "horn-choice",
+          "action_completed": true,
+          "action_exception": null,
+          "energy": 3,
+          "native_hook_actions": [
+            {
+              "hook_id": 0,
+              "source": "RELIC.GREMLIN_HORN",
+              "task_completed": false,
+              "action_completed": false
+            }
+          ],
+          "victim_member": false,
+          "victim_hp": 0,
+          "victim_powers": 0,
+          "enemies": [
+            40
+          ],
+          "piles": [
+            {
+              "zone": "Hand",
+              "cards": []
+            },
+            {
+              "zone": "Draw",
+              "cards": [
+                3,
+                1,
+                8,
+                9,
+                5,
+                4,
+                6,
+                2,
+                7
+              ]
+            },
+            {
+              "zone": "Discard",
+              "cards": [
+                0
+              ]
+            },
+            {
+              "zone": "Exhaust",
+              "cards": []
+            },
+            {
+              "zone": "Play",
+              "cards": []
+            }
+          ],
+          "current_action": null,
+          "hook_task_completed": null,
+          "candidates": [
+            3,
+            1,
+            8,
+            9,
+            5,
+            4,
+            6,
+            2,
+            7
+          ],
+          "minimum": 1,
+          "maximum": 1,
+          "draw_order": [
+            3,
+            1,
+            8,
+            9,
+            5,
+            4,
+            6,
+            2,
+            7
+          ],
+          "cards": [
+            {
+              "index": 0,
+              "id": "CARD.STRIKE_IRONCLAD",
+              "deck_index": 0
+            },
+            {
+              "index": 1,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 1
+            },
+            {
+              "index": 2,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 2
+            },
+            {
+              "index": 3,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 3
+            },
+            {
+              "index": 4,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 4
+            },
+            {
+              "index": 5,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 5
+            },
+            {
+              "index": 6,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 6
+            },
+            {
+              "index": 7,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 7
+            },
+            {
+              "index": 8,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 8
+            },
+            {
+              "index": 9,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 9
+            }
+          ]
+        },
+        {
+          "stage": "complete",
+          "action_completed": true,
+          "action_exception": null,
+          "energy": 3,
+          "native_hook_actions": [
+            {
+              "hook_id": 0,
+              "source": "RELIC.GREMLIN_HORN",
+              "task_completed": true,
+              "action_completed": true
+            }
+          ],
+          "victim_member": false,
+          "victim_hp": 0,
+          "victim_powers": 0,
+          "enemies": [
+            40
+          ],
+          "piles": [
+            {
+              "zone": "Hand",
+              "cards": [
+                3,
+                1
+              ]
+            },
+            {
+              "zone": "Draw",
+              "cards": [
+                8,
+                9,
+                5,
+                4,
+                6,
+                2,
+                7
+              ]
+            },
+            {
+              "zone": "Discard",
+              "cards": [
+                0
+              ]
+            },
+            {
+              "zone": "Exhaust",
+              "cards": []
+            },
+            {
+              "zone": "Play",
+              "cards": []
+            }
+          ],
+          "current_action": null,
+          "hook_task_completed": null,
+          "candidates": [
+            3,
+            1,
+            8,
+            9,
+            5,
+            4,
+            6,
+            2,
+            7
+          ],
+          "minimum": 1,
+          "maximum": 1,
+          "draw_order": [
+            8,
+            9,
+            5,
+            4,
+            6,
+            2,
+            7
+          ],
+          "cards": [
+            {
+              "index": 0,
+              "id": "CARD.STRIKE_IRONCLAD",
+              "deck_index": 0
+            },
+            {
+              "index": 1,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 1
+            },
+            {
+              "index": 2,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 2
+            },
+            {
+              "index": 3,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 3
+            },
+            {
+              "index": 4,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 4
+            },
+            {
+              "index": 5,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 5
+            },
+            {
+              "index": 6,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 6
+            },
+            {
+              "index": 7,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 7
+            },
+            {
+              "index": 8,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 8
+            },
+            {
+              "index": 9,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 9
+            }
+          ]
+        }
+      ],
+      "assembly_mvid": "73b63ee0-6c0a-47bb-b0d1-b21f6d94222e",
+      "runtime_version": "9.0.4",
+      "framework": ".NET 9.0.4"
+    },
+    {
+      "case_name": "dagger-throw",
+      "observations": [
+        {
+          "stage": "caller-choice",
+          "action_completed": false,
+          "action_exception": null,
+          "energy": 3,
+          "native_hook_actions": [
+            {
+              "hook_id": 0,
+              "source": "RELIC.GREMLIN_HORN",
+              "task_completed": false,
+              "action_completed": false
+            }
+          ],
+          "victim_member": false,
+          "victim_hp": 0,
+          "victim_powers": 0,
+          "enemies": [
+            40
+          ],
+          "piles": [
+            {
+              "zone": "Hand",
+              "cards": [
+                1,
+                2
+              ]
+            },
+            {
+              "zone": "Draw",
+              "cards": [
+                8,
+                9,
+                5,
+                4,
+                6,
+                3,
+                7
+              ]
+            },
+            {
+              "zone": "Discard",
+              "cards": []
+            },
+            {
+              "zone": "Exhaust",
+              "cards": []
+            },
+            {
+              "zone": "Play",
+              "cards": [
+                0
+              ]
+            }
+          ],
+          "current_action": null,
+          "hook_task_completed": null,
+          "candidates": [
+            1,
+            2
+          ],
+          "minimum": 1,
+          "maximum": 1,
+          "draw_order": [
+            8,
+            9,
+            5,
+            4,
+            6,
+            3,
+            7
+          ],
+          "cards": [
+            {
+              "index": 0,
+              "id": "CARD.DAGGER_THROW",
+              "deck_index": 0
+            },
+            {
+              "index": 1,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 1
+            },
+            {
+              "index": 2,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 2
+            },
+            {
+              "index": 3,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 3
+            },
+            {
+              "index": 4,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 4
+            },
+            {
+              "index": 5,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 5
+            },
+            {
+              "index": 6,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 6
+            },
+            {
+              "index": 7,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 7
+            },
+            {
+              "index": 8,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 8
+            },
+            {
+              "index": 9,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 9
+            }
+          ]
+        },
+        {
+          "stage": "horn-choice",
+          "action_completed": true,
+          "action_exception": null,
+          "energy": 3,
+          "native_hook_actions": [
+            {
+              "hook_id": 0,
+              "source": "RELIC.GREMLIN_HORN",
+              "task_completed": false,
+              "action_completed": false
+            }
+          ],
+          "victim_member": false,
+          "victim_hp": 0,
+          "victim_powers": 0,
+          "enemies": [
+            40
+          ],
+          "piles": [
+            {
+              "zone": "Hand",
+              "cards": [
+                2
+              ]
+            },
+            {
+              "zone": "Draw",
+              "cards": [
+                8,
+                9,
+                5,
+                4,
+                6,
+                3,
+                7
+              ]
+            },
+            {
+              "zone": "Discard",
+              "cards": [
+                1,
+                0
+              ]
+            },
+            {
+              "zone": "Exhaust",
+              "cards": []
+            },
+            {
+              "zone": "Play",
+              "cards": []
+            }
+          ],
+          "current_action": null,
+          "hook_task_completed": null,
+          "candidates": [
+            8,
+            9,
+            5,
+            4,
+            6,
+            3,
+            7
+          ],
+          "minimum": 1,
+          "maximum": 1,
+          "draw_order": [
+            8,
+            9,
+            5,
+            4,
+            6,
+            3,
+            7
+          ],
+          "cards": [
+            {
+              "index": 0,
+              "id": "CARD.DAGGER_THROW",
+              "deck_index": 0
+            },
+            {
+              "index": 1,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 1
+            },
+            {
+              "index": 2,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 2
+            },
+            {
+              "index": 3,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 3
+            },
+            {
+              "index": 4,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 4
+            },
+            {
+              "index": 5,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 5
+            },
+            {
+              "index": 6,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 6
+            },
+            {
+              "index": 7,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 7
+            },
+            {
+              "index": 8,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 8
+            },
+            {
+              "index": 9,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 9
+            }
+          ]
+        },
+        {
+          "stage": "complete",
+          "action_completed": true,
+          "action_exception": null,
+          "energy": 3,
+          "native_hook_actions": [
+            {
+              "hook_id": 0,
+              "source": "RELIC.GREMLIN_HORN",
+              "task_completed": true,
+              "action_completed": true
+            }
+          ],
+          "victim_member": false,
+          "victim_hp": 0,
+          "victim_powers": 0,
+          "enemies": [
+            40
+          ],
+          "piles": [
+            {
+              "zone": "Hand",
+              "cards": [
+                2,
+                8,
+                9
+              ]
+            },
+            {
+              "zone": "Draw",
+              "cards": [
+                5,
+                4,
+                6,
+                3,
+                7
+              ]
+            },
+            {
+              "zone": "Discard",
+              "cards": [
+                1,
+                0
+              ]
+            },
+            {
+              "zone": "Exhaust",
+              "cards": []
+            },
+            {
+              "zone": "Play",
+              "cards": []
+            }
+          ],
+          "current_action": null,
+          "hook_task_completed": null,
+          "candidates": [
+            8,
+            9,
+            5,
+            4,
+            6,
+            3,
+            7
+          ],
+          "minimum": 1,
+          "maximum": 1,
+          "draw_order": [
+            5,
+            4,
+            6,
+            3,
+            7
+          ],
+          "cards": [
+            {
+              "index": 0,
+              "id": "CARD.DAGGER_THROW",
+              "deck_index": 0
+            },
+            {
+              "index": 1,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 1
+            },
+            {
+              "index": 2,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 2
+            },
+            {
+              "index": 3,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 3
+            },
+            {
+              "index": 4,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 4
+            },
+            {
+              "index": 5,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 5
+            },
+            {
+              "index": 6,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 6
+            },
+            {
+              "index": 7,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 7
+            },
+            {
+              "index": 8,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 8
+            },
+            {
+              "index": 9,
+              "id": "CARD.DEFEND_IRONCLAD",
+              "deck_index": 9
+            }
+          ]
+        }
+      ],
+      "assembly_mvid": "73b63ee0-6c0a-47bb-b0d1-b21f6d94222e",
+      "runtime_version": "9.0.4",
+      "framework": ".NET 9.0.4"
+    }
+  ],
+  "independent_native_repeat": "passed",
+  "game_dll_sha256": "0861bfa1df347538d932f22d580e75420f08082792eb914e53b4882764acdbe9",
+  "game_pack_sha256": "c60f672ee7804e6aefa1e19a582fa1c80b126a7b0eef4d084d3abf110df2eab7",
+  "godot_sha256": "cf499495ba071c5974e68602f14da9860269cc73bda7dc495ff28128e7972b64",
+  "runner_sha256": "f5c01cdf3ba66ecc8bf5bad07eeca545d440e59f1c2c9102af25fa9396a47921",
+  "logs_sha256": {
+    "build.log": "7124cce54193ada8a3aa94c0cd738d71655215076933f1c0f6e2ce8aeda508cd",
+    "dagger-throw-0.log": "129d6c5e9eb996f1d0400b1ef3deead22aa9bf0ec0cb9c31f14f2b6ce80510cf",
+    "dagger-throw-1.log": "129d6c5e9eb996f1d0400b1ef3deead22aa9bf0ec0cb9c31f14f2b6ce80510cf",
+    "strike-0.log": "a926d9595ac5c7924032ed5976a760b512aae78264c0cfa0b60c7260706ba57d",
+    "strike-1.log": "a926d9595ac5c7924032ed5976a760b512aae78264c0cfa0b60c7260706ba57d"
+  },
+  "probe_sources_sha256": {
+    "NativeBootstrap.cs": "8a09f8de39d846eaadb37ef99352bf38df08d38030085fcc9539faf5588699e1",
+    "NuGet.Config": "b4707d7d47ecf483db9ef8ec5a96f18febc6a6e24b95935310cb2d0d8d60da75",
+    "Probe.cs": "859dd2eb9862b1e2350b8b28c1555cd41d531b614ef947d6042c7b996c44eb61",
+    "Probe.csproj": "6704392dfb6620db8e79068a8cffc4326e1d8181da95a25dd621db6d131962b6",
+    "Probe.tscn": "1699a74ac6e216f6aa1b4faf9944639aad0a2265cdcb22e08308bb8e73dd839e",
+    "README.md": "0b5c33df4ba13c709673f655aaadb3ad2235aa297a8ba6f3914cd99a49d9e035",
+    "project.godot": "2aec1ee68dfd4595a53f1c857cb60f365f9b28a83e9acd2a87543c39be2f5e90"
+  },
+  "shutdown_allocation_diagnostics": {
+    "strike-0.log": [],
+    "strike-1.log": [],
+    "dagger-throw-0.log": [],
+    "dagger-throw-1.log": []
+  },
+  "input_provider": "CardSelectCmd.UseSelector(input, localOnly:true)",
+  "setup": {
+    "seed": "ORACLECHECK01",
+    "deck": "source card then nine DefendIronclad",
+    "enemies": [
+      {
+        "max_hp": 40,
+        "hp": 6
+      },
+      {
+        "max_hp": 40,
+        "hp": 40
+      }
+    ],
+    "relic": "GremlinHorn",
+    "power": "StratagemPower:1"
+  },
+  "limits": [
+    "Runs the pinned native models and real PlayCardAction, ActionQueueSet, HookPlayerChoiceContext and GenericHookGameAction in Godot with native TestMode setup.",
+    "The local-only input provider preserves native choice signalling and queued execution. It bypasses UI callbacks and network SyncLocalChoice; no UI or network parity is claimed.",
+    "Game presentation nodes are absent. Native TestMode and AutoSlayerCheck suppress presentation waits.",
+    "This is an explicit scheduling trace, not a canonical native JSON export or whole-state parity recording."
+  ]
+}

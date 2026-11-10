@@ -73,7 +73,14 @@ struct EnemyAttackFrame {
     EnemyAttackPhase phase = EnemyAttackPhase::damage;
     friend bool operator==(const EnemyAttackFrame&, const EnemyAttackFrame&) = default;
 };
-using ExecutionFrame = std::variant<CardProgramFrame, DrawFrame, ExhaustCardsFrame, ShuffleFrame, EnemyTurnFrame, EnemyAttackFrame>;
+// Death owns dispatch progress; a pause-or-completion listener owns all of its
+// unfinished work in a child frame, never in this continuing caller.
+struct DeathFrame {
+    RangeProgress listeners {};
+    CreatureHandle target {};
+    friend bool operator==(const DeathFrame&, const DeathFrame&) = default;
+};
+using ExecutionFrame = std::variant<CardProgramFrame, DrawFrame, ExhaustCardsFrame, ShuffleFrame, EnemyTurnFrame, EnemyAttackFrame, DeathFrame>;
 static_assert(std::is_trivially_copyable_v<ExecutionFrame>);
 enum class SelectionEligibility : std::uint8_t { all, upgradable };
 struct CardSelection {
@@ -84,7 +91,7 @@ struct CardSelection {
     friend bool operator==(const CardSelection&, const CardSelection&) = default;
 };
 // Captured candidates refer to existing content instances, not a registration pool.
-enum class HookHandler : std::uint8_t { dark_embrace, stratagem, charons_ashes, joss_paper, centennial_puzzle };
+enum class HookHandler : std::uint8_t { dark_embrace, stratagem, charons_ashes, joss_paper, centennial_puzzle, gremlin_horn };
 struct HookListener {
     CreatureHandle owner {};
     std::uint32_t power_instance = UINT32_MAX;

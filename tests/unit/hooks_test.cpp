@@ -96,15 +96,20 @@ TEST(HookDispatch, StratagemOffersSortedCandidatesWithoutReorderingTheDrawPile) 
     EXPECT_TRUE(valid_combat(state));
 }
 
-TEST(HookDispatch, StratagemPromptRejectsAlteredSelectionCounts) {
-    RunState state; Scratch scratch;
-    scenario::prepare_exhaust_shuffle(state);
-    exhaust_into_shuffle(state, scratch);
-    auto& combat = state;
-    combat.combat().selection.minimum = combat.combat().selection.maximum = 2;
-    EXPECT_FALSE(valid_run(state));
-    EXPECT_THROW(checkpoint(state), std::invalid_argument);
-    EXPECT_TRUE(get_actions(state).empty());
+TEST(HookDispatch, StratagemPromptRejectsMalformedSelectionCounts) {
+    RunState root; Scratch scratch;
+    scenario::prepare_exhaust_shuffle(root);
+    exhaust_into_shuffle(root, scratch);
+    for (unsigned corruption = 0; corruption < 3; ++corruption) {
+        RunState state = root;
+        auto& prompt = state.combat().selection;
+        if (corruption == 0) prompt.minimum = prompt.maximum = 0;
+        else if (corruption == 1) prompt.maximum = prompt.minimum + 1;
+        else prompt.minimum = prompt.maximum = static_cast<std::uint32_t>(state.selection_candidates().size());
+        EXPECT_FALSE(valid_run(state));
+        EXPECT_THROW(checkpoint(state), std::invalid_argument);
+        EXPECT_TRUE(get_actions(state).empty());
+    }
 }
 
 TEST(HookDispatch, StratagemRunsAgainOnTheNextShuffle) {
@@ -395,4 +400,32 @@ TEST(ExecutionFrames, CompletionSurvivesChildRelocatingTheExecutionStack) {
     EXPECT_TRUE(combat.execution().empty());
     EXPECT_TRUE(valid_combat(state));
 }
+
+TEST(HookDispatch, GremlinHornRejectsUnauditedMultiTargetDeathSetup) {
+    const std::array relics{ExhaustRelic::charons_ashes};
+    CombatConfig config; config.gremlin_horn = true; config.exhaust_relics = relics;
+    RunState state; Scratch scratch;
+    const auto result = initialize_combat(state, config, scratch);
+    EXPECT_EQ(result.status, StepStatus::unsupported_content);
+    EXPECT_EQ(result.reason, Restriction::unsupported_setup);
+    EXPECT_EQ(state.data.phase, RunPhase::uninitialized);
+}
+
+TEST(HookDispatch, GremlinHornEnergyCapacityFailureIsReportedThroughPublicAction) {
+    const std::array deck{CardSpec{CardId::strike}};
+    CombatConfig config; config.gremlin_horn = true; config.enemy_count = 2;
+    config.enemy_hp = 6; config.deck = deck;
+    RunState state; Scratch scratch;
+    ASSERT_EQ(initialize_combat(state, config, scratch).status, StepStatus::awaiting_input);
+    const auto strike = state.zone(Zone::hand).front();
+    state.cost_modifiers().push_back({strike, CostModifierKind::absolute, CostExpiry::combat, 0});
+    state.combat().energy = INT32_MAX;
+    ASSERT_TRUE(valid_run(state));
+    const auto result = apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, strike, state.enemy_handle()}, scratch);
+    EXPECT_EQ(result.status, StepStatus::resource_limit);
+    EXPECT_EQ(result.reason, Restriction::capacity);
+    EXPECT_EQ(state.combat().energy, INT32_MAX);
+    EXPECT_EQ(state.combat().phase, CombatPhase::invalid);
+}
+
 }

@@ -112,7 +112,7 @@ std::uint64_t checksum(std::span<const std::byte> bytes) { return game_hash({rei
 }
 Checkpoint checkpoint(const RunState& run) {
     if (!valid_run(run)) throw std::invalid_argument("Cannot checkpoint invalid run");
-    Writer w; w.text("STS2RUN1"); w.u32(23); w.u32(rules_revision); w.text(game_digest); w.text(SetupRules::fingerprint()); w.u64(content_fingerprint());
+    Writer w; w.text("STS2RUN1"); w.u32(24); w.u32(rules_revision); w.text(game_digest); w.text(SetupRules::fingerprint()); w.u64(content_fingerprint());
     w.u32(run.creatures().data.highest_generation);
     w.u32(static_cast<std::uint32_t>(run.creatures().slots().size()));
     for (const auto& slot : run.creatures().slots()) { w.u32(slot.generation); w.u8(slot.live); w.creature(slot.value, run.overflow); }
@@ -162,7 +162,7 @@ RestoreStatus restore(RunState& destination, std::span<const std::byte> bytes, S
         Reader trailer{bytes.last(8)}; if (trailer.u64() != checksum(bytes.first(bytes.size() - 8))) return RestoreStatus::malformed;
         Reader r{bytes.first(bytes.size() - 8)};
         for (char c : std::string_view("STS2RUN1")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
-        if (r.u32() != 23 || r.u32() != rules_revision) return RestoreStatus::incompatible;
+        if (r.u32() != 24 || r.u32() != rules_revision) return RestoreStatus::incompatible;
         for (const auto identity : {game_digest, SetupRules::fingerprint()}) for (char c : identity)
             if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
         if (r.u64() != content_fingerprint()) return RestoreStatus::incompatible;

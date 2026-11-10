@@ -51,6 +51,12 @@ bool valid_frame_group(const RunState& state, const Ruleset& rules, std::span<co
                 !prompt)) return false;
             for (std::uint32_t i = 0; i < shuffle->listeners.count; ++i)
                 if (listeners[shuffle->listeners.begin + i].handler != HookHandler::stratagem) return false;
+        } else if (const auto* death = std::get_if<DeathFrame>(&frame)) {
+            const auto* target = state.creature(death->target);
+            if (!state.combat().gremlin_horn || !target || !state.is_enemy(death->target) || target->hp != 0 ||
+                !range_valid(death->listeners, listeners.size(), captured_end)) return false;
+            for (std::uint32_t i = 0; i < death->listeners.count; ++i)
+                if (listeners[death->listeners.begin + i].handler != HookHandler::gremlin_horn) return false;
         } else if (const auto* turn = std::get_if<EnemyTurnFrame>(&frame)) {
             if (enemy_turn || &frame != &frames.front() || !state.combat().enemy_side ||
                 turn->phase > EnemyTurnPhase::finish || turn->cursor > state.enemy_turn_order().size() ||
@@ -80,7 +86,7 @@ bool valid_frame_group(const RunState& state, const Ruleset& rules, std::span<co
     if (captured_end != listeners.size() || cards_end != cards.size()) return false;
     for (auto card : cards) if (!state.cards().get(card)) return false;
     for (const auto& listener : listeners) {
-        if (!listener.owner.present() || listener.handler > HookHandler::centennial_puzzle) return false;
+        if (!listener.owner.present() || listener.handler > HookHandler::gremlin_horn) return false;
         const bool power = listener.handler == HookHandler::dark_embrace || listener.handler == HookHandler::stratagem;
         if (power ? listener.power_instance >= state.combat().next_power_instance : listener.power_instance != UINT32_MAX) return false;
         if (listener.removed_power_amount < -999999999 || listener.removed_power_amount > 999999999) return false;
@@ -108,9 +114,11 @@ bool valid_continuations(const RunState& state, const Ruleset& rules) noexcept {
         state.combat().next_frame_join == 0) return false;
     const auto entries = state.pending_choices();
     const auto order = state.pending_choice_order();
-    if (state.combat().active_choice > entries.size() ||
-        (!state.combat().active_choice && !order.empty())) return false;
-    for (auto slot : order) {
+    if (state.combat().active_choice > entries.size()) return false;
+    // An ordinary root action may publish its own choice while detached hook
+    // actions are pending. FIFO constrains activation of queued groups, not
+    // the executing caller's ordinary choice.
+    if (state.combat().active_choice) for (auto slot : order) {
         if (slot == state.combat().active_choice) break;
         if (slot != 0 && slot <= entries.size() && entries[slot - 1].phase == PendingChoicePhase::pending) return false;
     }
@@ -137,7 +145,7 @@ bool valid_continuations(const RunState& state, const Ruleset& rules) noexcept {
             const auto listeners = entry.listeners.values(state.combat_overflow);
             if (frames.empty() || entry.depth || entry.previous || entry.waiting_join ||
                 !valid_frame_group(state, rules, frames, listeners, entry.cards.values(state.combat_overflow), true) ||
-                !valid_frame_selection(state, rules, frames, listeners, entry.selection, {}, true, true) ||
+                !valid_frame_selection(state, rules, frames, listeners, entry.selection, {}, true) ||
                 !valid_detachment_boundaries(state, entry.detachment_boundaries.values(state.combat_overflow), 0, frames.size())) return false;
             count_turns(frames);
         } else if (!entry.frames.empty() || entry.selection != CardSelection{}) return false;
@@ -158,7 +166,7 @@ bool valid_continuations(const RunState& state, const Ruleset& rules) noexcept {
         if (base > end || !valid_frame_group(state, rules, frames.subspan(base, end - base), listeners, cards, top && state.combat().phase == CombatPhase::card_choice) ||
             !valid_detachment_boundaries(state, boundaries, base, end)) return false;
         if (top && state.combat().phase == CombatPhase::card_choice &&
-            !valid_frame_selection(state, rules, frames.subspan(base, end - base), listeners, state.combat().selection, state.selection_candidates(), slot != 0)) return false;
+            !valid_frame_selection(state, rules, frames.subspan(base, end - base), listeners, state.combat().selection, state.selection_candidates())) return false;
         if (!slot) break;
         const auto& entry = entries[slot - 1];
         end = base; listeners = entry.listeners.values(state.combat_overflow); cards = entry.cards.values(state.combat_overflow);

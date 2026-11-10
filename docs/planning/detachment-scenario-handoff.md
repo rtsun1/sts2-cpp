@@ -1,66 +1,132 @@
-# Next slice: a real gameplay detachment scenario
+# Gameplay detachment scenario handoff
 
-The frame infrastructure is implemented on `feat/detached-execution`. No supported
-production hook currently opens a detachment boundary. Existing tests explicitly
-mark boundaries around real draw/shuffle/exhaust operations; they establish frame
-machinery behavior, not native gameplay scheduling parity.
+Implemented and native-traced on `feat/detached-execution`: a lethal direct card
+hit with a surviving enemy, Gremlin Horn, Stratagem, an empty draw pile and enough
+discarded cards to require selection. Dagger Throw adds a second outstanding
+choice and establishes the executing caller's priority over its queued hook.
 
-Start with [module ownership and detached groups](../specs/engine/hooks.md#detached-frame-groups),
-[validation ownership](../specs/engine/public-run-loop.md#validation-ownership), and
-the [pinned frame semantics audit](../specs/engine/frame-semantics-audit.md).
+## Native evidence
 
-## Smallest useful scenario
+The pinned game is `0.111.0`, assembly SHA-256
+`0861bfa1df347538d932f22d580e75420f08082792eb914e53b4882764acdbe9`,
+MVID `73b63ee0-6c0a-47bb-b0d1-b21f6d94222e`. Both native scenarios ran twice in
+independently initialized Godot 4.5.1 Mono processes with identical observations.
 
-Audit and implement a lethal hit against one enemy while another enemy survives,
-with Gremlin Horn, Stratagem, an empty draw pile and enough discarded cards to
-require a selection. Gremlin Horn's draw should reach Stratagem through shuffle.
-Use the existing two-enemy setup patterns in `tests/unit/multi_creature_test.cpp`.
-Try this before adding Speedster or multiple simultaneous deaths.
+- [Retained trace](../../tests/fixtures/death-detachment-native-v1.json): ordered
+  card identities, candidates, bounds, energy, enemy membership/HP/powers, caller
+  completion and the retained native hook task/action at each boundary. Includes
+  assembly, resource-pack, Godot, source and log hashes, plus .NET runtime identity.
+- [Probe and reproduction instructions](../../tools/oracle/native_detachment_probe/README.md).
+- Runner: `tools/oracle/check_native_detachment.py`. Raw logs and copied sources:
+  `/tmp/detachment-native/final-trace-v2/`.
+- Static frame semantics: [pinned audit](../specs/engine/frame-semantics-audit.md).
+  Fresh focused reconstruction is retained in `/tmp/detachment-native/decompiled/`.
 
-Confirm the exact caller progress and choice timing in the pinned build
-`0.111.0`, assembly SHA-256
-`0861bfa1df347538d932f22d580e75420f08082792eb914e53b4882764acdbe9`.
-The audit identifies `Hook.AfterDeath` as pause-or-completion and Gremlin Horn as
-an awaited draw inside that listener. Capture a native trace/recording showing
-which death cleanup or caller effects occur before the choice is presented.
-Do not assume an exact event order from the illustrative scenario alone.
+The trace uses actual native `PlayCardAction`, `ActionQueueSet`,
+`HookPlayerChoiceContext`, and `GenericHookGameAction`. The local-only input
+provider runs after native choice-begun signalling and live candidate capture;
+choice-ended signalling and action resumption also execute. Native `TestMode` and
+`AutoSlayerCheck` suppress presentation work; presentation nodes are absent. UI
+callbacks, network `SyncLocalChoice`, wall-clock and whole-game startup are outside
+this trace. The ordinary global test selector bypasses the required signalling
+and is not used here.
 
-## Integration points
+## Observed caller and choice timing
 
-- Content owns Gremlin Horn's conditions and effects; hooks owns native listener
-  order and eligibility. Mechanics owns resumable damage/death processing.
-- Record caller progress before `begin_detachable_frames`, then push the complete
-  child group. All unfinished handler work must belong to those child frames;
-  leaving its saved stage in the continuing caller is unsafe. Existing operation
-  frames embed handler progress, so identify that ownership before choosing the
-  death-frame layout. Do not add a generic hook-frame abstraction or scheduler.
-- `pending_choices.cpp` parks/restores frames and operand arenas. An active entry
-  retains its FIFO position, base depth and previous active entry until completion.
-- `request_selection` only saves zone, eligibility, bounds and identity.
-  `present_selection` builds candidates from the live state and handles automatic
-  answers. Effects remain with the requester, which consumes the answer before
-  yielding or transfers its operands to an owning frame.
-- Add join bookkeeping only at a native-proven join. Keep integrity/legality checks
-  at checked boundaries or behind `STS2_DEFENSIVE_VALIDATION`; retain resource
-  handling and gameplay conditions on trusted execution.
+Both scenarios use seed `ORACLECHECK01`, source card at deck index 0, nine Defends,
+Gremlin Horn, Stratagem 1 and two beetles at HP 6/40 and 40/40. Strike starts alone
+in hand with nine Defends discarded. Dagger Throw also retains Defend 1 in hand,
+leaving eight discarded cards. Native initial shuffle/draw execute normally
+before this declared pile setup.
 
-## Acceptance evidence
+| Native boundary | Caller complete | Hand | Draw | Discard | Source |
+| --- | --- | ---: | ---: | ---: | --- |
+| Strike: Horn/Stratagem choice | yes | 0 | 9 | 1 | discard |
+| Strike: resumed completion | yes | 2 | 7 | 1 | discard |
+| Dagger Throw: caller discard choice | no | 2 | 7 | 0 | play |
+| Dagger Throw: Horn/Stratagem choice | yes | 1 | 7 | 2 | discard |
+| Dagger Throw: resumed completion | yes | 3 | 5 | 2 | discard |
 
-Drive the scenario through public actions, without test-only boundary marking or
-fixture handlers. Check state at the published choice: caller progress, energy,
-enemy membership, card piles, candidate order and saved frame progress. Compare
-those observations with the pinned native evidence. Then resolve the choice and
-verify the child resumes exactly once, with no repeated caller effects.
+Energy is 3 throughout these observations: the attack pays once and Horn grants
+once. The dead enemy has left native combat membership and has no powers at every
+published choice. Its surviving teammate remains at HP 40. Stratagem's selected
+card moves to hand before Horn's interrupted draw adds one more card.
 
-Clone and checkpoint at that choice; compare resumed checked/trusted futures and
-alternative legal answers. Cover combat-end cancellation and the relevant budget
-and allocation failures. Add a second queued choice after the first scenario
-works, checking that one group's completion preserves the other's operands.
-Native JSON export currently rejects detached groups; extend its mapping if the
-chosen parity-recording route needs it, or retain explicit trace evidence and
-state that limitation.
+Dagger Throw's ordinary discard choice belongs to the currently executing card
+action. That caller keeps priority until it finishes; the queued Horn action then
+presents its choice using the live draw pile. This runtime finding corrected the
+previous assumption that any older queued hook should precede an ordinary caller
+prompt. Each scenario enqueues exactly one native Horn action; its retained task
+and action are unfinished at the choices and complete at the final observation.
+Synthetic two-detached-group tests separately exercise queue storage and FIFO.
 
-Baseline: 341 Debug checks and 76 selected defensive checks passed. Run checkpoint
-revision is 23; combat payload revision is 6. Validation details and local log paths
-are recorded in `docs/specs/engine/hooks.md`. No rollout-throughput measurement or
-live detachment parity claim has been established.
+## Implementation and acceptance coverage
+
+[Module ownership](../specs/engine/hooks.md#module-ownership) and
+[validation ownership](../specs/engine/public-run-loop.md#validation-ownership)
+remain in force.
+
+- Content owns Horn's opposing-side condition, energy and draw. Hooks owns captured
+  listeners, eligibility, order and named handler selection. Mechanics owns
+  `DeathFrame`, cleanup and the detachment boundary. The listener cursor advances
+  before opening that boundary. Horn has no post-draw effect, so the draw owns all
+  remaining child work; no extra Horn frame, generic hook frame or join is needed.
+- Public actions drive the Strike and Dagger Throw scenarios without fixture
+  handlers or test-only boundary marking. `PublicStatesMatchThePinnedNativeQueueTrace`
+  compares every declared native boundary, ordered pile/candidate identities,
+  selection bounds, energy, membership, HP, powers and completion state.
+- Both Dagger Throw choices are cloned/checkpointed. Every legal answer is resumed
+  through checked and trusted execution. Completing the caller preserves Horn's
+  saved draw/shuffle operands; later child completion repeats no caller effect.
+- Budget sweeps before and after selection, large-pile allocation failures,
+  energy-capacity failure and inline-storage allocation checks pass. The common
+  Strike action, clone and answer require no overflow allocation.
+- A final lethal Dagger Throw ends combat without drawing or presenting a hand
+  prompt. Cancellation of an already active production-created group is also
+  tested at the lifecycle seam; no supported independent single-player effect
+  currently ends combat while that prompt is open.
+- The active queued entry retains its position, base depth and previous active
+  entry until completion. Ordinary caller choices keep their executing group's
+  priority; FIFO governs activation of queued groups after caller completion or
+  an explicit join. Generic two-detached-group tests mark both boundaries
+  explicitly and preserve independent arenas through clone/checkpoint.
+
+## Scope and compatibility
+
+Horn with Charon's Ashes is explicitly rejected at checked setup/support
+boundaries. Speedster, multi-target and simultaneous-death scheduling remain
+outside this slice. Existing no-Horn death behavior is unchanged. Dead enemies
+removed by cleanup cannot receive post-hit debuffs; living retained identities
+keep their existing targeting behavior. The last dead enemy remains the terminal
+representation's identity anchor until teardown.
+
+Native diagnostic JSON still rejects detached groups. The retained scheduling
+trace supplies the requested evidence without a full-state JSON parity claim.
+Run checkpoint revision is 24 and combat payload revision is 7; older revisions
+are rejected. The content fingerprint also records ordinary caller priority.
+No rollout-throughput measurement has been established.
+
+## Validation
+
+Native: Strike and Dagger Throw each passed two independent runs; build completed
+without warnings and runtime logs contain no gameplay/runtime errors. Both actual
+queued Horn actions and retained tasks completed once. Baseline real hand UI
+callbacks also passed independently in `/tmp/detachment-native/baseline-callback/`;
+those UI checks are separate from this trace's local-only input seam.
+
+Final C++ verification passed:
+
+- `cmake --build --preset debug --parallel 2`: successful, no compiler warnings.
+- `ctest --preset debug --parallel 2`: all **355 checks** passed, including
+  269 engine checks and 23 replay-parity checks.
+- The defensive build passed all **103 selected checks**, covering the original
+  handoff's card choices, operation frames, hooks, trusted actions and enemy turns,
+  plus multi-creature, retained-target and new detachment scenarios.
+- All 39 focused queue/hook/detachment checks passed; the pinned native comparison
+  checks every declared boundary from both traces.
+- `python3.12 -m py_compile tools/oracle/check_native_detachment.py` and
+  `git diff --check` passed.
+
+Logs are retained under `/tmp/detachment-native/`:
+`final-build.log`, `final-full.log`, `final-defensive-build.log`,
+`final-defensive-expanded.log`, and `final-focused.log`.

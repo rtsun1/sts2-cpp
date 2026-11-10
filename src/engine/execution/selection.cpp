@@ -98,11 +98,11 @@ bool valid_selection(const RunState& state, const Ruleset& rules) noexcept {
         return state.execution().empty() && state.zone(Zone::play).empty() &&
             state.combat().selection == CardSelection{} && state.selection_candidates().empty();
     return valid_frame_selection(state, rules, state.execution(), state.captured_hook_listeners(),
-        state.combat().selection, state.selection_candidates(), state.combat().active_choice != 0);
+        state.combat().selection, state.selection_candidates());
 }
 bool valid_frame_selection(const RunState& state, const Ruleset& rules, std::span<const ExecutionFrame> frames,
     std::span<const HookListener> listeners, const CardSelection& p, std::span<const CardHandle> candidates,
-    bool retained_bounds, bool pending) noexcept {
+    bool pending) noexcept {
     if (frames.empty() || p.id.value == 0 || p.id.value >= state.combat().next_prompt.value ||
         p.minimum > p.maximum || p.maximum == 0 || p.zone >= Zone::count || p.eligibility > SelectionEligibility::upgradable) return false;
     Zone zone = Zone::hand;
@@ -111,16 +111,17 @@ bool valid_frame_selection(const RunState& state, const Ruleset& rules, std::spa
     const auto& frame = frames.back();
     if (const auto* shuffle = std::get_if<ShuffleFrame>(&frame)) {
         if (shuffle->phase != ShufflePhase::hooks || shuffle->handler.stage != 1 ||
+            shuffle->listeners.begin > listeners.size() ||
+            shuffle->listeners.count > listeners.size() - shuffle->listeners.begin ||
             shuffle->listeners.cursor >= shuffle->listeners.count) return false;
         const auto& listener = listeners[shuffle->listeners.begin + shuffle->listeners.cursor];
-        if (listener.handler != HookHandler::stratagem) return false;
-        const auto* owner = state.creature(listener.owner);
-        const auto* power = owner ? owner->find_power_instance(listener.power_instance, state.overflow) : nullptr;
-        const auto amount = power ? power->amount : listener.removed_power_amount;
-        if (!retained_bounds && (amount <= 0 || static_cast<std::size_t>(amount) >= state.zone(Zone::draw).size())) return false;
+        if (listener.handler != HookHandler::stratagem || listener.owner != state.data.player ||
+            listener.power_instance >= state.combat().next_power_instance) return false;
+        // Request bounds are authoritative for ordinary and detached choices.
+        // Changing/removing the live power cannot rewrite an outstanding request.
+        if (p.minimum == 0 || p.minimum != p.maximum) return false;
         zone = Zone::draw;
-        minimum = maximum = retained_bounds ? p.minimum : static_cast<std::uint32_t>(amount);
-        if (minimum == 0) return false;
+        minimum = maximum = p.minimum;
     } else if (const auto* program = std::get_if<CardProgramFrame>(&frame)) {
         const auto* source = state.cards().get(program->source);
         const auto* definition = source ? rules.card(source->definition) : nullptr;
@@ -143,7 +144,7 @@ bool valid_frame_selection(const RunState& state, const Ruleset& rules, std::spa
     maximum = std::min(maximum, static_cast<std::uint32_t>(candidates.size()));
     if (p.minimum != minimum || p.maximum != maximum) return false;
     if (zone == Zone::draw) {
-        if (candidates.size() != state.zone(zone).size()) return false;
+        if (candidates.size() != state.zone(zone).size() || candidates.size() <= minimum) return false;
         for (std::size_t i = 0; i < candidates.size(); ++i) {
             const auto card = candidates[i];
             if (!state.cards().get(card) || std::find(state.zone(zone).begin(), state.zone(zone).end(), card) == state.zone(zone).end()) return false;

@@ -52,6 +52,9 @@ Restriction checked_combat_state_restriction(const RunState& state, const Rulese
         return Restriction::invalid_state;
     for (const auto& slot : state.cards().slots())
         if (slot.live && !supported_card_modifiers(slot.value)) return Restriction::unsupported_setup;
+    if (state.combat().gremlin_horn &&
+        std::find(state.combat().exhaust_relics.begin(), state.combat().exhaust_relics.begin() + state.combat().exhaust_relic_count, ExhaustRelic::charons_ashes) !=
+            state.combat().exhaust_relics.begin() + state.combat().exhaust_relic_count) return Restriction::unsupported_setup;
     return Restriction::none;
 }
 }

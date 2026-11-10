@@ -115,7 +115,8 @@ These observations are static evidence, not a new runtime parity recording:
 
 Only supported single-player handlers are captured: player Dark Embrace for
 ordinary card exhaust, player Stratagem for shuffling, Centennial Puzzle for
-player damage received, and the existing exhaust relics. Their candidates are derived from actual power/relic state and filtered
+player damage received, Gremlin Horn for opposing-side death, and the existing
+exhaust relics. Their candidates are derived from actual power/relic state and filtered
 before capture to omit unsupported/no-op handlers. This does not implement all
 native listener categories. Dark Embrace and Stratagem are available as diagnostic
 power applications; their playable card definitions are not added by this change.
@@ -247,13 +248,18 @@ then pushes the complete child frame group. That group must own all of its
 unfinished handler work; a boundary cannot leave the child's saved handler stage
 in the caller. Hooks still do not push or pop operation frames. Existing supported
 draw/exhaust/shuffle/damage-received hooks retain full-await semantics. No existing
-hook has been relabeled detachable without native evidence. Death-hook content,
-including Gremlin Horn and Speedster, remains outside the implemented content.
+hook has been relabeled detachable without native evidence. Direct card damage
+with Gremlin Horn now uses a death operation and its native pause-or-completion
+boundary. Native runtime observations and verification are recorded in the
+[scenario handoff](../../planning/detachment-scenario-handoff.md). Speedster and
+Gremlin Horn combined with Charon's Ashes remain unsupported.
 
 A selection request does not publish `card_choice`. At an explicit boundary,
 execution parks the unfinished suffix in `pending_choices`, advances the remaining
-frames, and presents queued work in FIFO order at an input boundary or join. An
-ordinary blocking choice behind older queued work parks its entire active group.
+frames, and activates queued work in FIFO order after the executing caller
+finishes or reaches an explicit join. An ordinary blocking choice keeps its
+executing group's priority while detached hook work waits. The pinned native
+Dagger Throw trace establishes this caller priority.
 The active queue entry remains allocated until its frames finish. Further choices
 from that entry retain its queue position. Each restored entry records its own
 base depth and previous active slot. Completion returns to the queue decision
@@ -274,7 +280,7 @@ marks the owner's synchronization checkpoint. The owner records its next phase
 before waiting. Join lookup includes active entries as well as parked ones.
 Older queued choices are processed before joined children, while unrelated later
 entries do not block a completed join. There is no global join registry or general
-task scheduler. Native action eligibility distinctions are not implemented by
+task scheduler. Other native action-type eligibility distinctions remain outside
 this machinery.
 
 ### Candidate timing and native evidence
@@ -311,13 +317,49 @@ budget, capacity, identity-exhaustion and allocation-failure handling remain.
 Combat completion cancels queued/active work. Native diagnostic JSON export
 explicitly rejects detached groups until their mapping is implemented.
 
-The layout probe with GCC/C++23 reports `CombatData` at 5,132 bytes (previously
-4,596), `RunState` at 35,008 bytes (previously 34,472), and `ExecutionFrame`
-unchanged at 48 bytes. These measurements describe state footprint, not throughput.
+The GCC/C++23 layout probe after production Horn integration reports `CombatData`
+at 5,136 bytes (previously 5,132), `RunState` at 35,016 bytes (previously 35,008),
+and `ExecutionFrame` unchanged at 48 bytes. The source probe is
+`/tmp/sts2-frame-layout.cpp`; its binary is `/tmp/detachment-scenario-layout`. These measurements describe state footprint, not throughput.
+
+
+### Production death listener
+
+For supported direct card attacks with Gremlin Horn, `DeathFrame` owns the dead
+creature identity and captured death-listener cursor. Mechanics advances the
+cursor before opening the boundary and calling the named Horn handler. Content
+owns the opposing-side condition, energy gain and draw. The native handler has no
+work after that awaited draw, so `DrawFrame` owns all unfinished listener work;
+there is no separate saved Horn stage or generic hook frame. No join is added.
+When the child pauses, death cleanup removes the dead enemy from the active enemy
+range and clears its powers before the card program continues. Retained creature
+identity remains available to suspended callers. The last dead enemy remains the
+terminal representation's identity anchor until combat teardown.
+
+The native-traced Strike scenario starts with two beetles, one lethal target, Horn,
+Stratagem, an empty draw pile and nine discarded Defends. The public lethal action
+finishes Strike before publishing Stratagem. The active child retains only draw
+and shuffle frames. A second scenario uses native Dagger Throw's damage, draw,
+hand-discard sequence: its ordinary hand selection keeps caller priority over
+Horn's queued draw-pile selection. Each prompt collects candidates only when its
+group is presented.
+
+Checked initialization and input boundaries reject Horn combined with Charon's
+Ashes; its multi-target death sequence has not been implemented. Other no-Horn
+death paths keep their existing behavior. Dead enemy recipients removed by cleanup
+cannot receive new powers, including debuffs after lethal Bash or Uppercut. Living retained
+identities keep their existing targeting behavior. This is a gameplay
+condition and remains active on trusted execution.
+
+The common Strike scenario's four live frames and two parked child frames fit
+existing inline capacities. Its allocation-counter regression forbids further
+overflow allocations during the public lethal action, clone and answer. Large
+piles still exercise supported overflow/failure paths. No throughput claim follows
+from this storage check.
 
 ## Compatibility and verification
 
-Run checkpoint revision 23 embeds combat payload revision 6. They encode all six
+Run checkpoint revision 24 embeds combat payload revision 7. They encode all seven
 frame alternatives, the captured enemy order, AI completion flags, Centennial
 Puzzle state, embedded listener ranges, and handler stages. Earlier run/payload
 revisions are rejected. Historical revision numbers below describe prior layouts.
@@ -372,3 +414,21 @@ live eligibility at presentation without frame inspection, automatic resolution,
 and descriptor validation/checkpoint roundtrip. Both builds completed without
 compiler warnings; `git diff --check` passed. Logs are retained under
 `/tmp/selection-ownership-{build,full,focused,defensive-build,defensive}.log`.
+
+Production death-scenario validation (2026-11-09): the full Debug suite passed all
+355 checks (269 engine and 23 replay-parity checks). The focused queue/hook/
+detachment suite passed all 39 checks; the defensive build passed all 103 selected
+card-choice, operation-frame, hook, queue, trusted-action, enemy-turn,
+multi-creature and detachment checks. Both builds completed without compiler
+warnings; `git diff --check` passed. Logs are retained under
+`/tmp/detachment-native/{final-build,final-full,final-focused,final-defensive-build,final-defensive-expanded}.log`.
+
+The pinned native Strike and Dagger Throw traces each passed two independent
+Godot runs. C++ tests compare their ordered piles/candidates, bounds, energy,
+death cleanup, caller completion and hook-task completion. Dagger Throw exposed
+and corrected ordinary caller-choice priority over queued hook activation.
+Outstanding Stratagem requests retain their saved bounds even when the live
+power changes or disappears. Native evidence, the local-only input seam, source
+hashes and remaining scope limits are recorded in the
+[scenario handoff](../../planning/detachment-scenario-handoff.md) and
+[probe README](../../../tools/oracle/native_detachment_probe/README.md).

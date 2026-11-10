@@ -20,6 +20,7 @@ bool eligible(const RunState& state, const HookListener& listener) noexcept {
     // Native captured powers check owner membership, not current power membership.
     if (listener.owner != state.data.player || !state.creature(listener.owner)) return false;
     if (listener.handler == HookHandler::dark_embrace || listener.handler == HookHandler::stratagem) return true;
+    if (listener.handler == HookHandler::gremlin_horn) return state.combat().gremlin_horn;
     if (listener.handler == HookHandler::centennial_puzzle) return state.combat().centennial_puzzle;
     const auto relic = listener.handler == HookHandler::charons_ashes ? ExhaustRelic::charons_ashes : ExhaustRelic::joss_paper;
     return std::find(state.combat().exhaust_relics.begin(), state.combat().exhaust_relics.begin() + state.combat().exhaust_relic_count, relic) !=
@@ -34,6 +35,8 @@ HandlerResult resume_listener(RunState& state, Scratch& scratch, HookListener li
     const auto* power = owner ? owner->find_power_instance(listener.power_instance, state.overflow) : nullptr;
     const auto amount = power ? power->amount : listener.removed_power_amount;
     switch (listener.handler) {
+    case HookHandler::gremlin_horn:
+        throw std::logic_error("Death listeners require pause-or-completion ownership");
     case HookHandler::centennial_puzzle: return centennial_puzzle_after_damage_received(state, progress, *hit);
     case HookHandler::dark_embrace: return dark_embrace_after_card_exhausted(state, progress, amount);
     case HookHandler::stratagem: return stratagem_after_shuffle(state, progress, amount);
@@ -103,6 +106,27 @@ RangeProgress capture_damage_received_listeners(RunState& state) {
     if (state.combat().centennial_puzzle)
         state.captured_hook_listeners().push_back({state.data.player, UINT32_MAX, 0, HookHandler::centennial_puzzle});
     return {begin, static_cast<std::uint32_t>(state.captured_hook_listeners().size()) - begin, 0};
+}
+RangeProgress capture_death_listeners(RunState& state) {
+    const auto begin = static_cast<std::uint32_t>(state.captured_hook_listeners().size());
+    if (state.combat().gremlin_horn)
+        state.captured_hook_listeners().push_back({state.data.player, UINT32_MAX, 0, HookHandler::gremlin_horn});
+    return {begin, static_cast<std::uint32_t>(state.captured_hook_listeners().size()) - begin, 0};
+}
+void after_death(RunState& state, HookListener listener, CreatureHandle dead) {
+    switch (listener.handler) {
+    case HookHandler::gremlin_horn: gremlin_horn_after_death(state, dead); return;
+    default: throw std::logic_error("Unsupported death listener");
+    }
+}
+bool next_death_listener(RunState& state, RangeProgress& listeners, HookListener& listener) {
+    while (listeners.cursor < listeners.count) {
+        listener = state.captured_hook_listeners()[listeners.begin + listeners.cursor++];
+        if (eligible(state, listener)) return true;
+    }
+    release_candidates(state, listeners.begin);
+    listeners = {};
+    return false;
 }
 RangeProgress capture_draw_listeners(RunState&, bool) {
     // No draw listeners are supported yet. Each phase has its own capture point.

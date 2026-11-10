@@ -6,7 +6,11 @@
 #include "../../src/engine/mechanics/cards.hpp"
 #include "../../src/engine/content/monsters.hpp"
 #include "../support/continuation_fixture.hpp"
+#include "storage_allocator.hpp"
+#include "../../src/engine/combat/lifecycle.hpp"
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
+#include <fstream>
 #include <vector>
 #include <ranges>
 
@@ -306,4 +310,403 @@ TEST(MultiCreature, UnmappedNativeDiagnosticsAreRejected) {
     NativeRunExporter exporter;
     EXPECT_THROW(exporter.snapshot(state), std::invalid_argument);
 }
+namespace {
+CardHandle prepare_horn_death(RunState& state, Scratch& scratch, std::size_t cards = 10,
+    CardId attack = CardId::strike, bool retain_defend = false, std::uint32_t enemy_count = 2) {
+    std::vector<CardSpec> deck(cards, CardSpec{CardId::defend});
+    deck[0] = {attack};
+    CombatConfig config;
+    config.enemy_count = enemy_count; config.enemy_hp = 40;
+    config.deck = deck; config.gremlin_horn = true;
+    if (initialize_combat(state, config, scratch).status != StepStatus::awaiting_input)
+        throw std::runtime_error("Gremlin Horn scenario initialization failed");
+    for (auto zone : state.zone_views()) zone.clear();
+    CardHandle source{};
+    for (std::uint32_t i = 0; i < state.cards().slots().size(); ++i) {
+        const auto& slot = state.cards().slots()[i];
+        if (!slot.live) continue;
+        const CardHandle card{i, slot.generation};
+        const bool is_source = slot.value.definition == attack;
+        const bool keep = is_source || (retain_defend && i == 1);
+        state.zone(keep ? Zone::hand : Zone::discard).push_back(card);
+        if (is_source) source = card;
+    }
+    state.creature(state.enemies()[0])->hp = 6;
+    if (apply_power_scenario(state, {PowerId::stratagem, 1}, scratch).status != StepStatus::awaiting_input)
+        throw std::runtime_error("Stratagem scenario setup failed");
+    return source;
+}
+StepResult horn_kill(RunState& state, Scratch& scratch, CardHandle source) {
+    return apply_action(state, CombatInput{state.data.boundary, CombatInputKind::play_card, source, state.enemies()[0]}, scratch);
+}
+}
+
+TEST(DeathDetachment, PublicLethalActionFinishesCallerBeforePublishingStratagem) {
+    RunState state; Scratch scratch;
+    const auto source = prepare_horn_death(state, scratch);
+    const auto dead = state.enemies()[0], survivor = state.enemies()[1];
+    ASSERT_TRUE(valid_run(state));
+    ASSERT_EQ(horn_kill(state, scratch, source).status, StepStatus::awaiting_input);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+    EXPECT_EQ(state.combat().energy, 3); // Strike paid once, Horn granted once.
+    EXPECT_EQ(state.combat().counters.started_plays, 1u);
+    EXPECT_EQ(state.combat().counters.finished_plays, 1u);
+    EXPECT_EQ(state.combat().counters.non_hand_draws_this_turn, 0u);
+    EXPECT_EQ(state.creature(dead)->hp, 0);
+    EXPECT_FALSE(state.is_enemy(dead));
+    ASSERT_EQ(state.enemies().size(), 1u);
+    EXPECT_EQ(state.enemies()[0], survivor);
+    EXPECT_EQ(state.creature(survivor)->hp, 40);
+    ASSERT_EQ(state.zone(Zone::discard).size(), 1u);
+    EXPECT_EQ(state.zone(Zone::discard)[0], source);
+    EXPECT_TRUE(state.zone(Zone::hand).empty());
+    EXPECT_EQ(state.zone(Zone::draw).size(), 9u);
+    ASSERT_EQ(state.selection_candidates().size(), 9u);
+    EXPECT_TRUE(std::equal(state.selection_candidates().begin(), state.selection_candidates().end(), state.zone(Zone::draw).begin()));
+    ASSERT_EQ(state.pending_choice_order().size(), 1u);
+    ASSERT_NE(state.combat().active_choice, 0u);
+    ASSERT_EQ(state.execution().size(), 2u);
+    const auto& draw = std::get<DrawFrame>(state.execution()[0]);
+    EXPECT_EQ(draw.remaining, 1);
+    EXPECT_EQ(draw.phase, DrawPhase::after_shuffle);
+    EXPECT_FALSE(draw.from_hand_draw);
+    const auto& shuffle = std::get<ShuffleFrame>(state.execution()[1]);
+    EXPECT_EQ(shuffle.phase, ShufflePhase::hooks);
+    EXPECT_EQ(shuffle.handler.stage, 1);
+    EXPECT_EQ(shuffle.listeners.count, 1u);
+    EXPECT_TRUE(valid_run(state));
+
+    const auto chosen = state.selection_candidates().back();
+    const auto input = test::selection_input(state, chosen);
+    ASSERT_EQ(apply_action(state, input, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(state.zone(Zone::hand).size(), 2u);
+    EXPECT_EQ(state.zone(Zone::hand)[0], chosen);
+    EXPECT_EQ(state.zone(Zone::draw).size(), 7u);
+    EXPECT_EQ(state.combat().counters.non_hand_draws_this_turn, 1u);
+    EXPECT_EQ(state.combat().energy, 3);
+    EXPECT_EQ(state.combat().counters.finished_plays, 1u);
+    EXPECT_TRUE(state.execution().empty());
+    EXPECT_TRUE(state.pending_choice_order().empty());
+    EXPECT_TRUE(state.captured_hook_listeners().empty());
+    EXPECT_TRUE(state.continuation_cards().empty());
+    EXPECT_TRUE(valid_run(state));
+    const auto completed = checkpoint(state).bytes;
+    EXPECT_EQ(apply_action(state, input, scratch).status, StepStatus::invalid_action);
+    EXPECT_EQ(checkpoint(state).bytes, completed);
+}
+
+TEST(DeathDetachment, CloneCheckpointAndAlternativeAnswersHaveIdenticalCheckedTrustedFutures) {
+    RunState state; Scratch scratch;
+    const auto source = prepare_horn_death(state, scratch);
+    ASSERT_EQ(horn_kill(state, scratch, source).status, StepStatus::awaiting_input);
+    const auto saved = checkpoint(state).bytes;
+    for (const auto chosen : state.selection_candidates()) {
+        RunState checked = state, trusted = state, restored;
+        ASSERT_EQ(restore(restored, saved, scratch), RestoreStatus::restored);
+        ASSERT_EQ(restored, state);
+        const auto input = test::selection_input(state, chosen);
+        const auto expected = apply_action(checked, input, scratch);
+        const auto actual = apply_action_trusted(trusted, input, scratch);
+        EXPECT_EQ(actual.status, expected.status);
+        EXPECT_EQ(actual.reason, expected.reason);
+        ASSERT_EQ(apply_action(restored, input, scratch).status, expected.status);
+        EXPECT_EQ(trusted, checked);
+        EXPECT_EQ(restored, checked);
+        EXPECT_TRUE(valid_run(checked));
+        EXPECT_EQ(checked.combat().energy, 3);
+        EXPECT_EQ(checked.combat().counters.finished_plays, 1u);
+        EXPECT_EQ(checked.combat().counters.non_hand_draws_this_turn, 1u);
+    }
+    EXPECT_EQ(checkpoint(state).bytes, saved);
+}
+
+TEST(DeathDetachment, ExecutionBudgetFailuresRemainActiveOnCheckedAndTrustedPaths) {
+    RunState root; Scratch scratch;
+    const auto source = prepare_horn_death(root, scratch);
+    const CombatInput input{root.data.boundary, CombatInputKind::play_card, source, root.enemies()[0]};
+    RunState success = root;
+    ASSERT_EQ(apply_action(success, input, scratch).status, StepStatus::awaiting_input);
+    const auto required = scratch.steps;
+    ASSERT_GT(required, 0u);
+    for (std::uint32_t limit = 0; limit < required; ++limit) {
+        RunState checked = root, trusted = root;
+        Scratch first, second; first.step_limit = second.step_limit = limit;
+        const auto expected = apply_action(checked, input, first);
+        const auto actual = apply_action_trusted(trusted, input, second);
+        EXPECT_EQ(expected.status, StepStatus::engine_error) << limit;
+        EXPECT_EQ(expected.reason, Restriction::execution_budget) << limit;
+        EXPECT_EQ(actual.status, expected.status) << limit;
+        EXPECT_EQ(actual.reason, expected.reason) << limit;
+        EXPECT_EQ(trusted, checked) << limit;
+    }
+}
+
+TEST(DeathDetachment, AllocationFailuresReleaseParkedAndActiveStorage) {
+    for (std::size_t allowance = 0; allowance < 8; ++allowance) {
+        test::AllocationCounter allocation;
+        {
+            RunState state(allocation.allocator()); Scratch scratch;
+            const auto source = prepare_horn_death(state, scratch, 80);
+            allocation.fail_after = allocation.allocations + allowance;
+            const auto result = horn_kill(state, scratch, source);
+            if (result.status == StepStatus::awaiting_input) {
+                ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+                EXPECT_TRUE(valid_run(state));
+            } else {
+                EXPECT_EQ(result.status, StepStatus::resource_limit) << allowance;
+                EXPECT_EQ(result.reason, Restriction::capacity) << allowance;
+                EXPECT_EQ(state.combat().phase, CombatPhase::invalid);
+            }
+        }
+        EXPECT_EQ(allocation.outstanding, 0u) << allowance;
+    }
+}
+
+TEST(DeathDetachment, CombatEndCancelsProductionCreatedChoiceAndOperands) {
+    RunState state; Scratch scratch;
+    const auto source = prepare_horn_death(state, scratch);
+    ASSERT_EQ(horn_kill(state, scratch, source).status, StepStatus::awaiting_input);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+    const auto stale_prompt = state.combat().selection.id;
+    const auto chosen = state.selection_candidates()[0];
+    // Exercise lifecycle cancellation using a group created entirely by a public
+    // lethal action. No supported independent effect can currently end combat
+    // during this single-player prompt, so invoke the terminal lifecycle seam.
+    state.creature(state.enemies()[0])->hp = 0;
+    gameplay::end_combat(state, scratch, true);
+    EXPECT_TRUE(state.execution().empty());
+    EXPECT_TRUE(state.pending_choice_order().empty());
+    EXPECT_TRUE(state.pending_choices().empty());
+    EXPECT_TRUE(state.continuation_cards().empty());
+    EXPECT_TRUE(state.captured_hook_listeners().empty());
+    EXPECT_EQ(state.combat().active_choice, 0u);
+    EXPECT_EQ(state.combat().selection.id.value, 0u);
+    EXPECT_TRUE(valid_run(state));
+    const auto terminal = checkpoint(state).bytes;
+    EXPECT_EQ(apply_action(state, test::selection_input(state, chosen, stale_prompt), scratch).reason, Restriction::wrong_phase);
+    EXPECT_EQ(checkpoint(state).bytes, terminal);
+}
+
+TEST(DeathDetachment, AnswerBudgetCannotRepeatEnergyOrCallerEffects) {
+    RunState root; Scratch scratch;
+    const auto source = prepare_horn_death(root, scratch);
+    ASSERT_EQ(horn_kill(root, scratch, source).status, StepStatus::awaiting_input);
+    const auto chosen = root.selection_candidates()[0];
+    const auto input = test::selection_input(root, chosen);
+    RunState success = root;
+    ASSERT_EQ(apply_action(success, input, scratch).status, StepStatus::awaiting_input);
+    const auto required = scratch.steps;
+    ASSERT_GT(required, 0u);
+    for (std::uint32_t limit = 0; limit < required; ++limit) {
+        RunState checked = root, trusted = root;
+        Scratch first, second; first.step_limit = second.step_limit = limit;
+        const auto expected = apply_action(checked, input, first);
+        const auto actual = apply_action_trusted(trusted, input, second);
+        EXPECT_EQ(expected.status, StepStatus::engine_error) << limit;
+        EXPECT_EQ(expected.reason, Restriction::execution_budget) << limit;
+        EXPECT_EQ(actual.status, expected.status) << limit;
+        EXPECT_EQ(actual.reason, expected.reason) << limit;
+        EXPECT_EQ(trusted, checked) << limit;
+        EXPECT_EQ(checked.combat().energy, 3);
+        EXPECT_EQ(checked.combat().counters.finished_plays, 1u);
+    }
+}
+
+TEST(DeathDetachment, DaggerThrowKeepsItsOrdinaryHandChoiceAheadOfQueuedHorn) {
+    RunState state; Scratch scratch;
+    const auto source = prepare_horn_death(state, scratch, 10, CardId::dagger_throw, true);
+    ASSERT_EQ(horn_kill(state, scratch, source).status, StepStatus::awaiting_input);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+    ASSERT_EQ(state.pending_choice_order().size(), 1u);
+    const auto horn_slot = state.pending_choice_order()[0];
+    EXPECT_EQ(state.combat().active_choice, 0u);
+    EXPECT_EQ(state.combat().selection.zone, Zone::hand);
+    EXPECT_EQ(state.zone(Zone::hand).size(), 2u);
+    EXPECT_EQ(state.zone(Zone::draw).size(), 7u);
+    EXPECT_TRUE(state.zone(Zone::discard).empty());
+    ASSERT_EQ(state.zone(Zone::play).size(), 1u);
+    EXPECT_EQ(state.zone(Zone::play)[0], source);
+    EXPECT_EQ(state.combat().counters.non_hand_draws_this_turn, 1u);
+    EXPECT_EQ(state.combat().counters.finished_plays, 0u);
+    EXPECT_EQ(state.combat().energy, 3);
+    const auto& horn = state.pending_choices()[horn_slot - 1];
+    ASSERT_EQ(horn.phase, PendingChoicePhase::pending);
+    const auto frames = horn.frames.values(state.combat_overflow);
+    ASSERT_EQ(frames.size(), 2u);
+    EXPECT_TRUE(std::holds_alternative<DrawFrame>(frames[0]));
+    EXPECT_EQ(std::get<ShuffleFrame>(frames[1]).handler.stage, 1u);
+    ASSERT_EQ(state.execution().size(), 1u);
+    EXPECT_EQ(std::get<CardProgramFrame>(state.execution()[0]).instruction, 3u);
+    ASSERT_TRUE(valid_run(state));
+
+    const auto first_bytes = checkpoint(state).bytes;
+    const auto first_prompt = state.combat().selection.id;
+    for (const auto discarded : state.selection_candidates()) {
+        RunState checked = state, trusted = state, restored;
+        ASSERT_EQ(restore(restored, first_bytes, scratch), RestoreStatus::restored);
+        const auto first_input = test::selection_input(state, discarded);
+        ASSERT_EQ(apply_action(checked, first_input, scratch).status, StepStatus::awaiting_input);
+        ASSERT_EQ(apply_action_trusted(trusted, first_input, scratch).status, StepStatus::awaiting_input);
+        ASSERT_EQ(apply_action(restored, first_input, scratch).status, StepStatus::awaiting_input);
+        EXPECT_EQ(checked, trusted);
+        EXPECT_EQ(checked, restored);
+        ASSERT_EQ(checked.pending_choice_order().size(), 1u);
+        EXPECT_EQ(checked.combat().active_choice, horn_slot);
+        EXPECT_NE(checked.combat().selection.id, first_prompt);
+        EXPECT_EQ(checked.combat().selection.zone, Zone::draw);
+        EXPECT_EQ(checked.selection_candidates().size(), 7u);
+        EXPECT_EQ(checked.zone(Zone::draw).size(), 7u);
+        EXPECT_EQ(checked.zone(Zone::hand).size(), 1u);
+        ASSERT_EQ(checked.zone(Zone::discard).size(), 2u);
+        EXPECT_EQ(checked.zone(Zone::discard)[0], discarded);
+        EXPECT_EQ(checked.zone(Zone::discard)[1], source);
+        EXPECT_EQ(checked.combat().counters.non_hand_draws_this_turn, 1u);
+        EXPECT_EQ(checked.combat().counters.finished_plays, 1u);
+        EXPECT_EQ(checked.combat().energy, 3);
+        ASSERT_EQ(checked.execution().size(), 2u);
+        EXPECT_EQ(std::get<ShuffleFrame>(checked.execution()[1]).handler.stage, 1u);
+        ASSERT_TRUE(valid_run(checked));
+        const auto second_bytes = checkpoint(checked).bytes;
+        for (const auto selected : checked.selection_candidates()) {
+            RunState branch = checked, fast = checked, saved;
+            ASSERT_EQ(restore(saved, second_bytes, scratch), RestoreStatus::restored);
+            const auto second_input = test::selection_input(checked, selected);
+            ASSERT_EQ(apply_action(branch, second_input, scratch).status, StepStatus::awaiting_input);
+            ASSERT_EQ(apply_action_trusted(fast, second_input, scratch).status, StepStatus::awaiting_input);
+            ASSERT_EQ(apply_action(saved, second_input, scratch).status, StepStatus::awaiting_input);
+            EXPECT_EQ(branch, fast);
+            EXPECT_EQ(branch, saved);
+            EXPECT_EQ(branch.combat().energy, 3);
+            EXPECT_EQ(branch.combat().counters.finished_plays, 1u);
+            EXPECT_EQ(branch.combat().counters.non_hand_draws_this_turn, 2u);
+            EXPECT_EQ(branch.zone(Zone::hand).size(), 3u);
+            EXPECT_EQ(branch.zone(Zone::hand)[1], selected);
+            ASSERT_EQ(branch.zone(Zone::discard).size(), 2u);
+            EXPECT_EQ(branch.zone(Zone::discard)[0], discarded);
+            EXPECT_EQ(branch.zone(Zone::discard)[1], source);
+            EXPECT_TRUE(branch.execution().empty());
+            EXPECT_TRUE(branch.pending_choice_order().empty());
+            EXPECT_TRUE(branch.continuation_cards().empty());
+            EXPECT_TRUE(branch.captured_hook_listeners().empty());
+            EXPECT_TRUE(valid_run(branch));
+        }
+    }
+    EXPECT_EQ(checkpoint(state).bytes, first_bytes);
+}
+
+TEST(DeathDetachment, CommonPublicPathCloneAndAnswerNeedNoOverflowAllocations) {
+    test::AllocationCounter allocation;
+    {
+        RunState state(allocation.allocator()); Scratch scratch;
+        const auto source = prepare_horn_death(state, scratch);
+        const auto before = allocation.allocations;
+        allocation.fail_after = before;
+        ASSERT_EQ(horn_kill(state, scratch, source).status, StepStatus::awaiting_input);
+        ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+        RunState clone(std::as_const(state));
+        EXPECT_EQ(clone, state);
+        const auto chosen = clone.selection_candidates()[0];
+        ASSERT_EQ(apply_action(clone, test::selection_input(clone, chosen), scratch).status, StepStatus::awaiting_input);
+        EXPECT_TRUE(valid_run(clone));
+        EXPECT_EQ(allocation.allocations, before);
+    }
+    EXPECT_EQ(allocation.outstanding, 0u);
+}
+
+TEST(DeathDetachment, PostDamageDebuffsDoNotReappearOnTheCleanedUpDeadTarget) {
+    for (auto attack : {CardId::bash, CardId::uppercut}) {
+        RunState state; Scratch scratch;
+        const auto source = prepare_horn_death(state, scratch, 10, attack);
+        const auto dead = state.enemies()[0];
+        PowerApplication artifact{PowerId::artifact, 1, true}; artifact.owner = dead;
+        ASSERT_EQ(apply_power_scenario(state, artifact, scratch).status, StepStatus::awaiting_input);
+        ASSERT_EQ(horn_kill(state, scratch, source).status, StepStatus::awaiting_input);
+        ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+        EXPECT_FALSE(state.is_enemy(dead));
+        EXPECT_TRUE(state.creature(dead)->power_instances(state.overflow).empty());
+        EXPECT_EQ(state.combat().counters.finished_plays, 1u);
+        EXPECT_TRUE(valid_run(state));
+    }
+}
+
+TEST(DeathDetachment, FinalLethalDaggerThrowCancelsDrawAndHandChoice) {
+    RunState state; Scratch scratch;
+    const auto source = prepare_horn_death(state, scratch, 10, CardId::dagger_throw, true, 1);
+    ASSERT_TRUE(valid_run(state));
+    ASSERT_EQ(horn_kill(state, scratch, source).status, StepStatus::combat_won);
+    EXPECT_EQ(state.combat().phase, CombatPhase::combat_won);
+    EXPECT_EQ(state.combat().counters.non_hand_draws_this_turn, 0u);
+    EXPECT_TRUE(state.execution().empty());
+    EXPECT_TRUE(state.pending_choices().empty());
+    EXPECT_TRUE(state.pending_choice_order().empty());
+    EXPECT_TRUE(state.selection_candidates().empty());
+    EXPECT_EQ(state.combat().active_choice, 0u);
+    EXPECT_EQ(state.combat().selection.id.value, 0u);
+    EXPECT_TRUE(valid_run(state));
+    RunState restored;
+    ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
+    EXPECT_EQ(restored, state);
+}
+
+TEST(DeathDetachment, PublicStatesMatchThePinnedNativeQueueTrace) {
+    using Json = nlohmann::json;
+    std::ifstream input(KERNEL_DETACHMENT_FIXTURE);
+    ASSERT_TRUE(input.good());
+    const auto evidence = Json::parse(input);
+    ASSERT_EQ(evidence.at("game_dll_sha256"), game_digest);
+    for (const auto& scenario : evidence.at("cases")) {
+        const bool dagger = scenario.at("case_name") == "dagger-throw";
+        SCOPED_TRACE(scenario.at("case_name").get<std::string>());
+        RunState state; Scratch scratch;
+        const auto source = prepare_horn_death(state, scratch, 10,
+            dagger ? CardId::dagger_throw : CardId::strike, dagger);
+        const auto dead = state.enemies()[0];
+        ASSERT_EQ(horn_kill(state, scratch, source).status, StepStatus::awaiting_input);
+        const auto& observations = scenario.at("observations");
+        for (std::size_t step = 0; step < observations.size(); ++step) {
+            const auto& native = observations.at(step);
+            SCOPED_TRACE(native.at("stage").get<std::string>());
+            EXPECT_EQ(state.combat().energy, native.at("energy"));
+            EXPECT_EQ(state.is_enemy(dead), native.at("victim_member"));
+            EXPECT_EQ(state.creature(dead)->hp, native.at("victim_hp"));
+            EXPECT_EQ(state.creature(dead)->power_instances(state.overflow).size(), native.at("victim_powers"));
+            Json enemies = Json::array();
+            for (auto enemy : state.enemies()) enemies.push_back(state.creature(enemy)->hp);
+            EXPECT_EQ(enemies, native.at("enemies"));
+            for (const auto& pile : native.at("piles")) {
+                const auto name = pile.at("zone").get<std::string>();
+                constexpr std::array names{"Hand", "Draw", "Discard", "Exhaust", "Play"};
+                const auto found = std::find(names.begin(), names.end(), name);
+                ASSERT_NE(found, names.end());
+                Json cards = Json::array();
+                for (auto card : state.zone(static_cast<Zone>(found - names.begin()))) cards.push_back(card.slot);
+                EXPECT_EQ(cards, pile.at("cards")) << name;
+            }
+            EXPECT_EQ(state.combat().counters.finished_plays == 1, native.at("action_completed"));
+            const auto& hooks = native.at("native_hook_actions");
+            ASSERT_EQ(hooks.size(), 1u);
+            EXPECT_EQ(hooks[0].at("source"), "RELIC.GREMLIN_HORN");
+            EXPECT_EQ(state.pending_choice_order().empty(), hooks[0].at("task_completed"));
+            EXPECT_EQ(state.pending_choice_order().empty(), hooks[0].at("action_completed"));
+            ASSERT_TRUE(valid_run(state));
+            if (step + 1 == observations.size()) {
+                EXPECT_EQ(native.at("stage"), "complete");
+                EXPECT_TRUE(state.execution().empty());
+                EXPECT_TRUE(state.pending_choice_order().empty());
+            } else {
+                ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+                const auto zone = native.at("stage") == "horn-choice" ? Zone::draw : Zone::hand;
+                ASSERT_EQ(state.combat().selection.zone, zone);
+                Json candidates = Json::array();
+                for (auto card : state.selection_candidates()) candidates.push_back(card.slot);
+                EXPECT_EQ(candidates, native.at("candidates"));
+                EXPECT_EQ(state.combat().selection.minimum, native.at("minimum"));
+                EXPECT_EQ(state.combat().selection.maximum, native.at("maximum"));
+                const auto chosen = state.zone(zone).front();
+                ASSERT_EQ(apply_action(state, test::selection_input(state, chosen), scratch).status, StepStatus::awaiting_input);
+            }
+        }
+    }
+}
+
 } // namespace sts2::engine

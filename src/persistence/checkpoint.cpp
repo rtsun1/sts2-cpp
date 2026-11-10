@@ -32,6 +32,8 @@ struct Writer {
             i32(value->hit.blocked); i32(value->hit.unblocked); i32(value->hit.overkill);
             u8(value->hit.block_broken); u8(value->hit.fully_blocked); u8(value->hit.killed);
             i32(value->base_damage); u8(value->handler.stage); u8(static_cast<std::uint8_t>(value->phase));
+        } else if (const auto* value = std::get_if<DeathFrame>(&f)) {
+            range(value->listeners); u32(value->target.slot); u32(value->target.generation);
         }
     }
     void card_extra(const CardExtraData& data) {
@@ -85,6 +87,7 @@ struct Reader {
             f.hit.block_broken = boolean(); f.hit.fully_blocked = boolean(); f.hit.killed = boolean();
             f.base_damage = i32(); f.handler.stage = u8(); f.phase = static_cast<EnemyAttackPhase>(u8()); return f;
         }
+        case 6: { const auto listeners = range(); const CreatureHandle target{u32(), u32()}; return DeathFrame{listeners, target}; }
         default: throw std::invalid_argument("Unknown execution frame");
         }
     }
@@ -107,15 +110,15 @@ std::uint64_t content_fingerprint() {
         }
     }
     // Version exceptional enemy/power/relic handlers and clock/RNG semantics too.
-    w.text("shrinker-a0:niche:38-40:late-victory:retained-death:duration-history:shrink70:chomp7:stomp13;vulnerable150;burning-blood6;survivor1;action_clock_v1;xoshiro256ss-v1;enemy-turn-continuations-v1;centennial-puzzle3");
+    w.text("shrinker-a0:niche:38-40:late-victory:retained-death:duration-history:shrink70:chomp7:stomp13;vulnerable150;burning-blood6;survivor1;action_clock_v1;xoshiro256ss-v1;enemy-turn-continuations-v1;centennial-puzzle3;gremlin-horn-death-detachment-v1;ordinary-choice-caller-priority-v1");
     return digest(w.data);
 }
 Checkpoint persistence::encode_combat(const RunState& s) {
     if (!valid_combat(s)) throw std::invalid_argument("Cannot checkpoint invalid simulation");
     Writer w;
-    w.text("STS2CB02"); w.u32(6); w.u32(s.combat().rules); w.text(game_digest); w.u64(content_fingerprint());
+    w.text("STS2CB02"); w.u32(7); w.u32(s.combat().rules); w.text(game_digest); w.u64(content_fingerprint());
     w.u8(static_cast<std::uint8_t>(s.combat().phase)); w.i32(s.combat().energy); w.i32(s.combat().turn);
-    w.u8(s.combat().enemy_side); w.u8(s.combat().burning_blood); w.u8(s.combat().centennial_puzzle); w.u8(s.combat().centennial_puzzle_used); w.u32(s.combat().next_creation_order);
+    w.u8(s.combat().enemy_side); w.u8(s.combat().burning_blood); w.u8(s.combat().gremlin_horn); w.u8(s.combat().centennial_puzzle); w.u8(s.combat().centennial_puzzle_used); w.u32(s.combat().next_creation_order);
     w.u8(s.combat().exhaust_relic_count); for (auto relic : s.combat().exhaust_relics) w.u8(static_cast<std::uint8_t>(relic));
     w.u32(s.cards().data.highest_generation);
     w.u32(static_cast<std::uint32_t>(s.cards().slots().size()));
@@ -186,13 +189,13 @@ RestoreStatus persistence::decode_combat(RunState& s, std::span<const std::byte>
         if (trailer.u64() != digest(bytes.first(bytes.size() - 8))) return RestoreStatus::malformed;
         Reader r{bytes.first(bytes.size() - 8)};
         for (char c : std::string_view("STS2CB02")) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
-        if (r.u32() != 6 || r.u32() != rules_revision) return RestoreStatus::incompatible;
+        if (r.u32() != 7 || r.u32() != rules_revision) return RestoreStatus::incompatible;
         for (char c : game_digest) if (r.u8() != static_cast<std::uint8_t>(c)) return RestoreStatus::incompatible;
         if (r.u64() != content_fingerprint()) return RestoreStatus::incompatible;
         s.data.combat.emplace();
         s.combat().phase = static_cast<CombatPhase>(r.u8());
         s.combat().energy = r.i32(); s.combat().turn = r.i32();
-        s.combat().enemy_side = r.boolean(); s.combat().burning_blood = r.boolean(); s.combat().centennial_puzzle = r.boolean(); s.combat().centennial_puzzle_used = r.boolean(); s.combat().next_creation_order = r.u32();
+        s.combat().enemy_side = r.boolean(); s.combat().burning_blood = r.boolean(); s.combat().gremlin_horn = r.boolean(); s.combat().centennial_puzzle = r.boolean(); s.combat().centennial_puzzle_used = r.boolean(); s.combat().next_creation_order = r.u32();
         s.combat().exhaust_relic_count = r.u8(); for (auto& relic : s.combat().exhaust_relics) relic = static_cast<ExhaustRelic>(r.u8());
         const auto highest_generation = r.u32();
         const auto count = r.u32();

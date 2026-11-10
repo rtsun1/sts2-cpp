@@ -16,11 +16,15 @@ std::uint32_t next_combat_generation(const RunState& state) noexcept {
 bool supported_combat_inventory(const RunState& state) {
     for (auto potion : state.potions())
         if (potion != no_content && SetupRules::name(potion) != "POTION.POTION_OF_BINDING") return false;
-    // Inventory hooks are supported only for the starting relic and Golden Pearl.
+    const auto has_relic = [&](std::string_view name) {
+        return std::any_of(state.relics().begin(), state.relics().end(), [&](auto relic) { return SetupRules::name(relic) == name; });
+    };
+    if (has_relic("RELIC.GREMLIN_HORN") && has_relic("RELIC.CHARONS_ASHES")) return false;
+    // Supported inventory hooks are enumerated explicitly.
     for (auto relic : state.relics())
         if (SetupRules::name(relic) != "RELIC.BURNING_BLOOD" && SetupRules::name(relic) != "RELIC.GOLDEN_PEARL" &&
             SetupRules::name(relic) != "RELIC.CHARONS_ASHES" && SetupRules::name(relic) != "RELIC.JOSS_PAPER" &&
-            SetupRules::name(relic) != "RELIC.CENTENNIAL_PUZZLE") return false;
+            SetupRules::name(relic) != "RELIC.CENTENNIAL_PUZZLE" && SetupRules::name(relic) != "RELIC.GREMLIN_HORN") return false;
     return true;
 }
 Restriction legal_run_input(const RunState& state, const RunInput& input) noexcept {

@@ -37,6 +37,9 @@ StepResult initialize_combat_impl(RunState& state, const CombatConfig& config, S
             if (static_cast<unsigned>(config.exhaust_relics[i]) > 1 ||
                 std::find(config.exhaust_relics.begin(), config.exhaust_relics.begin() + i, config.exhaust_relics[i]) != config.exhaust_relics.begin() + i)
                 return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
+        // Multi-target death scheduling needs its own native audit.
+        if (config.gremlin_horn && std::find(config.exhaust_relics.begin(), config.exhaust_relics.end(), ExhaustRelic::charons_ashes) != config.exhaust_relics.end())
+            return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
         if (config.joss_paper_counter != 0 && std::find(config.exhaust_relics.begin(), config.exhaust_relics.end(), ExhaustRelic::joss_paper) == config.exhaust_relics.end())
             return {StepStatus::unsupported_content, state.data.boundary, Restriction::unsupported_setup};
     }
@@ -55,6 +58,7 @@ StepResult initialize_combat_impl(RunState& state, const CombatConfig& config, S
             next.data.direct_combat = true;
             next.relics().clear();
             if (config.burning_blood) next.relics().push_back(SetupRules::find("RELIC.BURNING_BLOOD"));
+            if (config.gremlin_horn) next.relics().push_back(SetupRules::find("RELIC.GREMLIN_HORN"));
             if (config.centennial_puzzle) next.relics().push_back(SetupRules::find("RELIC.CENTENNIAL_PUZZLE"));
             for (auto relic : config.exhaust_relics)
                 next.relics().push_back(SetupRules::find(relic == ExhaustRelic::charons_ashes ? "RELIC.CHARONS_ASHES" : "RELIC.JOSS_PAPER"));
@@ -77,6 +81,7 @@ StepResult initialize_combat_impl(RunState& state, const CombatConfig& config, S
             if (enemy_hp == 0) (void)next.data.rng.get(RunStream::niche).next_int(38, 41, enemy_hp);
             next.creature(handle)->hp = next.creature(handle)->max_hp = enemy_hp;
         }
+        next.combat().gremlin_horn = config.gremlin_horn;
         next.combat().centennial_puzzle = config.centennial_puzzle;
         next.combat().energy = 3; next.combat().turn = 1; next.combat().burning_blood = config.burning_blood;
         for (const auto& card : deck) {

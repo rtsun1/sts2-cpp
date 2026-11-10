@@ -57,9 +57,48 @@ TEST(PendingChoices, CallerDrawsBeforeDetachedChoiceIsPresented) {
     EXPECT_TRUE(valid_combat(state));
 }
 
+TEST(PendingChoices, OrdinaryCallerChoicePrecedesQueuedDetachedChildAcrossCheckpoint) {
+    RunState state; Scratch scratch;
+    scenario::prepare_exhaust_shuffle(state);
+    // The root shuffle is ordinary; only the child draw has a detachable boundary.
+    state.execution().push_back(ShuffleFrame{});
+    request_child_choice(state, scratch);
+    const auto child_prompt = state.combat().selection.id;
+    ASSERT_EQ(advance_combat(state, scratch).status, StepStatus::awaiting_input);
+    ASSERT_EQ(state.combat().phase, CombatPhase::card_choice);
+    EXPECT_NE(state.combat().selection.id, child_prompt);
+    EXPECT_EQ(state.combat().active_choice, 0u);
+    ASSERT_EQ(state.pending_choice_order().size(), 1u);
+    const auto child_slot = state.pending_choice_order().front();
+    EXPECT_EQ(state.pending_choices()[child_slot - 1].phase, PendingChoicePhase::pending);
+    ASSERT_EQ(state.execution().size(), 1u);
+    EXPECT_TRUE(std::holds_alternative<ShuffleFrame>(state.execution().back()));
+    EXPECT_EQ(state.captured_hook_listeners().size(), 1u);
+    EXPECT_EQ(state.pending_choices()[child_slot - 1].listeners.size(), 1u);
+    EXPECT_EQ(state.combat().counters.non_hand_draws_this_turn, 0u);
+    ASSERT_TRUE(valid_combat(state));
+    RunState restored;
+    ASSERT_EQ(restore(restored, checkpoint(state).bytes, scratch), RestoreStatus::restored);
+    ASSERT_EQ(restored, state);
+    ASSERT_EQ(answer(restored, scratch).status, StepStatus::awaiting_input);
+    EXPECT_EQ(restored.combat().selection.id, child_prompt);
+    EXPECT_EQ(restored.combat().active_choice, child_slot);
+    EXPECT_EQ(restored.pending_choices()[child_slot - 1].phase, PendingChoicePhase::active);
+    EXPECT_EQ(restored.combat().counters.non_hand_draws_this_turn, 0u);
+    EXPECT_EQ(restored.selection_candidates().size(), restored.zone(Zone::draw).size());
+    ASSERT_TRUE(valid_combat(restored));
+    ASSERT_EQ(answer(restored, scratch).status, StepStatus::awaiting_input);
+    EXPECT_EQ(restored.combat().counters.non_hand_draws_this_turn, 1u);
+    EXPECT_TRUE(restored.execution().empty());
+    EXPECT_TRUE(restored.pending_choice_order().empty());
+    EXPECT_TRUE(restored.captured_hook_listeners().empty());
+    EXPECT_TRUE(valid_combat(restored));
+}
+
 TEST(PendingChoices, TwoChoicesRetainIndependentArenasAcrossCloneAndCheckpoint) {
     RunState state; Scratch scratch;
     scenario::prepare_exhaust_shuffle(state);
+    gameplay::begin_detachable_frames(state); // This root group is independently detachable.
     state.execution().push_back(ShuffleFrame{});
     request_child_choice(state, scratch);
     const auto first = state.combat().selection.id;
@@ -141,7 +180,8 @@ TEST(PendingChoices, OrdinaryNestedHooksRemainBlocking) {
 TEST(PendingChoices, ActiveEntryKeepsItsPositionWhenItRequestsAnotherChoice) {
     RunState state; Scratch scratch;
     scenario::prepare_exhaust_shuffle(state);
-    state.execution().push_back(ShuffleFrame{}); // Later blocking choice B.
+    gameplay::begin_detachable_frames(state); // This root group is independently detachable.
+    state.execution().push_back(ShuffleFrame{}); // Later detached choice B.
     gameplay::begin_detachable_frames(state);
     state.execution().push_back(ShuffleFrame{}); // A's later choice C.
     state.execution().push_back(ShuffleFrame{}); // A's first choice.
@@ -259,6 +299,7 @@ TEST(PendingChoices, OverflowFailureIsReportedAndAllOwnedStorageIsReleased) {
 TEST(PendingChoices, CombatEndCancelsActiveAndQueuedFrames) {
     RunState state; Scratch scratch;
     scenario::prepare_exhaust_shuffle(state);
+    gameplay::begin_detachable_frames(state); // This root group is independently detachable.
     state.execution().push_back(ShuffleFrame{});
     request_child_choice(state, scratch);
     ASSERT_EQ(advance_combat(state, scratch).status, StepStatus::awaiting_input);
@@ -294,6 +335,7 @@ TEST(PendingChoices, DeferredSelectionBecomesAutomaticAfterCallerConsumesThePile
 TEST(PendingChoices, OverflowingPendingGroupsCloneAndRestoreTheirNestedStorage) {
     RunState state; Scratch scratch;
     scenario::prepare_exhaust_shuffle(state, true);
+    gameplay::begin_detachable_frames(state); // This root group is independently detachable.
     state.execution().push_back(ShuffleFrame{});
     request_child_choice(state, scratch);
     ASSERT_EQ(advance_combat(state, scratch).status, StepStatus::awaiting_input);
@@ -344,6 +386,7 @@ TEST(PendingChoices, ExhaustOperandsAndJossPaperCompletionSurviveNonLifoDispatch
     RunState state; Scratch scratch;
     const std::array relics{SetupRules::find("RELIC.JOSS_PAPER")};
     scenario::prepare_exhaust_shuffle(state, false, relics, 4);
+    gameplay::begin_detachable_frames(state); // This root group is independently detachable.
     state.execution().push_back(ShuffleFrame{});
     gameplay::begin_detachable_frames(state);
     const auto card = state.zone(Zone::hand).front();
@@ -366,7 +409,7 @@ TEST(PendingChoices, ExhaustOperandsAndJossPaperCompletionSurviveNonLifoDispatch
     EXPECT_TRUE(valid_combat(restored));
 }
 
-TEST(PendingChoices, TrustedAndCheckedAnswersProduceIdenticalQueuedFutures) {
+TEST(PendingChoices, OrdinaryAndDetachedAnswersHaveIdenticalCheckedTrustedFutures) {
     RunState checked; Scratch scratch;
     scenario::prepare_exhaust_shuffle(checked);
     checked.execution().push_back(ShuffleFrame{});

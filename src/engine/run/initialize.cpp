@@ -139,6 +139,7 @@ StepResult flow::prepare_combat(RunState& run, Scratch& scratch, BoundaryId reje
     for (auto relic : run.relics()) {
         const auto name = SetupRules::name(relic);
         if (name == "RELIC.BURNING_BLOOD") config.burning_blood = true;
+        if (name == "RELIC.GREMLIN_HORN") config.gremlin_horn = true;
         if (name == "RELIC.CENTENNIAL_PUZZLE") config.centennial_puzzle = true;
         if (name == "RELIC.CHARONS_ASHES" || name == "RELIC.JOSS_PAPER") {
             if (count == listeners.size()) return {StepStatus::unsupported_content, rejection_boundary, Restriction::unsupported_setup};

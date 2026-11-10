@@ -28,6 +28,7 @@ struct CombatData {
     std::int32_t turn = 0;
     bool enemy_side = false;
     bool burning_blood = true;  // Do we really need this? Don't we have a collection of active relics?
+    bool gremlin_horn = false;
     bool centennial_puzzle = false;
     bool centennial_puzzle_used = false;
     CardPool cards {};
@@ -105,6 +106,7 @@ struct CombatConfig {
     std::int32_t player_max_hp = 80;
     std::int32_t enemy_hp = 0; // Zero rolls the native A0 38..40 range.
     bool burning_blood = true;
+    bool gremlin_horn = false;
     bool centennial_puzzle = false;
     std::uint32_t enemy_count = 1; // Authored scenarios support one or two beetles.
     std::uint32_t card_generation = 1;

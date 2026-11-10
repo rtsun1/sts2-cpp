@@ -17,5 +17,5 @@ void request_selection(RunState&, Zone, std::uint32_t minimum, std::uint32_t max
 Restriction validate_selection_input(const RunState&, const SelectionInput&) noexcept;
 bool valid_selection(const RunState&, const Ruleset&) noexcept;
 bool valid_frame_selection(const RunState&, const Ruleset&, std::span<const ExecutionFrame>,
-    std::span<const HookListener>, const CardSelection&, std::span<const CardHandle>, bool retained_bounds, bool pending = false) noexcept;
+    std::span<const HookListener>, const CardSelection&, std::span<const CardHandle>, bool pending = false) noexcept;
 }

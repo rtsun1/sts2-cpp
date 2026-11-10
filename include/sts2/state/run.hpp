@@ -375,6 +375,7 @@ inline bool RunState::combat_equals(const RunState& other) const {
         && combat().turn == other.combat().turn
         && combat().enemy_side == other.combat().enemy_side
         && combat().burning_blood == other.combat().burning_blood
+        && combat().gremlin_horn == other.combat().gremlin_horn
         && combat().centennial_puzzle == other.combat().centennial_puzzle
         && combat().centennial_puzzle_used == other.combat().centennial_puzzle_used
         && combat().counters == other.combat().counters

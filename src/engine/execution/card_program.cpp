@@ -7,6 +7,7 @@
 #include "../combat/lifecycle.hpp"
 #include "../combat/trace.hpp"
 #include "../mechanics/exhaust.hpp"
+#include "../hooks/dispatch.hpp"
 #include <algorithm>
 #include <limits>
 
@@ -46,7 +47,8 @@ StepResult resume_card_program(RunState& state, Scratch& scratch, const Ruleset&
             const auto zone = instruction.choice == CardChoice::discard_one ? Zone::discard : Zone::hand;
             const auto eligibility = instruction.choice == CardChoice::upgradable_hand ? SelectionEligibility::upgradable : SelectionEligibility::all;
             const bool optional = instruction.choice == CardChoice::hand_optional;
-            if (zone == Zone::discard && !state.has_living_enemies()) break;
+            // Native pile and hand selection return no cards once combat is ending.
+            if (!state.has_living_enemies() || state.player().hp == 0) break;
             request_selection(state, zone, optional ? 0 : 1, static_cast<std::uint32_t>(amount), eligibility);
             return result(state);
         }
@@ -79,6 +81,12 @@ StepResult resume_card_program(RunState& state, Scratch& scratch, const Ruleset&
             const auto hit = damage(*target, amount, state.player(), state.overflow);
             emit(state, scratch, CombatEventKind::damaged, false, true, frame.source, 0, 0, hit, true, false, state.data.player, frame.target);
             emit(state, scratch, CombatEventKind::attacked, false, false, frame.source, 0, 0, hit, true, false, state.data.player, frame.target);
+            if (hit.killed && state.combat().gremlin_horn) {
+                const auto killed = frame.target;
+                const auto listeners = capture_death_listeners(state);
+                state.execution().push_back(DeathFrame{listeners, killed});
+                return result(state);
+            }
             break;
         }
         case Opcode::block: {
